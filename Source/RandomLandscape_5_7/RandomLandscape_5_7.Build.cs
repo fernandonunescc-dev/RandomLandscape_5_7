@@ -22,21 +22,28 @@ public class RandomLandscape_5_7 : ModuleRules
 			"Slate",
 			"ProceduralMeshComponent"
 		});
-
-		PrivateDependencyModuleNames.AddRange(new string[] { });
 		
+		// Project root: .../Source/RandomLandscape_5_7/  ->  .../RandomLandscape_5_7/
 		string ProjectRoot = Path.GetFullPath(Path.Combine(ModuleDirectory, "..", ".."));
 
 		string FastNoise2Dir = Path.Combine(ProjectRoot, "ThirdParty", "FastNoise2");
 		string FastSIMDDir   = Path.Combine(ProjectRoot, "ThirdParty", "FastSIMD");
 
-		// FastNoise2 headers: <FastNoise/FastNoise.h>
+// Includes
 		PublicIncludePaths.Add(Path.Combine(FastNoise2Dir, "include"));
-
-		// FastSIMD headers: "FastSIMD/DispatchClass.h"
 		PublicIncludePaths.Add(Path.Combine(FastSIMDDir, "include"));
 
-		// FastNoise2 often needs RTTI in UE builds (dynamic_cast in the node system)
+// Tell FastNoise headers we are linking a static lib (prevents dllimport issues)
+		PublicDefinitions.Add("FASTNOISE_STATIC_LIB");
+
+// Link libs (NOTE the /lib subfolder!)
+		PublicAdditionalLibraries.Add(Path.Combine(FastNoise2Dir, "build", "Release", "lib", "FastNoise.lib"));
+
+// These two are commonly needed as well for the node/dispatch system:
+		PublicAdditionalLibraries.Add(Path.Combine(FastNoise2Dir, "build", "src", "FastSIMD_FastNoise.dir", "Release", "FastSIMD_FastNoise.lib"));
+		PublicAdditionalLibraries.Add(Path.Combine(FastNoise2Dir, "build", "_deps", "fastsimd-build", "FastSIMD.dir", "Release", "FastSIMD.lib"));
+
+// Keep RTTI enabled for this module
 		bUseRTTI = true;
 
 		PublicIncludePaths.AddRange(new string[] {
