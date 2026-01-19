@@ -8,6 +8,8 @@
 #include "LandscapeNoiseGenerator.h"
 #include "LandscapeGridManager.h"
 #include "BiomeClassifier.h"
+#include "Async/AsyncWork.h"
+#include "Async/ParallelFor.h"
 #include "GridBasedLandscapeActor.generated.h"
 
 /**
@@ -31,13 +33,13 @@ public:
 	static constexpr int32 VERTICES_PER_CELL = 1024;	// 32x32 grid per cell
 
 	// ===== Map Configuration =====
-	/** Total landscape size in meters */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Configuration")
-	float MapSize = 100.0f;
+	/** Total landscape size in cells (grid count per side, e.g., 10 = 10x10 grid) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Configuration", meta = (UIMin = "1", UIMax = "100", ClampMin = "1", ClampMax = "100"))
+	int32 MapGridCount = 10;
 
-	/** Size of each grid cell in meters */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Configuration")
-	float GridScale = 10.0f;
+	/** Size of each grid cell in meters (e.g., 10 = 10m x 10m cells) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Configuration", meta = (UIMin = "1", UIMax = "100", ClampMin = "1", ClampMax = "100"))
+	int32 CellSizeMeters = 10;
 
 	// ===== Height Configuration =====
 	/** Maximum height variation in Unreal units (cm) */
@@ -47,6 +49,25 @@ public:
 	/** Offset applied to all heights */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Height")
 	float HeightOffset = 0.0f;
+
+	// ===== Noise Configuration (exposed for tweaking) =====
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Noise")
+	float PrimaryNoiseFrequency = 0.001f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Noise")
+	int32 PrimaryNoiseOctaves = 3;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Noise")
+	float SecondaryNoiseFrequency = 0.01f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Noise")
+	int32 SecondaryNoiseOctaves = 4;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Noise")
+	float TertiaryNoiseFrequency = 0.05f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Noise")
+	int32 TertiaryNoiseOctaves = 2;
 
 	// ===== Water Configuration =====
 	/** Height at which water level is placed (ocean/lakes below this get water planes) */
@@ -79,24 +100,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Streaming")
 	int32 MaxCachedCells = 25;
 
-	// ===== Noise Configuration (exposed for tweaking) =====
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Noise")
-	float PrimaryNoiseFrequency = 0.001f;
+	// ===== Optimization Settings =====
+	/** Generate terrain on background thread (keeps UI/gameplay responsive) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Optimization")
+	bool bAsyncGeneration = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Noise")
-	int32 PrimaryNoiseOctaves = 3;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Noise")
-	float SecondaryNoiseFrequency = 0.01f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Noise")
-	int32 SecondaryNoiseOctaves = 4;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Noise")
-	float TertiaryNoiseFrequency = 0.05f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Noise")
-	int32 TertiaryNoiseOctaves = 2;
+	/** Number of cells to generate per frame on main thread (if not async) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Optimization", 
+		meta = (UIMin = "1", UIMax = "100", ClampMin = "1", ClampMax = "100"))
+	int32 CellsPerFrame = 20;
 
 	// ===== Debug Options =====
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Debug")
@@ -135,6 +147,24 @@ protected:
 	FLandscapeNoiseGenerator NoiseGenerator;
 	FLandscapeGridManager GridManager;
 	FBiomeClassifier BiomeClassifier;
+
+	// ===== Property Change Tracking =====
+	int32 CachedMapGridCount = 10;
+	int32 CachedCellSizeMeters = 10;
+	float CachedMaxHeightVariation = 10000.0f;
+	float CachedHeightOffset = 0.0f;
+	float CachedPrimaryNoiseFrequency = 0.001f;
+	int32 CachedPrimaryNoiseOctaves = 3;
+	float CachedSecondaryNoiseFrequency = 0.01f;
+	int32 CachedSecondaryNoiseOctaves = 4;
+	float CachedTertiaryNoiseFrequency = 0.05f;
+	int32 CachedTertiaryNoiseOctaves = 2;
+	bool bHasTerrainChanged = true;
+
+	// ===== Async Generation State =====
+	TArray<TPair<int32, int32>> PendingCellsToGenerate;	// Queue of cells waiting to be generated
+	bool bIsGeneratingAsync = false;						// Currently generating cells on background thread
+	FThreadSafeBool bAsyncGenerationComplete = false;		// Background thread finished?
 
 	// ===== Internal Methods =====
 private:
@@ -182,4 +212,31 @@ private:
 	 * Get grid cell key for the map
 	 */
 	FString GetGridCellKey(int32 InGridX, int32 InGridY) const;
+
+	/**
+	 * Check if terrain-relevant properties have changed
+	 * Returns true if regeneration is needed
+	 */
+	bool HasTerrainPropertiesChanged();
+
+private:
+	/**
+	 * Queue cells for generation (either async or progressive on main thread)
+	 */
+	void QueueCellsForGeneration();
+
+	/**
+	 * Process queued cells on main thread (for non-async generation)
+	 */
+	void ProcessQueuedCells();
+
+	/**
+	 * Start async generation on background thread
+	 */
+	void StartAsyncGeneration();
+
+	/**
+	 * Called when async generation completes - applies results to main thread
+	 */
+	void OnAsyncGenerationComplete();
 };
