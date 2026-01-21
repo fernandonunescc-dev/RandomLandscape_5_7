@@ -114,7 +114,7 @@ void UContinentMapGenerator::GenerateLandMask()
 		(float)LandPixels.Num() / (float)(Width * Height) * 100.0f);
 }
 
-// Pass 2: Assign biomes to land pixels using flood-fill for exact percentages
+// Pass 2: Assign biomes to land pixels - start from edges, grow organically
 void UContinentMapGenerator::AssignBiomesToLand()
 {
 	const int32 Width = TextureResolution;
@@ -134,12 +134,59 @@ void UContinentMapGenerator::AssignBiomesToLand()
 		return;
 	}
 	
+	// Direction offsets for 8-connectivity
+	const FIntPoint Directions[] = { 
+		FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1),
+		FIntPoint(1, 1), FIntPoint(-1, 1), FIntPoint(1, -1), FIntPoint(-1, -1)
+	};
+	const int32 NumDirections = 8;
+	
+	// Find edge pixels (land pixels adjacent to ocean)
+	TArray<FIntPoint> EdgePixels;
+	for (const FIntPoint& Pixel : LandPixels)
+	{
+		int32 Index = Pixel.Y * Width + Pixel.X;
+		bool bIsEdge = false;
+		
+		for (int32 d = 0; d < NumDirections; ++d)
+		{
+			FIntPoint Neighbor(Pixel.X + Directions[d].X, Pixel.Y + Directions[d].Y);
+			
+			// Check if neighbor is out of bounds or ocean
+			if (Neighbor.X < 0 || Neighbor.X >= Width || Neighbor.Y < 0 || Neighbor.Y >= Height)
+			{
+				bIsEdge = true;
+				break;
+			}
+			
+			int32 NeighborIndex = Neighbor.Y * Width + Neighbor.X;
+			if (!LandMask[NeighborIndex])
+			{
+				bIsEdge = true;
+				break;
+			}
+		}
+		
+		if (bIsEdge)
+		{
+			EdgePixels.Add(Pixel);
+		}
+	}
+	
+	UE_LOG(LogTemp, Log, TEXT("Found %d edge pixels out of %d land pixels"), EdgePixels.Num(), TotalLandPixels);
+	
+	// Calculate target pixel counts for each biome and sort by size (smallest first)
 	const float TotalPercentage = BiomeSettings.GetTotalPercentage();
 	
-	// Calculate how many pixels each biome should get
-	TArray<int32> TargetPixelCounts;
-	TArray<int32> CurrentPixelCounts;
-	TArray<FIntPoint> BiomeSeedPixels;
+	struct FBiomeTarget
+	{
+		int32 BiomeIndex;
+		int32 TargetCount;
+		int32 CurrentCount;
+		float Percentage;
+	};
+	
+	TArray<FBiomeTarget> BiomeTargets;
 	int32 AssignedTotal = 0;
 	
 	for (int32 i = 0; i < BiomeSettings.LandBiomes.Num(); ++i)
@@ -147,141 +194,147 @@ void UContinentMapGenerator::AssignBiomesToLand()
 		const FBiomeConfig& Biome = BiomeSettings.LandBiomes[i];
 		float NormalizedPercentage = Biome.Percentage / TotalPercentage;
 		int32 TargetCount = FMath::RoundToInt(NormalizedPercentage * TotalLandPixels);
-		
-		// Ensure at least 1 pixel per biome
 		TargetCount = FMath::Max(1, TargetCount);
-		TargetPixelCounts.Add(TargetCount);
-		CurrentPixelCounts.Add(0);
-		AssignedTotal += TargetCount;
 		
-		// Pick a random starting pixel for this biome
-		int32 RandomLandIndex = RandomStream.RandRange(0, LandPixels.Num() - 1);
-		BiomeSeedPixels.Add(LandPixels[RandomLandIndex]);
+		FBiomeTarget Target;
+		Target.BiomeIndex = i;
+		Target.TargetCount = TargetCount;
+		Target.CurrentCount = 0;
+		Target.Percentage = Biome.Percentage;
+		BiomeTargets.Add(Target);
+		AssignedTotal += TargetCount;
 		
 		UE_LOG(LogTemp, Log, TEXT("Biome %s: target %d pixels (%.1f%%)"),
 			*Biome.DisplayName, TargetCount, Biome.Percentage);
 	}
 	
-	// Adjust for rounding errors - give extra to largest biome
+	// Sort by target count (smallest first)
+	BiomeTargets.Sort([](const FBiomeTarget& A, const FBiomeTarget& B) {
+		return A.TargetCount < B.TargetCount;
+	});
+	
+	// Adjust for rounding errors - give extra to largest biome (last in sorted array)
 	int32 Difference = TotalLandPixels - AssignedTotal;
-	if (Difference != 0 && TargetPixelCounts.Num() > 0)
+	if (Difference != 0 && BiomeTargets.Num() > 0)
 	{
-		int32 LargestIdx = 0;
-		for (int32 i = 1; i < TargetPixelCounts.Num(); ++i)
-		{
-			if (TargetPixelCounts[i] > TargetPixelCounts[LargestIdx])
-			{
-				LargestIdx = i;
-			}
-		}
-		TargetPixelCounts[LargestIdx] += Difference;
+		BiomeTargets.Last().TargetCount += Difference;
 	}
 	
-	// Flood-fill from each seed point simultaneously
-	// Use a frontier-based approach where each biome expands from its seed
-	TArray<TArray<FIntPoint>> Frontiers;
-	Frontiers.SetNum(BiomeSettings.LandBiomes.Num());
-	
-	// Initialize frontiers with seed pixels
-	for (int32 i = 0; i < BiomeSeedPixels.Num(); ++i)
+	// Track unassigned land pixels
+	TSet<int32> UnassignedLandIndices;
+	for (const FIntPoint& Pixel : LandPixels)
 	{
-		FIntPoint SeedPixel = BiomeSeedPixels[i];
-		int32 Index = SeedPixel.Y * Width + SeedPixel.X;
-		
-		if (LandMask[Index] && BiomeMap[Index] == -1)
-		{
-			BiomeMap[Index] = i;
-			CurrentPixelCounts[i]++;
-			Frontiers[i].Add(SeedPixel);
-		}
+		UnassignedLandIndices.Add(Pixel.Y * Width + Pixel.X);
 	}
 	
-	// Direction offsets for 4-connectivity
-	const FIntPoint Directions[] = { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) };
-	
-	// Expand all biomes simultaneously until all land is assigned
-	bool bAnyExpanded = true;
-	while (bAnyExpanded)
+	// Process each biome from smallest to largest
+	for (FBiomeTarget& Target : BiomeTargets)
 	{
-		bAnyExpanded = false;
+		int32 BiomeIdx = Target.BiomeIndex;
+		int32 PixelsNeeded = Target.TargetCount;
 		
-		// Each biome tries to expand
-		for (int32 BiomeIdx = 0; BiomeIdx < Frontiers.Num(); ++BiomeIdx)
+		while (Target.CurrentCount < PixelsNeeded && UnassignedLandIndices.Num() > 0)
 		{
-			// Skip if this biome has reached its target
-			if (CurrentPixelCounts[BiomeIdx] >= TargetPixelCounts[BiomeIdx])
-			{
-				continue;
-			}
+			// Find a starting point - prefer edge pixels that are unassigned
+			FIntPoint StartPixel(-1, -1);
 			
-			TArray<FIntPoint> NewFrontier;
-			
-			for (const FIntPoint& Pixel : Frontiers[BiomeIdx])
+			// Shuffle edge pixels and find an unassigned one
+			for (int32 Attempt = 0; Attempt < EdgePixels.Num(); ++Attempt)
 			{
-				// Try to expand in all directions
-				for (const FIntPoint& Dir : Directions)
+				int32 RandIdx = RandomStream.RandRange(0, EdgePixels.Num() - 1);
+				FIntPoint CandidatePixel = EdgePixels[RandIdx];
+				int32 CandidateIndex = CandidatePixel.Y * Width + CandidatePixel.X;
+				
+				if (UnassignedLandIndices.Contains(CandidateIndex))
 				{
-					FIntPoint Neighbor(Pixel.X + Dir.X, Pixel.Y + Dir.Y);
+					StartPixel = CandidatePixel;
+					break;
+				}
+			}
+			
+			// If no edge pixel available, pick any unassigned land pixel
+			if (StartPixel.X < 0)
+			{
+				for (int32 Index : UnassignedLandIndices)
+				{
+					StartPixel.X = Index % Width;
+					StartPixel.Y = Index / Width;
+					break;
+				}
+			}
+			
+			if (StartPixel.X < 0)
+			{
+				break; // No more unassigned pixels
+			}
+			
+			// Grow from this starting point using random walk / blob growth
+			TArray<FIntPoint> Frontier;
+			int32 StartIndex = StartPixel.Y * Width + StartPixel.X;
+			
+			BiomeMap[StartIndex] = BiomeIdx;
+			Target.CurrentCount++;
+			UnassignedLandIndices.Remove(StartIndex);
+			Frontier.Add(StartPixel);
+			
+			// Grow organically until we reach target or run out of space
+			while (Target.CurrentCount < PixelsNeeded && Frontier.Num() > 0)
+			{
+				// Pick a random frontier pixel to expand from
+				int32 FrontierIdx = RandomStream.RandRange(0, Frontier.Num() - 1);
+				FIntPoint CurrentPixel = Frontier[FrontierIdx];
+				
+				// Collect all valid neighbors
+				TArray<FIntPoint> ValidNeighbors;
+				for (int32 d = 0; d < NumDirections; ++d)
+				{
+					FIntPoint Neighbor(CurrentPixel.X + Directions[d].X, CurrentPixel.Y + Directions[d].Y);
 					
-					// Check bounds
 					if (Neighbor.X < 0 || Neighbor.X >= Width || Neighbor.Y < 0 || Neighbor.Y >= Height)
 					{
 						continue;
 					}
 					
 					int32 NeighborIndex = Neighbor.Y * Width + Neighbor.X;
-					
-					// Check if it's unassigned land
-					if (LandMask[NeighborIndex] && BiomeMap[NeighborIndex] == -1)
+					if (UnassignedLandIndices.Contains(NeighborIndex))
 					{
-						// Check if we still need more pixels
-						if (CurrentPixelCounts[BiomeIdx] < TargetPixelCounts[BiomeIdx])
-						{
-							BiomeMap[NeighborIndex] = BiomeIdx;
-							CurrentPixelCounts[BiomeIdx]++;
-							NewFrontier.Add(Neighbor);
-							bAnyExpanded = true;
-						}
+						ValidNeighbors.Add(Neighbor);
 					}
 				}
-			}
-			
-			Frontiers[BiomeIdx] = MoveTemp(NewFrontier);
-		}
-	}
-	
-	// Assign any remaining unassigned land pixels to nearest biome
-	for (const FIntPoint& LandPixel : LandPixels)
-	{
-		int32 Index = LandPixel.Y * Width + LandPixel.X;
-		if (BiomeMap[Index] == -1)
-		{
-			// Find nearest assigned pixel and use its biome
-			float MinDist = TNumericLimits<float>::Max();
-			int32 NearestBiome = 0;
-			
-			for (int32 BiomeIdx = 0; BiomeIdx < BiomeSeedPixels.Num(); ++BiomeIdx)
-			{
-				float Dist = FVector2D::DistSquared(
-					FVector2D(LandPixel.X, LandPixel.Y),
-					FVector2D(BiomeSeedPixels[BiomeIdx].X, BiomeSeedPixels[BiomeIdx].Y)
-				);
-				if (Dist < MinDist)
+				
+				if (ValidNeighbors.Num() > 0)
 				{
-					MinDist = Dist;
-					NearestBiome = BiomeIdx;
+					// Pick a random neighbor to claim
+					int32 RandNeighbor = RandomStream.RandRange(0, ValidNeighbors.Num() - 1);
+					FIntPoint ChosenNeighbor = ValidNeighbors[RandNeighbor];
+					int32 ChosenIndex = ChosenNeighbor.Y * Width + ChosenNeighbor.X;
+					
+					BiomeMap[ChosenIndex] = BiomeIdx;
+					Target.CurrentCount++;
+					UnassignedLandIndices.Remove(ChosenIndex);
+					Frontier.Add(ChosenNeighbor);
+				}
+				else
+				{
+					// This frontier pixel has no more valid neighbors, remove it
+					Frontier.RemoveAt(FrontierIdx);
 				}
 			}
-			
-			BiomeMap[Index] = NearestBiome;
 		}
+		
+		UE_LOG(LogTemp, Log, TEXT("Biome %d: assigned %d pixels (target: %d)"),
+			BiomeIdx, Target.CurrentCount, Target.TargetCount);
 	}
 	
-	// Log final counts
-	for (int32 i = 0; i < BiomeSettings.LandBiomes.Num(); ++i)
+	// Assign any remaining unassigned pixels to the largest biome
+	if (UnassignedLandIndices.Num() > 0 && BiomeTargets.Num() > 0)
 	{
-		UE_LOG(LogTemp, Log, TEXT("Biome %s: got %d pixels (target: %d)"),
-			*BiomeSettings.LandBiomes[i].DisplayName, CurrentPixelCounts[i], TargetPixelCounts[i]);
+		int32 LargestBiomeIdx = BiomeTargets.Last().BiomeIndex;
+		for (int32 Index : UnassignedLandIndices)
+		{
+			BiomeMap[Index] = LargestBiomeIdx;
+		}
+		UE_LOG(LogTemp, Log, TEXT("Assigned %d remaining pixels to largest biome"), UnassignedLandIndices.Num());
 	}
 }
 
