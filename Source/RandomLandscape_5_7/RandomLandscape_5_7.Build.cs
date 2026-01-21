@@ -48,6 +48,7 @@ public class RandomLandscape_5_7 : ModuleRules
 
 		PublicIncludePaths.AddRange(new string[] {
 			"RandomLandscape_5_7",
+			"RandomLandscape_5_7/MapGeneration",
 			"RandomLandscape_5_7/ProceduralLandscape",
 			"RandomLandscape_5_7/Variant_Platforming",
 			"RandomLandscape_5_7/Variant_Platforming/Animation",
