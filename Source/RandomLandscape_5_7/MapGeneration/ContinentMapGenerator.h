@@ -10,9 +10,23 @@
 
 class UTexture2D;
 
+/** Represents a seed point for Voronoi-based biome distribution */
+struct FBiomeSeedPoint
+{
+	FVector2D Position;
+	int32 BiomeIndex;
+	float Weight; // Used to adjust region size
+	
+	FBiomeSeedPoint() : Position(FVector2D::ZeroVector), BiomeIndex(0), Weight(1.0f) {}
+	FBiomeSeedPoint(const FVector2D& InPos, int32 InBiome, float InWeight) 
+		: Position(InPos), BiomeIndex(InBiome), Weight(InWeight) {}
+};
+
 /**
  * Map generator for Continent-type maps.
- * Creates large connected landmasses with biome distribution using noise.
+ * Uses a two-pass approach:
+ * 1. Generate continent shape (land mask)
+ * 2. Distribute biomes based on actual land pixel count
  */
 UCLASS(Blueprintable)
 class RANDOMLANDSCAPE_5_7_API UContinentMapGenerator : public UMapGeneratorBase
@@ -42,7 +56,13 @@ public:
 	void SetSeed(int32 InSeed) { Seed = InSeed; }
 
 protected:
-	/** Generate the preview texture from biome data */
+	/** Pass 1: Generate the land mask (which pixels are land vs ocean) */
+	void GenerateLandMask();
+
+	/** Pass 2: Generate biome seed points distributed across land pixels */
+	void GenerateBiomeSeedPoints();
+
+	/** Pass 3: Generate the final preview texture with biome colors */
 	void GeneratePreviewTexture();
 
 	/** Simple noise function for organic shapes */
@@ -54,8 +74,8 @@ protected:
 	/** Get continent mask value (0 = ocean, 1 = land) with organic edges */
 	float GetContinentMask(float NormX, float NormY) const;
 
-	/** Get biome at a given position based on noise */
-	int32 GetBiomeAtPosition(float NormX, float NormY, float ContinentMask) const;
+	/** Get biome at a given position using Voronoi regions */
+	int32 GetBiomeAtPosition(float NormX, float NormY) const;
 
 	/** Biome configuration for this continent */
 	UPROPERTY()
@@ -65,9 +85,21 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UTexture2D> PreviewTexture;
 
+	/** Land mask - true = land, false = ocean */
+	TArray<bool> LandMask;
+
+	/** List of all land pixel coordinates (for seed point placement) */
+	TArray<FIntPoint> LandPixels;
+
+	/** Voronoi seed points for biome regions */
+	TArray<FBiomeSeedPoint> BiomeSeedPoints;
+
 	/** Texture resolution (based on MapResolution setting) */
 	int32 TextureResolution = 256;
 
 	/** Random seed for generation */
 	int32 Seed = 0;
+
+	/** Random stream for deterministic generation */
+	FRandomStream RandomStream;
 };

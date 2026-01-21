@@ -23,6 +23,9 @@ void UContinentMapGenerator::Initialize(const FMapGenerationSettings& InSettings
 		Seed = FMath::Rand();
 	}
 	
+	// Initialize random stream with seed
+	RandomStream.Initialize(Seed);
+	
 	UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator initialized - Size: %s meters (%s UU), Resolution: %d, TextureRes: %d, Seed: %d"),
 		*Settings.MapSizeInMeters.ToString(), 
 		*Settings.GetMapSizeInUnrealUnits().ToString(),
@@ -61,10 +64,97 @@ bool UContinentMapGenerator::Generate()
 	UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator::Generate - Generating continent with %d biomes"),
 		BiomeSettings.LandBiomes.Num());
 	
-	// Generate the preview texture
+	// Pass 1: Generate the land mask (determine which pixels are land)
+	GenerateLandMask();
+	
+	// Pass 2: Generate biome seed points distributed across land pixels
+	GenerateBiomeSeedPoints();
+	
+	// Pass 3: Generate the final preview texture with biome colors
 	GeneratePreviewTexture();
 	
 	return true;
+}
+
+// Pass 1: Generate the land mask
+void UContinentMapGenerator::GenerateLandMask()
+{
+	const int32 Width = TextureResolution;
+	const int32 Height = TextureResolution;
+	const float LandThreshold = 0.5f;
+	
+	// Clear previous data
+	LandMask.Empty();
+	LandMask.SetNum(Width * Height);
+	LandPixels.Empty();
+	
+	// Generate land mask and collect land pixel coordinates
+	for (int32 Y = 0; Y < Height; ++Y)
+	{
+		for (int32 X = 0; X < Width; ++X)
+		{
+			float NormX = static_cast<float>(X) / static_cast<float>(Width);
+			float NormY = static_cast<float>(Y) / static_cast<float>(Height);
+			
+			float ContinentMask = GetContinentMask(NormX, NormY);
+			bool bIsLand = ContinentMask >= LandThreshold;
+			
+			int32 Index = Y * Width + X;
+			LandMask[Index] = bIsLand;
+			
+			if (bIsLand)
+			{
+				LandPixels.Add(FIntPoint(X, Y));
+			}
+		}
+	}
+	
+	UE_LOG(LogTemp, Log, TEXT("Land mask generated: %d land pixels out of %d total (%.1f%%)"),
+		LandPixels.Num(), Width * Height, 
+		(float)LandPixels.Num() / (float)(Width * Height) * 100.0f);
+}
+
+// Pass 2: Generate ONE Voronoi seed point per biome for contiguous regions
+void UContinentMapGenerator::GenerateBiomeSeedPoints()
+{
+	BiomeSeedPoints.Empty();
+	
+	if (BiomeSettings.LandBiomes.Num() == 0 || LandPixels.Num() == 0)
+	{
+		return;
+	}
+	
+	const float TotalPercentage = BiomeSettings.GetTotalPercentage();
+	const int32 Width = TextureResolution;
+	const int32 Height = TextureResolution;
+	
+	// ONE seed point per biome = one contiguous region per biome
+	for (int32 i = 0; i < BiomeSettings.LandBiomes.Num(); ++i)
+	{
+		const FBiomeConfig& Biome = BiomeSettings.LandBiomes[i];
+		float NormalizedPercentage = Biome.Percentage / TotalPercentage;
+		
+		// Pick a random land pixel for this biome's seed point
+		int32 RandomLandIndex = RandomStream.RandRange(0, LandPixels.Num() - 1);
+		FIntPoint LandPixel = LandPixels[RandomLandIndex];
+		
+		// Convert to normalized coordinates
+		FVector2D Position;
+		Position.X = static_cast<float>(LandPixel.X) / static_cast<float>(Width);
+		Position.Y = static_cast<float>(LandPixel.Y) / static_cast<float>(Height);
+		
+		// Weight is INVERSE of percentage - smaller weight = LARGER region
+		// This makes biomes with higher percentages claim more area
+		float Weight = 1.0f / FMath::Max(0.01f, NormalizedPercentage);
+		
+		BiomeSeedPoints.Add(FBiomeSeedPoint(Position, i, Weight));
+		
+		UE_LOG(LogTemp, Log, TEXT("Biome %s: seed at (%.2f, %.2f), percentage: %.1f%%, weight: %.2f"),
+			*Biome.DisplayName, Position.X, Position.Y, Biome.Percentage, Weight);
+	}
+	
+	UE_LOG(LogTemp, Log, TEXT("Generated %d biome seed points (one per biome) on %d land pixels"), 
+		BiomeSeedPoints.Num(), LandPixels.Num());
 }
 
 // Simple hash-based noise function
@@ -151,42 +241,41 @@ float UContinentMapGenerator::GetContinentMask(float NormX, float NormY) const
 	return FMath::Clamp(ContinentValue, 0.0f, 1.0f);
 }
 
-// Determine which biome a land position belongs to
-int32 UContinentMapGenerator::GetBiomeAtPosition(float NormX, float NormY, float ContinentMask) const
+// Determine which biome a land position belongs to using Voronoi regions
+int32 UContinentMapGenerator::GetBiomeAtPosition(float NormX, float NormY) const
 {
-	if (BiomeSettings.LandBiomes.Num() == 0)
+	if (BiomeSeedPoints.Num() == 0 || BiomeSettings.LandBiomes.Num() == 0)
 	{
-		return -1;
+		return 0;
 	}
 	
-	// Use noise to create organic biome boundaries
-	float BiomeNoiseScale = 2.5f;
+	FVector2D Position(NormX, NormY);
 	
-	// Create multiple noise layers for biome selection
-	float BiomeNoise1 = FBM(NormX * BiomeNoiseScale + 200.0f, NormY * BiomeNoiseScale + 200.0f, 3, 0.5f);
-	float BiomeNoise2 = FBM(NormX * BiomeNoiseScale * 0.7f + 300.0f, NormY * BiomeNoiseScale * 0.7f + 300.0f, 3, 0.5f);
+	// Add noise offset to create organic, wavy boundaries between biomes
+	float NoiseScale = 3.0f;
+	float NoiseStrength = 0.05f;
+	float NoiseOffsetX = FBM(NormX * NoiseScale + 500.0f, NormY * NoiseScale + 500.0f, 3, 0.5f) * NoiseStrength;
+	float NoiseOffsetY = FBM(NormX * NoiseScale + 600.0f, NormY * NoiseScale + 600.0f, 3, 0.5f) * NoiseStrength;
+	Position.X += NoiseOffsetX;
+	Position.Y += NoiseOffsetY;
 	
-	// Combine noises to get a value from 0 to 1
-	float BiomeValue = (BiomeNoise1 + BiomeNoise2 + 2.0f) / 4.0f; // Normalize to 0-1
-	BiomeValue = FMath::Clamp(BiomeValue, 0.0f, 0.999f);
+	// Find the closest seed point (weighted Voronoi)
+	int32 ClosestBiome = 0;
+	float ClosestDist = TNumericLimits<float>::Max();
 	
-	// Map the noise value to biome based on percentages
-	float AccumulatedPercentage = 0.0f;
-	const float TotalPercentage = BiomeSettings.GetTotalPercentage();
-	
-	for (int32 i = 0; i < BiomeSettings.LandBiomes.Num(); ++i)
+	for (const FBiomeSeedPoint& SeedPoint : BiomeSeedPoints)
 	{
-		float NormalizedPercentage = BiomeSettings.LandBiomes[i].Percentage / TotalPercentage;
-		AccumulatedPercentage += NormalizedPercentage;
+		// Calculate weighted distance (smaller weight = larger region)
+		float Dist = FVector2D::DistSquared(Position, SeedPoint.Position) * SeedPoint.Weight;
 		
-		if (BiomeValue < AccumulatedPercentage)
+		if (Dist < ClosestDist)
 		{
-			return i;
+			ClosestDist = Dist;
+			ClosestBiome = SeedPoint.BiomeIndex;
 		}
 	}
 	
-	// Fallback to last biome
-	return BiomeSettings.LandBiomes.Num() - 1;
+	return ClosestBiome;
 }
 
 void UContinentMapGenerator::GeneratePreviewTexture()
@@ -210,24 +299,24 @@ void UContinentMapGenerator::GeneratePreviewTexture()
 
 	const int32 Width = TextureResolution;
 	const int32 Height = TextureResolution;
-	const float LandThreshold = 0.5f; // Values above this are land
 
 	for (int32 Y = 0; Y < Height; ++Y)
 	{
 		for (int32 X = 0; X < Width; ++X)
 		{
 			const int32 PixelIndex = (Y * Width + X) * 4;
+			const int32 MaskIndex = Y * Width + X;
 			
 			// Normalize coordinates to 0-1 range
 			float NormX = static_cast<float>(X) / static_cast<float>(Width);
 			float NormY = static_cast<float>(Y) / static_cast<float>(Height);
 			
-			// Get continent mask (determines land vs ocean)
-			float ContinentMask = GetContinentMask(NormX, NormY);
-			
 			FLinearColor PixelColor;
 			
-			if (ContinentMask < LandThreshold)
+			// Use pre-computed land mask
+			bool bIsLand = (MaskIndex < LandMask.Num()) ? LandMask[MaskIndex] : false;
+			
+			if (!bIsLand)
 			{
 				// Ocean
 				PixelColor = BiomeSettings.OceanColor;
@@ -240,7 +329,7 @@ void UContinentMapGenerator::GeneratePreviewTexture()
 			else
 			{
 				// Get biome for this land position
-				int32 BiomeIndex = GetBiomeAtPosition(NormX, NormY, ContinentMask);
+				int32 BiomeIndex = GetBiomeAtPosition(NormX, NormY);
 				if (BiomeIndex >= 0 && BiomeIndex < BiomeSettings.LandBiomes.Num())
 				{
 					PixelColor = BiomeSettings.LandBiomes[BiomeIndex].Color;
