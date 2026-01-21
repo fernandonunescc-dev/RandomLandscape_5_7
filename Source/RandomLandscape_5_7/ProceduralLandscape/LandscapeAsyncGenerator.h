@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "LandscapeTypes.h"
+#include "LandscapeMeshBuilder.h"
 #include "Async/Async.h"
 #include "HAL/ThreadSafeBool.h"
 
@@ -29,8 +30,9 @@ public:
 	 * Initialize the generator with required services.
 	 * @param InNoiseService Pointer to noise service (must remain valid during generation)
 	 * @param InResolution Resolution configuration
+	 * @param InEdgeConfig Island edge configuration for falloff
 	 */
-	void Initialize(FLandscapeNoiseService* InNoiseService, const FLandscapeResolutionConfig& InResolution);
+	void Initialize(FLandscapeNoiseService* InNoiseService, const FLandscapeResolutionConfig& InResolution, const FIslandEdgeConfig& InEdgeConfig = FIslandEdgeConfig());
 
 	/**
 	 * Queue a chunk for background generation.
@@ -39,8 +41,9 @@ public:
 	 * @param ChunkY Chunk Y coordinate
 	 * @param MapOriginX Map origin X in meters (world position offset)
 	 * @param MapOriginY Map origin Y in meters (world position offset)
+	 * @param ChunksPerSide Total chunks per side (for edge flag calculation)
 	 */
-	void QueueChunkGeneration(int32 ChunkX, int32 ChunkY, float MapOriginX, float MapOriginY);
+	void QueueChunkGeneration(int32 ChunkX, int32 ChunkY, float MapOriginX, float MapOriginY, int32 ChunksPerSide);
 
 	/**
 	 * Queue all chunks in a grid for generation.
@@ -85,6 +88,9 @@ private:
 
 	/** Resolution configuration */
 	FLandscapeResolutionConfig Resolution;
+
+	/** Island edge configuration for falloff */
+	FIslandEdgeConfig EdgeConfig;
 
 	/** Thread-safe list of completed chunks awaiting main thread pickup */
 	FCriticalSection CompletedChunksLock;

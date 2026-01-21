@@ -1,12 +1,20 @@
 # Procedural Landscape System
 
-A simple procedural terrain generation system for Unreal Engine 5 using fractal noise.
+A simple procedural terrain generation system for Unreal Engine 5 using fractal noise and ProceduralMeshComponent.
 
 ## Quick Start
 
 1. **Create Actor**: Drag `ProceduralLandscapeActor` into your level
 2. **Configure**: Set map size, height, and noise settings in Details panel
 3. **Play**: Terrain generates automatically!
+
+## Features
+
+- **Procedural Mesh**: Creates terrain using ProceduralMeshComponent for runtime generation
+- **Fractal Noise**: Generates realistic terrain using configurable noise parameters
+- **Async Generation**: Background thread support for runtime generation
+- **Auto-Regeneration**: Automatically updates when settings change in editor
+- **Chunked Generation**: Large terrains are split into chunks for better performance
 
 ## Configuration
 
@@ -27,8 +35,23 @@ A simple procedural terrain generation system for Unreal Engine 5 using fractal 
 | `NoiseOctaves` | Detail layers - more = more detail | 5 | 1 - 10 |
 | `NoiseLacunarity` | Frequency multiplier between octaves | 2.0 | 1.5 - 3.0 |
 | `NoiseGain` | Amplitude multiplier between octaves | 0.5 | 0.3 - 0.7 |
+| `HeightExponent` | Height distribution (1=uniform, higher=flatter with rare peaks) | 1.0 | 0.5 - 10.0 |
 
-### Noise Frequency Guide
+### Material Settings
+
+| Property | Description |
+|----------|-------------|
+| `TerrainMaterial` | Material to apply to the terrain mesh |
+
+### Generation Settings
+
+| Property | Description | Default |
+|----------|-------------|---------|
+| `bUseAsyncGeneration` | Use background threads | true |
+| `bAutoRegenerateInEditor` | Auto-update on setting changes | true |
+| `bDebugShowStats` | Show generation stats on screen | false |
+
+## Noise Frequency Guide
 
 The `NoiseFrequency` has the biggest visual impact:
 
@@ -39,7 +62,7 @@ The `NoiseFrequency` has the biggest visual impact:
 | 0.005 | Smaller hills |
 | 0.01 | Very small, bumpy terrain |
 
-### Resolution Guide
+## Resolution Guide
 
 | Resolution | Quality | Use Case |
 |------------|---------|----------|
@@ -63,7 +86,8 @@ The `NoiseFrequency` has the biggest visual impact:
 1. **Noise Generation**: Fractal noise creates a height value for each vertex
 2. **Height Mapping**: Heights are scaled to the configured range
 3. **Mesh Building**: Vertices, triangles, normals, and UVs are computed
-4. **Material**: Apply your own material to customize the look!
+4. **Chunking**: Large terrains are split into chunks for async generation
+5. **Material**: Apply your own material to customize the look!
 
 ## Tips
 
@@ -79,6 +103,7 @@ The `NoiseFrequency` has the biggest visual impact:
 NoiseFrequency: 0.002
 NoiseOctaves: 4
 MaxHeightMeters: 30
+HeightExponent: 1.5
 ```
 
 ### Mountain Range
@@ -86,6 +111,7 @@ MaxHeightMeters: 30
 NoiseFrequency: 0.003
 NoiseOctaves: 6
 MaxHeightMeters: 150
+HeightExponent: 1.0
 ```
 
 ### Gentle Hills
@@ -93,4 +119,14 @@ MaxHeightMeters: 150
 NoiseFrequency: 0.001
 NoiseOctaves: 3
 MaxHeightMeters: 20
+HeightExponent: 2.0
 ```
+
+## Blueprint Functions
+
+| Function | Description |
+|----------|-------------|
+| `RegenerateLandscape()` | Regenerate the entire landscape |
+| `ClearLandscape()` | Remove all generated meshes |
+| `GetMapSizeMeters()` | Get the total map size in meters |
+| `GetTotalTriangleCount()` | Get total triangle count |

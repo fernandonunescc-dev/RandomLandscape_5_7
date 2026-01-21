@@ -145,11 +145,34 @@ void AProceduralLandscapeActor::InitializeServices()
 		Resolution.MapSizeMeters, Resolution.MapSizeMeters, Resolution.MaxHeightMeters);
 	UE_LOG(LogTemp, Log, TEXT("Noise: Freq=%.4f, Octaves=%d, HeightExp=%.1f, Seed=%d"), 
 		NoiseFrequency, NoiseOctaves, HeightExponent, TerrainSeed);
+	if (bIslandMode)
+	{
+		UE_LOG(LogTemp, Log, TEXT("Island Mode: ON | Falloff: %.0fm | Exponent: %.2f"), 
+			EdgeFalloffDistance, EdgeFalloffExponent);
+	}
 	UE_LOG(LogTemp, Log, TEXT("====================================="));
 
-	// Create async generator
+	// Calculate ACTUAL map size (may differ from requested due to chunk boundaries)
+	const int32 ChunksPerSide = Resolution.GetChunksPerSide();
+	const float ChunkSizeMeters = Resolution.GetChunkSizeMeters();
+	const float ActualMapSizeMeters = ChunksPerSide * ChunkSizeMeters;
+	const float ActualMapSizeUU = ActualMapSizeMeters * METERS_TO_UU;
+
+	// Setup island edge configuration for async generator
+	FIslandEdgeConfig EdgeConfig;
+	EdgeConfig.bEnabled = bIslandMode;
+	EdgeConfig.FalloffDistance = EdgeFalloffDistance * METERS_TO_UU;
+	EdgeConfig.SeaLevel = SeaLevel * METERS_TO_UU;
+	EdgeConfig.SkirtDepth = SkirtDepth * METERS_TO_UU;
+	EdgeConfig.FalloffExponent = EdgeFalloffExponent;
+	EdgeConfig.MapSizeUU = ActualMapSizeUU;
+	EdgeConfig.MapCenter = FVector2D(GetActorLocation().X, GetActorLocation().Y);
+	EdgeConfig.MaxTerrainHeight = Resolution.MaxHeightMeters * METERS_TO_UU;
+	EdgeConfig.IslandShapeStrength = IslandDepth;
+
+	// Create async generator with edge config
 	AsyncGenerator = MakeUnique<FLandscapeAsyncGenerator>();
-	AsyncGenerator->Initialize(NoiseService.Get(), Resolution);
+	AsyncGenerator->Initialize(NoiseService.Get(), Resolution, EdgeConfig);
 }
 
 // ============================================================================
@@ -199,6 +222,22 @@ void AProceduralLandscapeActor::GenerateSynchronous()
 	const int32 ChunksPerSide = Resolution.GetChunksPerSide();
 	const float ChunkSizeMeters = Resolution.GetChunkSizeMeters();
 	const int32 VerticesPerSide = Resolution.GetVerticesPerChunkSide();
+	
+	// Calculate ACTUAL map size (may differ from requested due to chunk boundaries)
+	const float ActualMapSizeMeters = ChunksPerSide * ChunkSizeMeters;
+	const float ActualMapSizeUU = ActualMapSizeMeters * METERS_TO_UU;
+
+	// Setup island edge configuration
+	FIslandEdgeConfig EdgeConfig;
+	EdgeConfig.bEnabled = bIslandMode;
+	EdgeConfig.FalloffDistance = EdgeFalloffDistance * METERS_TO_UU;
+	EdgeConfig.SeaLevel = SeaLevel * METERS_TO_UU;
+	EdgeConfig.SkirtDepth = SkirtDepth * METERS_TO_UU;
+	EdgeConfig.FalloffExponent = EdgeFalloffExponent;
+	EdgeConfig.MapSizeUU = ActualMapSizeUU;  // Use actual size, not requested
+	EdgeConfig.MapCenter = FVector2D(GetActorLocation().X, GetActorLocation().Y);
+	EdgeConfig.MaxTerrainHeight = Resolution.MaxHeightMeters * METERS_TO_UU;
+	EdgeConfig.IslandShapeStrength = IslandDepth;  // Controls terrain submersion
 
 	for (int32 ChunkY = 0; ChunkY < ChunksPerSide; ++ChunkY)
 	{
@@ -228,7 +267,15 @@ void AProceduralLandscapeActor::GenerateSynchronous()
 				Section.HeightMap
 			);
 
-			// Build mesh data
+
+			// Determine which edges of this chunk are at map boundary
+			FChunkEdgeFlags EdgeFlags;
+			EdgeFlags.bIsLeftEdge = (ChunkX == 0);
+			EdgeFlags.bIsRightEdge = (ChunkX == ChunksPerSide - 1);
+			EdgeFlags.bIsBottomEdge = (ChunkY == 0);
+			EdgeFlags.bIsTopEdge = (ChunkY == ChunksPerSide - 1);
+
+			// Build mesh data with edge configuration
 			const float ChunkSizeUU = ChunkSizeMeters * METERS_TO_UU;
 			const float ChunkWorldXUU = ChunkWorldX * METERS_TO_UU;
 			const float ChunkWorldYUU = ChunkWorldY * METERS_TO_UU;
@@ -238,8 +285,11 @@ void AProceduralLandscapeActor::GenerateSynchronous()
 				ChunkWorldXUU,
 				ChunkWorldYUU,
 				ChunkSizeUU,
-				VerticesPerSide
+				VerticesPerSide,
+				EdgeConfig,
+				EdgeFlags
 			);
+
 
 			ChunkData.bIsGenerated = true;
 			CreateChunkMesh(ChunkData);
@@ -339,6 +389,14 @@ bool AProceduralLandscapeActor::HasSettingsChanged() const
 	if (!FMath::IsNearlyEqual(CachedResolution.MapSizeMeters, Resolution.MapSizeMeters)) return true;
 	if (!FMath::IsNearlyEqual(CachedResolution.MaxHeightMeters, Resolution.MaxHeightMeters)) return true;
 	if (CachedResolution.Resolution != Resolution.Resolution) return true;
+	
+	// Island settings
+	if (CachedIslandMode != bIslandMode) return true;
+	if (!FMath::IsNearlyEqual(CachedIslandDepth, IslandDepth)) return true;
+	if (!FMath::IsNearlyEqual(CachedEdgeFalloffDistance, EdgeFalloffDistance)) return true;
+	if (!FMath::IsNearlyEqual(CachedSeaLevel, SeaLevel)) return true;
+	if (!FMath::IsNearlyEqual(CachedSkirtDepth, SkirtDepth)) return true;
+	if (!FMath::IsNearlyEqual(CachedEdgeFalloffExponent, EdgeFalloffExponent)) return true;
 
 	return false;
 }
@@ -350,12 +408,25 @@ void AProceduralLandscapeActor::CacheCurrentSettings()
 	CachedNoiseOctaves = NoiseOctaves;
 	CachedHeightExponent = HeightExponent;
 	CachedResolution = Resolution;
+	
+	// Island settings
+	CachedIslandMode = bIslandMode;
+	CachedIslandDepth = IslandDepth;
+	CachedEdgeFalloffDistance = EdgeFalloffDistance;
+	CachedSeaLevel = SeaLevel;
+	CachedSkirtDepth = SkirtDepth;
+	CachedEdgeFalloffExponent = EdgeFalloffExponent;
 }
 
 FVector2D AProceduralLandscapeActor::GetMapOriginMeters() const
 {
+	// Calculate ACTUAL map size (may differ from requested due to chunk boundaries)
+	const int32 ChunksPerSide = Resolution.GetChunksPerSide();
+	const float ChunkSizeMeters = Resolution.GetChunkSizeMeters();
+	const float ActualMapSizeMeters = ChunksPerSide * ChunkSizeMeters;
+	
 	// Center the map on the actor
-	float HalfMapSize = Resolution.GetTotalMapSizeMeters() / 2.0f;
+	float HalfMapSize = ActualMapSizeMeters / 2.0f;
 	FVector ActorLocation = GetActorLocation();
 	
 	return FVector2D(

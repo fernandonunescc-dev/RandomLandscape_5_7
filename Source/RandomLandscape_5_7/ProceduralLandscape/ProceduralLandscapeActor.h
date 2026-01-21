@@ -89,6 +89,64 @@ public:
 	float HeightExponent = 1.0f;
 
 	// =========================================================================
+	// ISLAND EDGE SETTINGS
+	// =========================================================================
+
+	/** 
+	 * Enable island mode - terrain will be circular with edges dropping 
+	 * down to below sea level, creating an island surrounded by water.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Island")
+	bool bIslandMode = true;
+
+	/**
+	 * Controls where the edge falloff begins (0-1).
+	 * This determines the size of the flat "core" area vs the sloping edges:
+	 * 
+	 * 0.3 = Large flat center (70%), narrow edge falloff
+	 * 0.5 = Balanced - falloff covers half the island radius
+	 * 0.7 = Small flat center, gradual slopes across most of island
+	 * 1.0 = Dome shape - falloff starts from center
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Island",
+		meta = (UIMin = "0.2", UIMax = "1.0", ClampMin = "0.1", ClampMax = "1.0", EditCondition = "bIslandMode"))
+	float IslandDepth = 0.5f;
+
+	/**
+	 * (Legacy - not used in current circular mode)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Island",
+		meta = (UIMin = "1", UIMax = "200", ClampMin = "0", ClampMax = "500", EditCondition = "bIslandMode"))
+	float EdgeFalloffDistance = 50.0f;
+
+	/**
+	 * Height of the sea level / water surface (in meters).
+	 * Terrain below this level appears as water.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Island",
+		meta = (UIMin = "-100", UIMax = "100", ClampMin = "-1000", ClampMax = "1000", EditCondition = "bIslandMode"))
+	float SeaLevel = 0.0f;
+
+	/**
+	 * Depth of the skirt below sea level (in meters).
+	 * The skirt creates vertical walls around the map edges to close the mesh.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Island",
+		meta = (UIMin = "1", UIMax = "100", ClampMin = "0.1", ClampMax = "500", EditCondition = "bIslandMode"))
+	float SkirtDepth = 50.0f;
+
+	/**
+	 * Controls the edge falloff curve shape.
+	 * < 1.0 = Gentle gradual slopes
+	 * = 1.0 = Smooth natural falloff  
+	 * = 1.5 = Nice balanced cliffs (recommended)
+	 * > 2.0 = Terrain stays high, then drops sharply at edges
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landscape|Island",
+		meta = (UIMin = "0.5", UIMax = "3.0", ClampMin = "0.1", ClampMax = "5.0", EditCondition = "bIslandMode"))
+	float EdgeFalloffExponent = 1.5f;
+
+	// =========================================================================
 	// MATERIAL
 	// =========================================================================
 
@@ -157,6 +215,14 @@ private:
 	float CachedNoiseFrequency = 0.0f;
 	int32 CachedNoiseOctaves = 0;
 	float CachedHeightExponent = 0.0f;
+	
+	/** Cached island settings */
+	bool CachedIslandMode = false;
+	float CachedIslandDepth = 0.0f;
+	float CachedEdgeFalloffDistance = 0.0f;
+	float CachedSeaLevel = 0.0f;
+	float CachedSkirtDepth = 0.0f;
+	float CachedEdgeFalloffExponent = 0.0f;
 
 	/** Is generation currently in progress? */
 	bool bIsGenerating = false;

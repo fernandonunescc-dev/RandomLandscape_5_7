@@ -23,10 +23,11 @@ FLandscapeAsyncGenerator::~FLandscapeAsyncGenerator()
 // Initialization
 // ============================================================================
 
-void FLandscapeAsyncGenerator::Initialize(FLandscapeNoiseService* InNoiseService, const FLandscapeResolutionConfig& InResolution)
+void FLandscapeAsyncGenerator::Initialize(FLandscapeNoiseService* InNoiseService, const FLandscapeResolutionConfig& InResolution, const FIslandEdgeConfig& InEdgeConfig)
 {
 	NoiseService = InNoiseService;
 	Resolution = InResolution;
+	EdgeConfig = InEdgeConfig;
 	bCancelRequested = false;
 }
 
@@ -34,7 +35,7 @@ void FLandscapeAsyncGenerator::Initialize(FLandscapeNoiseService* InNoiseService
 // Chunk Queuing
 // ============================================================================
 
-void FLandscapeAsyncGenerator::QueueChunkGeneration(int32 ChunkX, int32 ChunkY, float MapOriginX, float MapOriginY)
+void FLandscapeAsyncGenerator::QueueChunkGeneration(int32 ChunkX, int32 ChunkY, float MapOriginX, float MapOriginY, int32 ChunksPerSide)
 {
 	if (!NoiseService)
 	{
@@ -47,15 +48,23 @@ void FLandscapeAsyncGenerator::QueueChunkGeneration(int32 ChunkX, int32 ChunkY, 
 
 	// Capture all needed data by value for the async task
 	FLandscapeResolutionConfig CapturedResolution = Resolution;
+	FIslandEdgeConfig CapturedEdgeConfig = EdgeConfig;
 	FLandscapeNoiseService* CapturedNoiseService = NoiseService;
 	FThreadSafeBool* CapturedCancelFlag = &bCancelRequested;
 	FCriticalSection* CapturedLock = &CompletedChunksLock;
 	TArray<FLandscapeChunkData>* CapturedCompletedChunks = &CompletedChunks;
 	FThreadSafeCounter* CapturedPendingCount = &PendingCount;
 
+	// Determine which edges of this chunk are at map boundary
+	FChunkEdgeFlags EdgeFlags;
+	EdgeFlags.bIsLeftEdge = (ChunkX == 0);
+	EdgeFlags.bIsRightEdge = (ChunkX == ChunksPerSide - 1);
+	EdgeFlags.bIsBottomEdge = (ChunkY == 0);
+	EdgeFlags.bIsTopEdge = (ChunkY == ChunksPerSide - 1);
+
 	// Launch async task
 	AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, 
-		[CapturedResolution, CapturedNoiseService, CapturedCancelFlag, CapturedLock, 
+		[CapturedResolution, CapturedEdgeConfig, EdgeFlags, CapturedNoiseService, CapturedCancelFlag, CapturedLock, 
 		 CapturedCompletedChunks, CapturedPendingCount, ChunkX, ChunkY, MapOriginX, MapOriginY]()
 	{
 		// Check for cancellation
@@ -114,7 +123,9 @@ void FLandscapeAsyncGenerator::QueueChunkGeneration(int32 ChunkX, int32 ChunkY, 
 			ChunkWorldXUU,
 			ChunkWorldYUU,
 			ChunkSizeUU,
-			VerticesPerSide
+			VerticesPerSide,
+			CapturedEdgeConfig,
+			EdgeFlags
 		);
 
 		ChunkData.bIsGenerated = true;
@@ -136,7 +147,7 @@ void FLandscapeAsyncGenerator::QueueAllChunks(int32 ChunksPerSide, float MapOrig
 	{
 		for (int32 ChunkX = 0; ChunkX < ChunksPerSide; ++ChunkX)
 		{
-			QueueChunkGeneration(ChunkX, ChunkY, MapOriginX, MapOriginY);
+			QueueChunkGeneration(ChunkX, ChunkY, MapOriginX, MapOriginY, ChunksPerSide);
 		}
 	}
 }
