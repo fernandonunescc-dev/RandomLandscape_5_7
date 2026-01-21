@@ -59,8 +59,8 @@ protected:
 	/** Pass 1: Generate the land mask (which pixels are land vs ocean) */
 	void GenerateLandMask();
 
-	/** Pass 2: Generate biome seed points distributed across land pixels */
-	void GenerateBiomeSeedPoints();
+	/** Pass 2: Generate biome seed points and assign biomes to land pixels */
+	void AssignBiomesToLand();
 
 	/** Pass 3: Generate the final preview texture with biome colors */
 	void GeneratePreviewTexture();
@@ -74,9 +74,6 @@ protected:
 	/** Get continent mask value (0 = ocean, 1 = land) with organic edges */
 	float GetContinentMask(float NormX, float NormY) const;
 
-	/** Get biome at a given position using Voronoi regions */
-	int32 GetBiomeAtPosition(float NormX, float NormY) const;
-
 	/** Biome configuration for this continent */
 	UPROPERTY()
 	FContinentBiomeSettings BiomeSettings;
@@ -87,6 +84,9 @@ protected:
 
 	/** Land mask - true = land, false = ocean */
 	TArray<bool> LandMask;
+
+	/** Biome index for each pixel (-1 = ocean) */
+	TArray<int32> BiomeMap;
 
 	/** List of all land pixel coordinates (for seed point placement) */
 	TArray<FIntPoint> LandPixels;

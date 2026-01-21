@@ -47,6 +47,7 @@ void AProceduralMapActor::GenerateMap()
 		if (ContinentGenerator)
 		{
 			ContinentGenerator->SetBiomeSettings(ContinentBiomeSettings);
+			// Pass the seed - 0 means "generate random", non-zero means use that exact seed
 			ContinentGenerator->SetSeed(Seed);
 		}
 	}
