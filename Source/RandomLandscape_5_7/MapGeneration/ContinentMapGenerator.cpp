@@ -336,6 +336,73 @@ void UContinentMapGenerator::AssignBiomesToLand()
 		}
 		UE_LOG(LogTemp, Log, TEXT("Assigned %d remaining pixels to largest biome"), UnassignedLandIndices.Num());
 	}
+	
+	// Smoothing pass - remove spiky edges by checking if a pixel is "surrounded" by another biome
+	// Run multiple passes for smoother results
+	const int32 SmoothingPasses = 3;
+	
+	for (int32 Pass = 0; Pass < SmoothingPasses; ++Pass)
+	{
+		TArray<int32> NewBiomeMap = BiomeMap;
+		
+		for (const FIntPoint& Pixel : LandPixels)
+		{
+			int32 Index = Pixel.Y * Width + Pixel.X;
+			int32 CurrentBiome = BiomeMap[Index];
+			
+			if (CurrentBiome < 0) continue; // Skip ocean
+			
+			// Count neighbors of each biome type
+			TMap<int32, int32> NeighborCounts;
+			int32 TotalLandNeighbors = 0;
+			
+			for (int32 d = 0; d < NumDirections; ++d)
+			{
+				FIntPoint Neighbor(Pixel.X + Directions[d].X, Pixel.Y + Directions[d].Y);
+				
+				if (Neighbor.X < 0 || Neighbor.X >= Width || Neighbor.Y < 0 || Neighbor.Y >= Height)
+				{
+					continue;
+				}
+				
+				int32 NeighborIndex = Neighbor.Y * Width + Neighbor.X;
+				int32 NeighborBiome = BiomeMap[NeighborIndex];
+				
+				if (NeighborBiome >= 0) // Only count land neighbors
+				{
+					NeighborCounts.FindOrAdd(NeighborBiome)++;
+					TotalLandNeighbors++;
+				}
+			}
+			
+			// If this pixel is mostly surrounded by a different biome, change it
+			// Threshold: if more than 5 out of 8 neighbors (or 62.5%) are a different biome
+			if (TotalLandNeighbors >= 5)
+			{
+				int32 DominantBiome = CurrentBiome;
+				int32 DominantCount = 0;
+				
+				for (const auto& Pair : NeighborCounts)
+				{
+					if (Pair.Value > DominantCount)
+					{
+						DominantCount = Pair.Value;
+						DominantBiome = Pair.Key;
+					}
+				}
+				
+				// Change if dominant biome is different and has strong majority
+				if (DominantBiome != CurrentBiome && DominantCount >= 5)
+				{
+					NewBiomeMap[Index] = DominantBiome;
+				}
+			}
+		}
+		
+		BiomeMap = MoveTemp(NewBiomeMap);
+	}
+	
+	UE_LOG(LogTemp, Log, TEXT("Applied %d smoothing passes to biome boundaries"), SmoothingPasses);
 }
 
 // Simple hash-based noise function
