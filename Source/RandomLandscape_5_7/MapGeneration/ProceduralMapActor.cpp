@@ -3,10 +3,8 @@
 
 #include "ProceduralMapActor.h"
 #include "MapGeneratorBase.h"
-#include "MapGeneratorFactory.h"
 #include "ContinentMapGenerator.h"
 #include "Engine/Texture2D.h"
-#include "KismetProceduralMeshLibrary.h"
 #include "BiomeTerrainGenerators/BiomeTerrainGeneratorFactory.h"
 
 AProceduralMapActor::AProceduralMapActor()
@@ -35,6 +33,12 @@ void AProceduralMapActor::Tick(float DeltaTime)
 
 void AProceduralMapActor::GenerateMap()
 {
+	// Mesh generation intentionally disabled (temporary).
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Mesh generation disabled by configuration"));
+	return;
+
+	/* Original implementation commented out while generation is disabled
+
 	// Clear any existing map
 	ClearMap();
 
@@ -84,6 +88,8 @@ void AProceduralMapActor::GenerateMap()
 	{
 		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateMap - Map generation failed"));
 	}
+
+	*/
 }
 
 void AProceduralMapActor::ClearMap()
@@ -276,6 +282,12 @@ FColor AProceduralMapActor::GetBlendedBiomeColor(float NormX, float NormY, int32
 
 void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 {
+	// Mesh creation disabled (temporary safe-guard).
+	UE_LOG(LogTemp, Log, TEXT("GenerateTerrainMesh - Mesh creation disabled by configuration"));
+	return;
+
+	/* Original implementation commented out while mesh creation is disabled
+
 	if (!Generator || !TerrainMesh)
 	{
 		return;
@@ -427,5 +439,6 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 	
 	UE_LOG(LogTemp, Log, TEXT("GenerateTerrainMesh - Created %d chunks with %d total vertices, %d triangles. Resolution: ~%.2f meters per vertex"),
 		TotalChunks, TotalVertices, TotalTriangles, MetersPerVertex);
-}
 
+	*/
+}
