@@ -3,6 +3,7 @@
 
 #include "ProceduralMapActor.h"
 #include "MapGeneratorBase.h"
+#include "MapGeneratorFactory.h"
 #include "ContinentMapGenerator.h"
 #include "Engine/Texture2D.h"
 #include "BiomeTerrainGenerators/BiomeTerrainGeneratorFactory.h"
@@ -33,32 +34,32 @@ void AProceduralMapActor::Tick(float DeltaTime)
 
 void AProceduralMapActor::GenerateMap()
 {
-	// Mesh generation intentionally disabled (temporary).
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Mesh generation disabled by configuration"));
-	return;
+	// We still want to generate the low-res landmass preview texture, but avoid any mesh creation.
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Running generator to produce LandmassTexture (no meshes)"));
 
-	/* Original implementation commented out while generation is disabled
+	// Clear any existing preview
+	PreviewTexture = nullptr;
+	LandmassTexture = nullptr;
 
-	// Clear any existing map
-	ClearMap();
-
-	// Create the appropriate generator based on map type
+	// Create generator
 	CurrentGenerator = FMapGeneratorFactory::CreateGenerator(this, MapType);
-	
 	if (!CurrentGenerator)
 	{
 		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateMap - Failed to create generator"));
 		return;
 	}
 
-	// If this is a continent generator, pass the biome settings and seed
+	// If this is a continent generator, pass biome settings and seed
 	if (MapType == EMapType::Continent)
 	{
 		UContinentMapGenerator* ContinentGenerator = Cast<UContinentMapGenerator>(CurrentGenerator);
 		if (ContinentGenerator)
 		{
-			ContinentGenerator->SetBiomeSettings(ContinentBiomeSettings);
-			// Pass the seed - 0 means "generate random", non-zero means use that exact seed
+			// Copy actor biome settings, but override land coverage with the user-visible LandmassPercentage and padding
+			FContinentBiomeSettings SettingsToUse = ContinentBiomeSettings;
+			SettingsToUse.LandCoveragePercent = LandmassPercentage;
+			SettingsToUse.MinDistanceFromEdge = MinDistanceFromEdge;
+			ContinentGenerator->SetBiomeSettings(SettingsToUse);
 			ContinentGenerator->SetSeed(Seed);
 		}
 	}
@@ -66,30 +67,38 @@ void AProceduralMapActor::GenerateMap()
 	// Initialize and generate
 	FMapGenerationSettings Settings = CreateSettings();
 	CurrentGenerator->Initialize(Settings);
-	
+
 	if (CurrentGenerator->Generate())
 	{
-		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Map generation successful"));
+		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Generator run successful"));
 
-		// Retrieve the preview texture from the generator
 		if (MapType == EMapType::Continent)
 		{
 			UContinentMapGenerator* ContinentGenerator = Cast<UContinentMapGenerator>(CurrentGenerator);
 			if (ContinentGenerator)
 			{
-				PreviewTexture = ContinentGenerator->GetPreviewTexture();
-				
-				// Generate the 3D terrain mesh
-				GenerateTerrainMesh(ContinentGenerator);
+				// Get the low-res preview texture and expose it as the LandmassTexture property
+				UTexture2D* GenTex = ContinentGenerator->GetPreviewTexture();
+				if (GenTex)
+				{
+					PreviewTexture = GenTex;
+					LandmassTexture = GenTex;
+					UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Assigned generated preview to LandmassTexture"));
+				}
+				else
+				{
+					UE_LOG(LogTemp, Warning, TEXT("ProceduralMapActor::GenerateMap - Generator produced no preview texture"));
+				}
 			}
 		}
+		
+		// Intentionally do NOT call GenerateTerrainMesh - mesh creation is disabled
+		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Skipping mesh generation by design"));
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateMap - Map generation failed"));
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateMap - Generator run failed"));
 	}
-
-	*/
 }
 
 void AProceduralMapActor::ClearMap()

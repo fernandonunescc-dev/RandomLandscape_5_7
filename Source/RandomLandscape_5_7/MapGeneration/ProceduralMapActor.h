@@ -145,9 +145,12 @@ public:
 
 public:
 	// ================ User-visible shape settings ================
-	// Only these two properties are exposed in the editor
+	// Only these properties are exposed in the editor
 	UPROPERTY(EditAnywhere, Category = "Procedural|Map|Shape")
 	float LandmassPercentage = 50.0f; // 0..100 percent of land coverage
+
+	UPROPERTY(EditAnywhere, Category = "Procedural|Map|Shape", meta = (ClampMin = "0", ClampMax = "64", UIMin = "0", UIMax = "64"))
+	int32 MinDistanceFromEdge = 2;
 
 	UPROPERTY(EditAnywhere, Category = "Procedural|Map|Shape")
 	TObjectPtr<UTexture2D> LandmassTexture = nullptr;
