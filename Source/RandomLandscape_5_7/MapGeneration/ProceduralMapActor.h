@@ -32,22 +32,27 @@ protected:
 public:
 	virtual void Tick(float DeltaTime) override;
 
+	// ================ Map Generation ================
 	/**
-	 * Generate the map using current settings
+	 * Generate the complete map (landmass + biomes + terrain)
 	 */
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Map Generation")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Actions")
 	void GenerateMap();
 
 	/**
 	 * Clear the generated map
 	 */
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Map Generation")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Actions")
 	void ClearMap();
+
+	/** Total time in seconds for the entire generation process */
+	UPROPERTY(VisibleAnywhere, Category="Core")
+	float TotalDuration = 0.0f;
 
 	/**
 	 * Get the generated preview texture (shows biome distribution)
 	 */
-	UFUNCTION(BlueprintPure, Category = "Map Generation")
+	UFUNCTION(BlueprintPure)
 	UTexture2D* GetPreviewTexture() const;
 
 public:
@@ -73,28 +78,25 @@ public:
 	int32 MapResolution = 50;
 
 public:
-	// ================ User-visible shape settings ================
-	// Only these properties are exposed in the editor
-	UPROPERTY(EditAnywhere, Category = "Procedural|Map|Shape")
+	// ================ Landmass Settings ================
+	/**
+	 * Generate only the black/white landmass texture
+	 */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Landmass")
+	void GenerateLandmass();
+
+	UPROPERTY(EditAnywhere, Category = "Landmass")
 	int32 Seed = 0; // Editor-exposed seed, 0 means random
 
-	UPROPERTY(EditAnywhere, Category = "Procedural|Map|Shape")
-	float LandmassPercentage = 50.0f; // 0..100 percent of land coverage
+	UPROPERTY(EditAnywhere, Category = "Landmass", meta = (ClampMin = "5.0", ClampMax = "75.0", UIMin = "5.0", UIMax = "75.0"))
+	float LandmassPercentage = 50.0f; // 5..75 percent of land coverage
 
-	UPROPERTY(EditAnywhere, Category = "Procedural|Map|Shape", meta = (ClampMin = "0", ClampMax = "64", UIMin = "0", UIMax = "64"))
-	int32 MinDistanceFromEdge = 2;
-
-	UPROPERTY(EditAnywhere, Category = "Procedural|Map|Shape")
+	UPROPERTY(VisibleAnywhere, Category = "Landmass")
 	TObjectPtr<UTexture2D> LandmassTexture = nullptr;
 
-	// ================ Generation Timing (read-only) ================
-	/** Total time in seconds for the entire generation process */
-	UPROPERTY(VisibleAnywhere, Category = "Procedural|Map|Shape")
-	float TotalDuration = 0.0f;
-
-	/** Time in seconds to generate just the black/white landmass shape */
-	UPROPERTY(VisibleAnywhere, Category = "Procedural|Map|Shape")
-	float ShapeDuration = 0.0f;
+	/** Time in seconds to generate just the black/white landmass texture */
+	UPROPERTY(VisibleAnywhere, Category = "Landmass")
+	float LandmassDuration = 0.0f;
 
 protected:
 	/** The current map generator instance */

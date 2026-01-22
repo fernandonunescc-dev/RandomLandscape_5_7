@@ -37,12 +37,33 @@ void AProceduralMapActor::GenerateMap()
 	// Start total timing
 	double TotalStartTime = FPlatformTime::Seconds();
 	
-	// We still want to generate the low-res landmass preview texture, but avoid any mesh creation.
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Running generator to produce LandmassTexture (no meshes)"));
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Running full map generation"));
 
 	// Reset durations
 	TotalDuration = 0.0f;
-	ShapeDuration = 0.0f;
+	LandmassDuration = 0.0f;
+
+	// Generate the landmass first (this sets LandmassDuration)
+	GenerateLandmass();
+
+	// TODO: Future steps will go here (biomes, terrain mesh, etc.)
+	
+	// End total timing
+	double TotalEndTime = FPlatformTime::Seconds();
+	TotalDuration = static_cast<float>(TotalEndTime - TotalStartTime);
+
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Complete (Total: %.4f sec, Landmass: %.4f sec)"), TotalDuration, LandmassDuration);
+}
+
+void AProceduralMapActor::GenerateLandmass()
+{
+	// Start landmass timing
+	double LandmassStartTime = FPlatformTime::Seconds();
+	
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateLandmass - Generating landmass texture"));
+
+	// Reset landmass duration
+	LandmassDuration = 0.0f;
 
 	// Clear any existing preview
 	PreviewTexture = nullptr;
@@ -52,7 +73,7 @@ void AProceduralMapActor::GenerateMap()
 	CurrentGenerator = FMapGeneratorFactory::CreateGenerator(this, MapType);
 	if (!CurrentGenerator)
 	{
-		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateMap - Failed to create generator"));
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateLandmass - Failed to create generator"));
 		return;
 	}
 
@@ -67,8 +88,6 @@ void AProceduralMapActor::GenerateMap()
 			SettingsToUse.LandCoveragePercent = LandmassPercentage;
 			ContinentGenerator->SetBiomeSettings(SettingsToUse);
 			ContinentGenerator->SetSeed(Seed);
-			// Set preview padding (generator-only, not a biome setting)
-			ContinentGenerator->SetPreviewPadding(MinDistanceFromEdge);
 		}
 	}
 
@@ -76,16 +95,9 @@ void AProceduralMapActor::GenerateMap()
 	FMapGenerationSettings Settings = CreateSettings();
 	CurrentGenerator->Initialize(Settings);
 
-	// Start shape generation timing
-	double ShapeStartTime = FPlatformTime::Seconds();
-
 	if (CurrentGenerator->Generate())
 	{
-		// End shape generation timing
-		double ShapeEndTime = FPlatformTime::Seconds();
-		ShapeDuration = static_cast<float>(ShapeEndTime - ShapeStartTime);
-
-		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Generator run successful (Shape: %.4f sec)"), ShapeDuration);
+		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateLandmass - Generator run successful"));
 
 		if (MapType == EMapType::Continent)
 		{
@@ -98,29 +110,27 @@ void AProceduralMapActor::GenerateMap()
 				{
 					PreviewTexture = GenTex;
 					LandmassTexture = GenTex;
-					UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Assigned generated preview to LandmassTexture"));
+					UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateLandmass - Assigned generated texture to LandmassTexture"));
 				}
 				else
 				{
-					UE_LOG(LogTemp, Warning, TEXT("ProceduralMapActor::GenerateMap - Generator produced no preview texture"));
+					UE_LOG(LogTemp, Warning, TEXT("ProceduralMapActor::GenerateLandmass - Generator produced no preview texture"));
 				}
 			}
 		}
-		
-		// Intentionally do NOT call GenerateTerrainMesh - mesh creation is disabled
-		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Skipping mesh generation by design"));
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateMap - Generator run failed"));
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateLandmass - Generator run failed"));
 	}
 
-	// End total timing
-	double TotalEndTime = FPlatformTime::Seconds();
-	TotalDuration = static_cast<float>(TotalEndTime - TotalStartTime);
+	// End landmass timing
+	double LandmassEndTime = FPlatformTime::Seconds();
+	LandmassDuration = static_cast<float>(LandmassEndTime - LandmassStartTime);
 
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Complete (Total: %.4f sec, Shape: %.4f sec)"), TotalDuration, ShapeDuration);
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateLandmass - Complete (%.4f sec)"), LandmassDuration);
 }
+
 
 void AProceduralMapActor::ClearMap()
 {

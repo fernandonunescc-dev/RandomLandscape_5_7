@@ -64,9 +64,6 @@ public:
 	/** Get the texture resolution */
 	int32 GetTextureResolution() const { return TextureResolution; }
 
-	/** Set the padding used when producing preview textures (in pixels) */
-	void SetPreviewPadding(int32 InPadding);
-
 protected:
 	/** Random seed for generation (moved to top as requested) */
 	int32 Seed = 0;
@@ -77,8 +74,6 @@ protected:
 	/** Texture resolution (based on MapResolution setting) */
 	int32 TextureResolution = 256;
 
-	/** Padding (in pixels) applied to preview texture edges to force ocean */
-	int32 PreviewPadding = 0;
 
 	/** Pass 1: Generate the land mask (which pixels are land vs ocean) */
 	void GenerateLandMask();
