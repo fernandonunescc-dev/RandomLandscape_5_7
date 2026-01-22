@@ -26,9 +26,9 @@ void UContinentMapGenerator::Initialize(const FMapGenerationSettings& InSettings
 	// Always initialize random stream with the current seed
 	RandomStream.Initialize(Seed);
 	
-	UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator initialized - Size: %s meters (%s UU), Resolution: %d, TextureRes: %d, Seed: %d"),
-		*Settings.MapSizeInMeters.ToString(), 
-		*Settings.GetMapSizeInUnrealUnits().ToString(),
+	UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator initialized - Size: %d meters (%.0f UU), Resolution: %d, TextureRes: %d, Seed: %d"),
+		Settings.MapSizeInMeters, 
+		Settings.GetMapSizeInUnrealUnits(),
 		Settings.MapResolution,
 		TextureResolution,
 		Seed);
@@ -81,14 +81,17 @@ void UContinentMapGenerator::GenerateLandMask()
 {
 	const int32 Width = TextureResolution;
 	const int32 Height = TextureResolution;
-	const float LandThreshold = 0.5f;
+	const int32 TotalPixels = Width * Height;
 	
 	// Clear previous data
 	LandMask.Empty();
-	LandMask.SetNum(Width * Height);
+	LandMask.SetNum(TotalPixels);
 	LandPixels.Empty();
 	
-	// Generate land mask and collect land pixel coordinates
+	// First pass: collect all continent mask values
+	TArray<float> MaskValues;
+	MaskValues.SetNum(TotalPixels);
+	
 	for (int32 Y = 0; Y < Height; ++Y)
 	{
 		for (int32 X = 0; X < Width; ++X)
@@ -96,10 +99,36 @@ void UContinentMapGenerator::GenerateLandMask()
 			float NormX = static_cast<float>(X) / static_cast<float>(Width);
 			float NormY = static_cast<float>(Y) / static_cast<float>(Height);
 			
-			float ContinentMask = GetContinentMask(NormX, NormY);
-			bool bIsLand = ContinentMask >= LandThreshold;
-			
 			int32 Index = Y * Width + X;
+			MaskValues[Index] = GetContinentMask(NormX, NormY);
+		}
+	}
+	
+	// Calculate the threshold to achieve desired land coverage
+	// Sort a copy of mask values to find the percentile threshold
+	TArray<float> SortedValues = MaskValues;
+	SortedValues.Sort([](float A, float B) { return A > B; }); // Sort descending (highest first)
+	
+	// Calculate how many pixels should be land
+	float TargetLandPercent = FMath::Clamp(BiomeSettings.LandCoveragePercent, 10.0f, 90.0f) / 100.0f;
+	int32 TargetLandPixels = FMath::RoundToInt(TotalPixels * TargetLandPercent);
+	TargetLandPixels = FMath::Clamp(TargetLandPixels, 1, TotalPixels - 1);
+	
+	// The threshold is the value at the target land pixel count index
+	// All pixels with values >= this threshold will be land
+	float LandThreshold = SortedValues[TargetLandPixels - 1];
+	
+	UE_LOG(LogTemp, Log, TEXT("Land coverage target: %.1f%% (%d pixels), threshold: %.3f"),
+		BiomeSettings.LandCoveragePercent, TargetLandPixels, LandThreshold);
+	
+	// Second pass: apply threshold to create land mask
+	for (int32 Y = 0; Y < Height; ++Y)
+	{
+		for (int32 X = 0; X < Width; ++X)
+		{
+			int32 Index = Y * Width + X;
+			bool bIsLand = MaskValues[Index] >= LandThreshold;
+			
 			LandMask[Index] = bIsLand;
 			
 			if (bIsLand)
@@ -110,8 +139,8 @@ void UContinentMapGenerator::GenerateLandMask()
 	}
 	
 	UE_LOG(LogTemp, Log, TEXT("Land mask generated: %d land pixels out of %d total (%.1f%%)"),
-		LandPixels.Num(), Width * Height, 
-		(float)LandPixels.Num() / (float)(Width * Height) * 100.0f);
+		LandPixels.Num(), TotalPixels, 
+		(float)LandPixels.Num() / (float)TotalPixels * 100.0f);
 }
 
 // Pass 2: Assign biomes to land pixels - start from edges, grow organically

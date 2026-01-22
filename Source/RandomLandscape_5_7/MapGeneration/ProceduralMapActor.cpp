@@ -7,6 +7,7 @@
 #include "ContinentMapGenerator.h"
 #include "Engine/Texture2D.h"
 #include "KismetProceduralMeshLibrary.h"
+#include "BiomeTerrainGenerators/BiomeTerrainGeneratorFactory.h"
 
 AProceduralMapActor::AProceduralMapActor()
 {
@@ -125,58 +126,152 @@ FMapGenerationSettings AProceduralMapActor::CreateSettings() const
 
 float AProceduralMapActor::CalculateTerrainHeight(float NormX, float NormY, const FBiomeConfig& BiomeConfig) const
 {
-	// Fractal Perlin noise implementation using per-biome settings
-	float Total = 0.0f;
-	float Amplitude = 1.0f;
-	float Frequency = BiomeConfig.NoiseFrequency;
-	float MaxValue = 0.0f;
+	// Delegate to the biome-specific terrain generator via factory
+	// Pass MapSizeInMeters for proper frequency scaling
+	return FBiomeTerrainGeneratorFactory::Get().CalculateHeightForBiome(
+		BiomeConfig.BiomeType, NormX, NormY, BiomeConfig, Seed, static_cast<float>(MapSizeInMeters));
+}
+
+float AProceduralMapActor::CalculateBlendedTerrainHeight(float NormX, float NormY, int32 TextureRes,
+	const TArray<int32>& BiomeMap, const TArray<bool>& LandMask) const
+{
+	// Clamp coordinates to valid range
+	NormX = FMath::Clamp(NormX, 0.0f, 1.0f);
+	NormY = FMath::Clamp(NormY, 0.0f, 1.0f);
 	
-	// Use seed to offset the noise
-	float SeedOffsetX = (Seed % 10000) * 0.37f;
-	float SeedOffsetY = (Seed % 10000) * 0.53f;
+	// Calculate float position in biome map
+	float BiomeX = NormX * (TextureRes - 1);
+	float BiomeY = NormY * (TextureRes - 1);
 	
-	for (int32 i = 0; i < BiomeConfig.NoiseOctaves; ++i)
+	// Get integer coordinates and fractional parts for bilinear interpolation
+	int32 X0 = FMath::FloorToInt(BiomeX);
+	int32 Y0 = FMath::FloorToInt(BiomeY);
+	int32 X1 = FMath::Min(X0 + 1, TextureRes - 1);
+	int32 Y1 = FMath::Min(Y0 + 1, TextureRes - 1);
+	
+	float FracX = BiomeX - X0;
+	float FracY = BiomeY - Y0;
+	
+	// Apply smoothstep for smoother interpolation
+	FracX = FracX * FracX * (3.0f - 2.0f * FracX);
+	FracY = FracY * FracY * (3.0f - 2.0f * FracY);
+	
+	// Sample heights at 4 corners
+	auto GetHeightAtPixel = [&](int32 PX, int32 PY) -> float
 	{
-		// Simple hash-based noise (same as in ContinentMapGenerator)
-		float X = (NormX + SeedOffsetX) * Frequency;
-		float Y = (NormY + SeedOffsetY) * Frequency;
-		
-		int32 Xi = FMath::FloorToInt(X);
-		int32 Yi = FMath::FloorToInt(Y);
-		float Xf = X - Xi;
-		float Yf = Y - Yi;
-		
-		// Smooth interpolation
-		float U = Xf * Xf * (3.0f - 2.0f * Xf);
-		float V = Yf * Yf * (3.0f - 2.0f * Yf);
-		
-		// Hash function
-		auto Hash = [this](int32 X, int32 Y) -> float
+		int32 Index = PY * TextureRes + PX;
+		if (Index < 0 || Index >= LandMask.Num())
 		{
-			int32 N = X + Y * 57 + Seed;
-			N = (N << 13) ^ N;
-			return (1.0f - ((N * (N * N * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0f);
-		};
+			return -50.0f; // Ocean depth
+		}
 		
-		float A = Hash(Xi, Yi);
-		float B = Hash(Xi + 1, Yi);
-		float C = Hash(Xi, Yi + 1);
-		float D = Hash(Xi + 1, Yi + 1);
+		bool bIsLand = LandMask[Index];
+		int32 BiomeIndex = (Index < BiomeMap.Num()) ? BiomeMap[Index] : -1;
 		
-		float AB = FMath::Lerp(A, B, U);
-		float CD = FMath::Lerp(C, D, U);
-		float NoiseValue = FMath::Lerp(AB, CD, V);
+		// Calculate normalized position for this pixel
+		float PixelNormX = static_cast<float>(PX) / static_cast<float>(TextureRes - 1);
+		float PixelNormY = static_cast<float>(PY) / static_cast<float>(TextureRes - 1);
 		
-		Total += NoiseValue * Amplitude;
-		MaxValue += Amplitude;
-		
-		Amplitude *= BiomeConfig.NoisePersistence;
-		Frequency *= 2.0f;
-	}
+		if (bIsLand && BiomeIndex >= 0 && BiomeIndex < ContinentBiomeSettings.LandBiomes.Num())
+		{
+			const FBiomeConfig& BiomeConfig = ContinentBiomeSettings.LandBiomes[BiomeIndex];
+			return CalculateTerrainHeight(PixelNormX, PixelNormY, BiomeConfig);
+		}
+		else if (bIsLand)
+		{
+			FBiomeConfig DefaultConfig;
+			return CalculateTerrainHeight(PixelNormX, PixelNormY, DefaultConfig);
+		}
+		else
+		{
+			return -50.0f; // Ocean
+		}
+	};
 	
-	// Normalize to 0-1 range, apply base height and height multiplier
-	float NormalizedNoise = (Total / MaxValue + 1.0f) * 0.5f;
-	return BiomeConfig.BaseHeight + (NormalizedNoise * BiomeConfig.HeightMultiplier);
+	// Get heights at 4 corners
+	float H00 = GetHeightAtPixel(X0, Y0);
+	float H10 = GetHeightAtPixel(X1, Y0);
+	float H01 = GetHeightAtPixel(X0, Y1);
+	float H11 = GetHeightAtPixel(X1, Y1);
+	
+	// Bilinear interpolation
+	float H0 = FMath::Lerp(H00, H10, FracX);
+	float H1 = FMath::Lerp(H01, H11, FracX);
+	
+	return FMath::Lerp(H0, H1, FracY);
+}
+
+FColor AProceduralMapActor::GetBlendedBiomeColor(float NormX, float NormY, int32 TextureRes,
+	const TArray<int32>& BiomeMap, const TArray<bool>& LandMask) const
+{
+	// Clamp coordinates to valid range
+	NormX = FMath::Clamp(NormX, 0.0f, 1.0f);
+	NormY = FMath::Clamp(NormY, 0.0f, 1.0f);
+	
+	// Calculate float position in biome map
+	float BiomeX = NormX * (TextureRes - 1);
+	float BiomeY = NormY * (TextureRes - 1);
+	
+	// Get integer coordinates and fractional parts for bilinear interpolation
+	int32 X0 = FMath::FloorToInt(BiomeX);
+	int32 Y0 = FMath::FloorToInt(BiomeY);
+	int32 X1 = FMath::Min(X0 + 1, TextureRes - 1);
+	int32 Y1 = FMath::Min(Y0 + 1, TextureRes - 1);
+	
+	float FracX = BiomeX - X0;
+	float FracY = BiomeY - Y0;
+	
+	// Apply smoothstep for smoother interpolation
+	FracX = FracX * FracX * (3.0f - 2.0f * FracX);
+	FracY = FracY * FracY * (3.0f - 2.0f * FracY);
+	
+	// Sample colors at 4 corners
+	auto GetColorAtPixel = [&](int32 PX, int32 PY) -> FLinearColor
+	{
+		int32 Index = PY * TextureRes + PX;
+		if (Index < 0 || Index >= LandMask.Num())
+		{
+			return ContinentBiomeSettings.OceanColor;
+		}
+		
+		bool bIsLand = LandMask[Index];
+		int32 BiomeIndex = (Index < BiomeMap.Num()) ? BiomeMap[Index] : -1;
+		
+		if (bIsLand && BiomeIndex >= 0 && BiomeIndex < ContinentBiomeSettings.LandBiomes.Num())
+		{
+			const FBiomeConfig& BiomeConfig = ContinentBiomeSettings.LandBiomes[BiomeIndex];
+			if (BiomeConfig.bHighlightColor)
+			{
+				return BiomeConfig.Color;
+			}
+			return FLinearColor::White;
+		}
+		else if (bIsLand)
+		{
+			return FLinearColor::White;
+		}
+		else
+		{
+			if (ContinentBiomeSettings.bHighlightOcean)
+			{
+				return ContinentBiomeSettings.OceanColor;
+			}
+			return FLinearColor::White;
+		}
+	};
+	
+	// Get colors at 4 corners
+	FLinearColor C00 = GetColorAtPixel(X0, Y0);
+	FLinearColor C10 = GetColorAtPixel(X1, Y0);
+	FLinearColor C01 = GetColorAtPixel(X0, Y1);
+	FLinearColor C11 = GetColorAtPixel(X1, Y1);
+	
+	// Bilinear interpolation
+	FLinearColor C0 = FMath::Lerp(C00, C10, FracX);
+	FLinearColor C1 = FMath::Lerp(C01, C11, FracX);
+	FLinearColor Blended = FMath::Lerp(C0, C1, FracY);
+	
+	return Blended.ToFColor(false);
 }
 
 void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
@@ -199,8 +294,8 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 		return;
 	}
 	
-	// Get map size in Unreal Units
-	FVector MapSizeUU = GetMapSizeInUnrealUnits();
+	// Get map size in Unreal Units (same for X and Y since it's a square map)
+	float MapSizeUU = GetMapSizeInUnrealUnits();
 	
 	int32 VerticesPerSide = TerrainVerticesPerSide;
 	int32 NumVertices = VerticesPerSide * VerticesPerSide;
@@ -226,45 +321,18 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 			float NormX = static_cast<float>(X) / static_cast<float>(VerticesPerSide - 1);
 			float NormY = static_cast<float>(Y) / static_cast<float>(VerticesPerSide - 1);
 			
-			// Sample biome map at this position
-			int32 BiomeMapX = FMath::Clamp(FMath::FloorToInt(NormX * TextureRes), 0, TextureRes - 1);
-			int32 BiomeMapY = FMath::Clamp(FMath::FloorToInt(NormY * TextureRes), 0, TextureRes - 1);
-			int32 BiomeMapIndex = BiomeMapY * TextureRes + BiomeMapX;
+			// Use bilinear interpolation for smooth height blending between biomes
+			float Height = CalculateBlendedTerrainHeight(NormX, NormY, TextureRes, BiomeMap, LandMask);
 			
-			bool bIsLand = (BiomeMapIndex < LandMask.Num()) ? LandMask[BiomeMapIndex] : false;
-			int32 BiomeIndex = (BiomeMapIndex < BiomeMap.Num()) ? BiomeMap[BiomeMapIndex] : -1;
+			// Get smoothly blended vertex color
+			FColor VertColor = GetBlendedBiomeColor(NormX, NormY, TextureRes, BiomeMap, LandMask);
 			
-			// Calculate height
-			float Height = 0.0f;
-			FColor VertColor;
-			
-			if (bIsLand && BiomeIndex >= 0 && BiomeIndex < ContinentBiomeSettings.LandBiomes.Num())
-			{
-				// Land - use Perlin noise for height with biome-specific settings
-				const FBiomeConfig& BiomeConfig = ContinentBiomeSettings.LandBiomes[BiomeIndex];
-				Height = CalculateTerrainHeight(NormX, NormY, BiomeConfig) * MapSizeUU.Z;
-				
-				// Get biome color - use false to keep in linear space (GPU handles gamma)
-				VertColor = BiomeConfig.Color.ToFColor(false);
-			}
-			else if (bIsLand)
-			{
-				// Land but invalid biome index - use default
-				FBiomeConfig DefaultConfig;
-				Height = CalculateTerrainHeight(NormX, NormY, DefaultConfig) * MapSizeUU.Z;
-				VertColor = FColor::Green;
-			}
-			else
-			{
-				// Ocean - flat at 0 height (or slightly below)
-				Height = -MapSizeUU.Z * 0.05f; // Slightly below land
-				VertColor = ContinentBiomeSettings.OceanColor.ToFColor(false);
-			}
-			
+
+
 			// Position in world space (centered on actor)
 			FVector Position(
-				(NormX - 0.5f) * MapSizeUU.X,
-				(NormY - 0.5f) * MapSizeUU.Y,
+				(NormX - 0.5f) * MapSizeUU,
+				(NormY - 0.5f) * MapSizeUU,
 				Height
 			);
 			

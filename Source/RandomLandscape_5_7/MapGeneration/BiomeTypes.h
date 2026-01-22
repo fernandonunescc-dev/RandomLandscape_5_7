@@ -48,41 +48,54 @@ struct FBiomeConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|General")
 	FLinearColor Color = FLinearColor::Green;
 
+	/** 
+	 * When true, this biome will be painted with its debug color instead of the terrain material.
+	 * Useful for visualizing biome boundaries.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|General")
+	bool bHighlightColor = false;
+
 	// ==================== Terrain Settings ====================
 
-	/** Noise frequency for terrain height (higher = more hills) */
+	/** 
+	 * Maximum height for this biome in meters.
+	 * This is the absolute max height the terrain can reach (independent of global map height).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|Terrain", meta = (ClampMin = "0.1", ClampMax = "500.0"))
+	float MaxHeightInMeters = 10.0f;
+
+	/** 
+	 * Minimum height for this biome in meters.
+	 * The terrain will vary between MinHeight and MaxHeight.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|Terrain", meta = (ClampMin = "0.0", ClampMax = "500.0"))
+	float MinHeightInMeters = 0.0f;
+
+	/** Noise frequency for terrain height (higher = more frequent hills/features) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|Terrain", meta = (ClampMin = "0.1", ClampMax = "20.0"))
 	float NoiseFrequency = 2.0f;
 
-	/** Number of noise octaves for fractal detail */
+	/** Number of noise octaves for fractal detail (more = finer detail) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|Terrain", meta = (ClampMin = "1", ClampMax = "8"))
 	int32 NoiseOctaves = 4;
 
-	/** Persistence for fractal noise (how much each octave contributes) */
+	/** Persistence for fractal noise (how much each octave contributes, lower = smoother) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|Terrain", meta = (ClampMin = "0.1", ClampMax = "1.0"))
 	float NoisePersistence = 0.5f;
-
-	/** Height multiplier for this biome (1.0 = full height from MapSize.Z) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|Terrain", meta = (ClampMin = "0.0", ClampMax = "3.0"))
-	float HeightMultiplier = 1.0f;
-
-	/** Base height offset for this biome (0-1, added before noise) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|Terrain", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float BaseHeight = 0.0f;
 
 	FBiomeConfig() {}
 
 	FBiomeConfig(EBiomeType InType, const FString& InName, float InPercentage, const FLinearColor& InColor,
-		float InNoiseFreq = 2.0f, int32 InOctaves = 4, float InPersistence = 0.5f, float InHeightMult = 1.0f, float InBaseHeight = 0.0f)
+		float InMaxHeight = 10.0f, float InMinHeight = 0.0f, float InNoiseFreq = 2.0f, int32 InOctaves = 4, float InPersistence = 0.5f)
 		: BiomeType(InType)
 		, DisplayName(InName)
 		, Percentage(InPercentage)
 		, Color(InColor)
+		, MaxHeightInMeters(InMaxHeight)
+		, MinHeightInMeters(InMinHeight)
 		, NoiseFrequency(InNoiseFreq)
 		, NoiseOctaves(InOctaves)
 		, NoisePersistence(InPersistence)
-		, HeightMultiplier(InHeightMult)
-		, BaseHeight(InBaseHeight)
 	{}
 };
 
@@ -94,9 +107,23 @@ struct FContinentBiomeSettings
 {
 	GENERATED_BODY()
 
+	/** 
+	 * Percentage of the total map area that should be land (vs ocean).
+	 * 50% means half land, half ocean. Higher values = more land.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "10.0", ClampMax = "90.0", UIMin = "10.0", UIMax = "90.0"))
+	float LandCoveragePercent = 50.0f;
+
 	/** Ocean color (surrounds the continent) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FLinearColor OceanColor = FLinearColor(0.4f, 0.7f, 0.9f, 1.0f); // Light blue
+
+	/** 
+	 * When true, ocean will be painted with its debug color instead of the terrain material.
+	 * Useful for visualizing the ocean area.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bHighlightOcean = false;
 
 	/** 
 	 * Land biome configurations.
@@ -107,28 +134,30 @@ struct FContinentBiomeSettings
 
 	FContinentBiomeSettings()
 	{
-		// Initialize with default biomes matching the reference image
-		// Parameters: Type, Name, Percentage, Color, NoiseFreq, Octaves, Persistence, HeightMult, BaseHeight
+		// Initialize with default biomes
+		// Parameters: Type, Name, Percentage, Color, MaxHeight(m), MinHeight(m), NoiseFreq, Octaves, Persistence
 		
-		// Forest: Rolling hills, medium height
+		// Forest: Smooth rolling hills with gentle terrain variation
+		// Lower frequency = larger, smoother features
+		// Lower persistence = less high-frequency detail, smoother result
 		LandBiomes.Add(FBiomeConfig(EBiomeType::Forest, TEXT("Forest"), 35.0f, 
-			FLinearColor(0.2f, 0.6f, 0.2f, 1.0f), 2.0f, 4, 0.5f, 0.6f, 0.1f));
+			FLinearColor(0.2f, 0.6f, 0.2f, 1.0f), 4.0f, 0.5f, 0.5f, 4, 0.3f));
 		
 		// Mountain: Tall, jagged peaks
 		LandBiomes.Add(FBiomeConfig(EBiomeType::Mountain, TEXT("Mountain"), 20.0f, 
-			FLinearColor(0.5f, 0.5f, 0.5f, 1.0f), 3.0f, 5, 0.6f, 1.5f, 0.3f));
+			FLinearColor(0.5f, 0.5f, 0.5f, 1.0f), 25.0f, 5.0f, 1.5f, 5, 0.55f));
 		
 		// Desert: Flat with gentle dunes
 		LandBiomes.Add(FBiomeConfig(EBiomeType::Desert, TEXT("Desert"), 20.0f, 
-			FLinearColor(0.95f, 0.85f, 0.3f, 1.0f), 1.5f, 3, 0.4f, 0.3f, 0.05f));
+			FLinearColor(0.95f, 0.85f, 0.3f, 1.0f), 2.0f, 0.0f, 0.8f, 3, 0.25f));
 		
 		// Snow: Higher elevation, moderate terrain
 		LandBiomes.Add(FBiomeConfig(EBiomeType::Snow, TEXT("Snow"), 15.0f, 
-			FLinearColor(0.3f, 0.7f, 0.9f, 1.0f), 2.5f, 4, 0.5f, 1.0f, 0.4f));
+			FLinearColor(0.3f, 0.7f, 0.9f, 1.0f), 15.0f, 3.0f, 1.2f, 4, 0.45f));
 		
 		// Volcanic: Dramatic, steep terrain
 		LandBiomes.Add(FBiomeConfig(EBiomeType::Volcanic, TEXT("Volcanic"), 10.0f, 
-			FLinearColor(0.9f, 0.4f, 0.1f, 1.0f), 4.0f, 5, 0.7f, 1.2f, 0.2f));
+			FLinearColor(0.9f, 0.4f, 0.1f, 1.0f), 20.0f, 2.0f, 2.0f, 5, 0.6f));
 	}
 
 	/** Get total percentage of all land biomes */

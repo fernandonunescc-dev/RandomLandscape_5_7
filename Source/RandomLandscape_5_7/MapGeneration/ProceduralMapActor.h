@@ -58,12 +58,12 @@ public:
 	EMapType MapType = EMapType::Continent;
 
 	/** 
-	 * The size of the map in meters.
-	 * X = Width, Y = Depth, Z = Maximum Height
+	 * The length and width of the map in meters (square map).
+	 * Height is determined independently for each biome.
 	 * (Internally converted to Unreal Units: 1 meter = 100 UU)
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|General", meta = (ClampMin = "1.0"))
-	FVector MapSizeInMeters = FVector(100.0f, 100.0f, 10.0f);
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|General", meta = (ClampMin = "10", ClampMax = "10000"))
+	int32 MapSizeInMeters = 100;
 
 	/** 
 	 * Resolution scale (1-100) where 100 is maximum vertices/triangles per chunk.
@@ -104,8 +104,13 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Map Generation|Terrain")
 	TObjectPtr<UProceduralMeshComponent> TerrainMesh;
 
-	/** Number of vertices per side of the terrain mesh */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Terrain", meta = (ClampMin = "8", ClampMax = "256", UIMin = "8", UIMax = "256"))
+	/** 
+	 * Number of vertices per side of the terrain mesh.
+	 * Higher values = smoother terrain with more geometric detail.
+	 * For a 1K map with smooth biomes like the reference image, try 256-512.
+	 * Performance note: Total vertices = VerticesPerSide^2 (128 = 16K verts, 256 = 65K verts)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Terrain", meta = (ClampMin = "8", ClampMax = "512", UIMin = "8", UIMax = "512"))
 	int32 TerrainVerticesPerSide = 128;
 
 	/** 
@@ -117,9 +122,9 @@ public:
 
 	// ==================== Utility Functions ====================
 	
-	/** Get the map size in Unreal Units (centimeters) */
+	/** Get the map size (length/width) in Unreal Units (centimeters) */
 	UFUNCTION(BlueprintPure, Category = "Map Generation")
-	FVector GetMapSizeInUnrealUnits() const { return MapSizeInMeters * MetersToUnrealUnits; }
+	float GetMapSizeInUnrealUnits() const { return static_cast<float>(MapSizeInMeters) * MetersToUnrealUnits; }
 
 	/** Normalize biome percentages to add up to 100% */
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Map Generation|Continent Biomes")
@@ -139,6 +144,19 @@ protected:
 
 	/** Calculate terrain height using fractal Perlin noise with biome-specific settings */
 	float CalculateTerrainHeight(float NormX, float NormY, const FBiomeConfig& BiomeConfig) const;
+
+	/** 
+	 * Calculate smoothly blended terrain height at a position.
+	 * Uses bilinear interpolation of surrounding biome heights for smooth transitions.
+	 */
+	float CalculateBlendedTerrainHeight(float NormX, float NormY, int32 TextureRes,
+		const TArray<int32>& BiomeMap, const TArray<bool>& LandMask) const;
+
+	/**
+	 * Get biome-blended color at a position with smooth transitions.
+	 */
+	FColor GetBlendedBiomeColor(float NormX, float NormY, int32 TextureRes,
+		const TArray<int32>& BiomeMap, const TArray<bool>& LandMask) const;
 
 private:
 	/** Create generator settings from current properties */
