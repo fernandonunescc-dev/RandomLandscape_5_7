@@ -55,6 +55,15 @@ public:
 	/** Set the random seed for generation */
 	void SetSeed(int32 InSeed) { Seed = InSeed; }
 
+	/** Get the biome map (index per pixel, -1 = ocean) */
+	const TArray<int32>& GetBiomeMap() const { return BiomeMap; }
+
+	/** Get the land mask (true = land, false = ocean) */
+	const TArray<bool>& GetLandMask() const { return LandMask; }
+
+	/** Get the texture resolution */
+	int32 GetTextureResolution() const { return TextureResolution; }
+
 protected:
 	/** Pass 1: Generate the land mask (which pixels are land vs ocean) */
 	void GenerateLandMask();

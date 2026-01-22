@@ -7,10 +7,12 @@
 #include "GameFramework/Actor.h"
 #include "MapTypes.h"
 #include "BiomeTypes.h"
+#include "ProceduralMeshComponent.h"
 #include "ProceduralMapActor.generated.h"
 
 class UMapGeneratorBase;
 class UTexture2D;
+class UContinentMapGenerator;
 
 /**
  * Actor that manages procedural map generation.
@@ -96,6 +98,23 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Map Generation|Preview", Transient)
 	TObjectPtr<UTexture2D> PreviewTexture;
 
+	// ==================== Terrain Mesh ====================
+	
+	/** The procedural mesh component for the terrain */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Map Generation|Terrain")
+	TObjectPtr<UProceduralMeshComponent> TerrainMesh;
+
+	/** Number of vertices per side of the terrain mesh */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Terrain", meta = (ClampMin = "8", ClampMax = "256", UIMin = "8", UIMax = "256"))
+	int32 TerrainVerticesPerSide = 128;
+
+	/** 
+	 * Material to use for terrain. Should use Vertex Color node to display biome colors.
+	 * If not set, a default material will be created.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Terrain")
+	TObjectPtr<UMaterialInterface> TerrainMaterial;
+
 	// ==================== Utility Functions ====================
 	
 	/** Get the map size in Unreal Units (centimeters) */
@@ -115,7 +134,16 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UMapGeneratorBase> CurrentGenerator;
 
+	/** Generate the 3D terrain mesh from the biome map */
+	void GenerateTerrainMesh(UContinentMapGenerator* Generator);
+
+	/** Calculate terrain height using fractal Perlin noise with biome-specific settings */
+	float CalculateTerrainHeight(float NormX, float NormY, const FBiomeConfig& BiomeConfig) const;
+
 private:
 	/** Create generator settings from current properties */
 	FMapGenerationSettings CreateSettings() const;
+
+	/** Random stream for terrain generation */
+	FRandomStream TerrainRandomStream;
 };
