@@ -244,8 +244,8 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 				const FBiomeConfig& BiomeConfig = ContinentBiomeSettings.LandBiomes[BiomeIndex];
 				Height = CalculateTerrainHeight(NormX, NormY, BiomeConfig) * MapSizeUU.Z;
 				
-				// Get biome color
-				VertColor = BiomeConfig.Color.ToFColor(true);
+				// Get biome color - use false to keep in linear space (GPU handles gamma)
+				VertColor = BiomeConfig.Color.ToFColor(false);
 			}
 			else if (bIsLand)
 			{
@@ -258,7 +258,7 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 			{
 				// Ocean - flat at 0 height (or slightly below)
 				Height = -MapSizeUU.Z * 0.05f; // Slightly below land
-				VertColor = ContinentBiomeSettings.OceanColor.ToFColor(true);
+				VertColor = ContinentBiomeSettings.OceanColor.ToFColor(false);
 			}
 			
 			// Position in world space (centered on actor)
