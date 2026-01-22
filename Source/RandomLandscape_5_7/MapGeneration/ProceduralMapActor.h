@@ -72,80 +72,12 @@ public:
 	//UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|General", meta = (ClampMin = "1", ClampMax = "100", UIMin = "1", UIMax = "100"))
 	int32 MapResolution = 50;
 
-	/**
-	 * Random seed for map generation. 
-	 * Use 0 for a random seed each time, or set a specific value for reproducible results.
-	 */
-	//UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|General")
-	int32 Seed = 0;
-
-	// ==================== Continent Biome Settings ====================
-	
-	/** 
-	 * Biome configuration for Continent map type.
-	 * Configure the percentage and color for each biome.
-	 * Land biome percentages should add up to 100%.
-	 */
-	//UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Continent Biomes", meta = (EditCondition = "MapType == EMapType::Continent", EditConditionHides))
-	FContinentBiomeSettings ContinentBiomeSettings;
-
-	// ==================== Preview ====================
-	
-	/** 
-	 * Preview texture showing the generated biome distribution.
-	 * Updated after calling GenerateMap().
-	 */
-	//UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Map Generation|Preview", Transient)
-	//TObjectPtr<UTexture2D> PreviewTexture;
-
-	// ==================== Terrain Mesh ====================
-	
-	/** The procedural mesh component for the terrain */
-	//UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Map Generation|Terrain")
-	//TObjectPtr<UProceduralMeshComponent> TerrainMesh;
-
-	/** 
-	 * Number of chunks per side to divide the terrain into.
-	 * More chunks = higher resolution possible.
-	 * Total chunks = ChunksPerSide^2 (e.g., 10 = 100 chunks)
-	 */
-	//UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Terrain", meta = (ClampMin = "1", ClampMax = "100", UIMin = "1", UIMax = "100"))
-	int32 ChunksPerSide = 10;
-
-	/** 
-	 * Number of vertices per side for EACH chunk.
-	 * Higher values = smoother terrain within each chunk.
-	 * Total vertices per chunk = VerticesPerChunkSide^2
-	 * Total map vertices = (ChunksPerSide * VerticesPerChunkSide)^2
-	 * Example: 10 chunks x 100 verts = 1000 verts per side = 1M total vertices
-	 */
-	//UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Terrain", meta = (ClampMin = "8", ClampMax = "255", UIMin = "8", UIMax = "255"))
-	int32 VerticesPerChunkSide = 100;
-
-	/** 
-	 * Material to use for terrain. Should use Vertex Color node to display biome colors.
-	 * If not set, a default material will be created.
-	 */
-	//UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Terrain")
-	//TObjectPtr<UMaterialInterface> TerrainMaterial;
-
-	// ==================== Utility Functions ====================
-	
-	/** Get the map size (length/width) in Unreal Units (centimeters) */
-	UFUNCTION(BlueprintPure, Category = "Map Generation")
-	float GetMapSizeInUnrealUnits() const { return static_cast<float>(MapSizeInMeters) * MetersToUnrealUnits; }
-
-	/** Normalize biome percentages to add up to 100% */
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Map Generation|Continent Biomes")
-	void NormalizeBiomePercentages();
-
-	/** Get the total of all biome percentages */
-	UFUNCTION(BlueprintPure, Category = "Map Generation|Continent Biomes")
-	float GetTotalBiomePercentage() const { return ContinentBiomeSettings.GetTotalPercentage(); }
-
 public:
 	// ================ User-visible shape settings ================
 	// Only these properties are exposed in the editor
+	UPROPERTY(EditAnywhere, Category = "Procedural|Map|Shape")
+	int32 Seed = 0; // Editor-exposed seed, 0 means random
+
 	UPROPERTY(EditAnywhere, Category = "Procedural|Map|Shape")
 	float LandmassPercentage = 50.0f; // 0..100 percent of land coverage
 
@@ -154,6 +86,15 @@ public:
 
 	UPROPERTY(EditAnywhere, Category = "Procedural|Map|Shape")
 	TObjectPtr<UTexture2D> LandmassTexture = nullptr;
+
+	// ================ Generation Timing (read-only) ================
+	/** Total time in seconds for the entire generation process */
+	UPROPERTY(VisibleAnywhere, Category = "Procedural|Map|Shape")
+	float TotalDuration = 0.0f;
+
+	/** Time in seconds to generate just the black/white landmass shape */
+	UPROPERTY(VisibleAnywhere, Category = "Procedural|Map|Shape")
+	float ShapeDuration = 0.0f;
 
 protected:
 	/** The current map generator instance */
@@ -186,6 +127,11 @@ private:
 	/** Random stream for terrain generation */
 	FRandomStream TerrainRandomStream;
 
+	// Internal settings (not exposed in editor)
+	FContinentBiomeSettings ContinentBiomeSettings;
+	int32 ChunksPerSide = 10;
+	int32 VerticesPerChunkSide = 100;
+
 	// Internal pointers - keep as UPROPERTY to avoid GC warnings
 	UPROPERTY()
 	TObjectPtr<UTexture2D> PreviewTexture;
@@ -195,4 +141,7 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<UMaterialInterface> TerrainMaterial;
+
+	// Utility functions
+	void NormalizeBiomePercentages();
 };

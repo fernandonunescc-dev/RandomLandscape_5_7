@@ -64,7 +64,22 @@ public:
 	/** Get the texture resolution */
 	int32 GetTextureResolution() const { return TextureResolution; }
 
+	/** Set the padding used when producing preview textures (in pixels) */
+	void SetPreviewPadding(int32 InPadding);
+
 protected:
+	/** Random seed for generation (moved to top as requested) */
+	int32 Seed = 0;
+
+	/** Random stream for deterministic generation */
+	FRandomStream RandomStream;
+
+	/** Texture resolution (based on MapResolution setting) */
+	int32 TextureResolution = 256;
+
+	/** Padding (in pixels) applied to preview texture edges to force ocean */
+	int32 PreviewPadding = 0;
+
 	/** Pass 1: Generate the land mask (which pixels are land vs ocean) */
 	void GenerateLandMask();
 
@@ -102,13 +117,4 @@ protected:
 
 	/** Voronoi seed points for biome regions */
 	TArray<FBiomeSeedPoint> BiomeSeedPoints;
-
-	/** Texture resolution (based on MapResolution setting) */
-	int32 TextureResolution = 256;
-
-	/** Random seed for generation */
-	int32 Seed = 0;
-
-	/** Random stream for deterministic generation */
-	FRandomStream RandomStream;
 };

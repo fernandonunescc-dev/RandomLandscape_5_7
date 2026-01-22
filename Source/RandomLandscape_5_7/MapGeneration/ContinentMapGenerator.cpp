@@ -45,6 +45,11 @@ void UContinentMapGenerator::SetBiomeSettings(const FContinentBiomeSettings& InB
 	BiomeSettings = InBiomeSettings;
 }
 
+void UContinentMapGenerator::SetPreviewPadding(int32 InPadding)
+{
+	PreviewPadding = FMath::Max(0, InPadding);
+}
+
 bool UContinentMapGenerator::Generate()
 {
 	if (!Super::Generate())
@@ -138,7 +143,7 @@ void UContinentMapGenerator::GenerateLandMask()
 	}
 
 	// Enforce minimum distance from texture edge to keep border clear of land
-	int32 Pad = FMath::Max(0, BiomeSettings.MinDistanceFromEdge);
+	int32 Pad = FMath::Max(0, PreviewPadding);
 	int32 MaxPad = FMath::Max(0, FMath::Min(Width / 2 - 1, Height / 2 - 1));
 	if (Pad > MaxPad)
 	{
@@ -598,5 +603,7 @@ void UContinentMapGenerator::GeneratePreviewTexture()
 	UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator::GeneratePreviewTexture - Created %dx%d landmask texture"),
 		TextureResolution, TextureResolution);
 }
+
+
 
 

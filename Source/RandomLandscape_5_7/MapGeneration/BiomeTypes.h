@@ -114,10 +114,6 @@ struct FContinentBiomeSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "10.0", ClampMax = "90.0", UIMin = "10.0", UIMax = "90.0"))
 	float LandCoveragePercent = 50.0f;
 
-	/** Minimum distance (in pixels) from the texture edge that must remain ocean. Prevents white pixels touching the border. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Shape", meta = (ClampMin = "0", ClampMax = "64", UIMin = "0", UIMax = "64"))
-	int32 MinDistanceFromEdge = 2;
-
 	/** Ocean color (surrounds the continent) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FLinearColor OceanColor = FLinearColor(0.4f, 0.7f, 0.9f, 1.0f); // Light blue

@@ -34,8 +34,15 @@ void AProceduralMapActor::Tick(float DeltaTime)
 
 void AProceduralMapActor::GenerateMap()
 {
+	// Start total timing
+	double TotalStartTime = FPlatformTime::Seconds();
+	
 	// We still want to generate the low-res landmass preview texture, but avoid any mesh creation.
 	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Running generator to produce LandmassTexture (no meshes)"));
+
+	// Reset durations
+	TotalDuration = 0.0f;
+	ShapeDuration = 0.0f;
 
 	// Clear any existing preview
 	PreviewTexture = nullptr;
@@ -55,12 +62,13 @@ void AProceduralMapActor::GenerateMap()
 		UContinentMapGenerator* ContinentGenerator = Cast<UContinentMapGenerator>(CurrentGenerator);
 		if (ContinentGenerator)
 		{
-			// Copy actor biome settings, but override land coverage with the user-visible LandmassPercentage and padding
+			// Copy actor biome settings, but override land coverage with the user-visible LandmassPercentage
 			FContinentBiomeSettings SettingsToUse = ContinentBiomeSettings;
 			SettingsToUse.LandCoveragePercent = LandmassPercentage;
-			SettingsToUse.MinDistanceFromEdge = MinDistanceFromEdge;
 			ContinentGenerator->SetBiomeSettings(SettingsToUse);
 			ContinentGenerator->SetSeed(Seed);
+			// Set preview padding (generator-only, not a biome setting)
+			ContinentGenerator->SetPreviewPadding(MinDistanceFromEdge);
 		}
 	}
 
@@ -68,9 +76,16 @@ void AProceduralMapActor::GenerateMap()
 	FMapGenerationSettings Settings = CreateSettings();
 	CurrentGenerator->Initialize(Settings);
 
+	// Start shape generation timing
+	double ShapeStartTime = FPlatformTime::Seconds();
+
 	if (CurrentGenerator->Generate())
 	{
-		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Generator run successful"));
+		// End shape generation timing
+		double ShapeEndTime = FPlatformTime::Seconds();
+		ShapeDuration = static_cast<float>(ShapeEndTime - ShapeStartTime);
+
+		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Generator run successful (Shape: %.4f sec)"), ShapeDuration);
 
 		if (MapType == EMapType::Continent)
 		{
@@ -99,6 +114,12 @@ void AProceduralMapActor::GenerateMap()
 	{
 		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateMap - Generator run failed"));
 	}
+
+	// End total timing
+	double TotalEndTime = FPlatformTime::Seconds();
+	TotalDuration = static_cast<float>(TotalEndTime - TotalStartTime);
+
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Complete (Total: %.4f sec, Shape: %.4f sec)"), TotalDuration, ShapeDuration);
 }
 
 void AProceduralMapActor::ClearMap()
