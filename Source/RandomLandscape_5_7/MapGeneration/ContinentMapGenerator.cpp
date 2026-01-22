@@ -8,29 +8,27 @@ UContinentMapGenerator::UContinentMapGenerator()
 {
 	PreviewTexture = nullptr;
 	Seed = 0;
+	BiomeSeed = 0;
 }
 
 void UContinentMapGenerator::Initialize(const FMapGenerationSettings& InSettings)
 {
 	Super::Initialize(InSettings);
 	
-	// Force a low-resolution preview texture for landmass shape (for editor thumbnail / shape)
-	TextureResolution = 64; // Low-res texture for landmass shape
+	// Use 512 for high biome detail - performance impact is minimal
+	TextureResolution = 512;
 	
-	// If seed is 0, generate a truly random seed for this generation
-	if (Seed == 0)
-	{
-		Seed = FMath::RandRange(1, TNumericLimits<int32>::Max());
-	}
-	
-	// Always initialize random stream with the current seed
+	// Initialize random streams with provided seeds
+	// (Actor is responsible for generating random seeds when seed == 0)
 	RandomStream.Initialize(Seed);
+	BiomeRandomStream.Initialize(BiomeSeed);
 	
-	UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator initialized - Size: %d meters (%.0f UU), Resolution: %d (forced low-res), Seed: %d"),
+	UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator initialized - Size: %d meters (%.0f UU), Resolution: %d, LandmassSeed: %d, BiomeSeed: %d"),
 		Settings.MapSizeInMeters, 
 		Settings.GetMapSizeInUnrealUnits(),
 		TextureResolution,
-		Seed);
+		Seed,
+		BiomeSeed);
 
 	// Log biome settings
 	UE_LOG(LogTemp, Log, TEXT("Biome Settings - Total Percentage: %.1f%%"), BiomeSettings.GetTotalPercentage());
@@ -53,19 +51,51 @@ bool UContinentMapGenerator::Generate()
 		return false;
 	}
 
+	// Full generation: landmass + biomes
+	if (!GenerateLandmassOnly())
+	{
+		return false;
+	}
+	
+	return GenerateBiomesOnly();
+}
+
+bool UContinentMapGenerator::GenerateLandmassOnly()
+{
+	UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator::GenerateLandmassOnly - Generating land mask"));
+	
+	// Pass 1: Generate the land mask (determine which pixels are land)
+	GenerateLandMask();
+	
+	// Generate a black/white preview texture showing just the landmass
+	GeneratePreviewTexture();
+	
+	return true;
+}
+
+bool UContinentMapGenerator::GenerateBiomesOnly()
+{
+	if (LandMask.Num() == 0 || LandPixels.Num() == 0)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ContinentMapGenerator::GenerateBiomesOnly - No landmass data. Call GenerateLandmassOnly first."));
+		return false;
+	}
+
+	// Initialize biome random stream with the provided seed
+	BiomeRandomStream.Initialize(BiomeSeed);
+	
+	UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator::GenerateBiomesOnly - Using biome seed: %d"), BiomeSeed);
+
 	// Validate biome percentages
 	if (!BiomeSettings.ArePercentagesValid())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("ContinentMapGenerator::Generate - Biome percentages don't add up to 100%% (Total: %.1f%%). Normalizing..."),
+		UE_LOG(LogTemp, Warning, TEXT("ContinentMapGenerator::GenerateBiomesOnly - Biome percentages don't add up to 100%% (Total: %.1f%%). Normalizing..."),
 			BiomeSettings.GetTotalPercentage());
 		BiomeSettings.NormalizePercentages();
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator::Generate - Generating continent with %d biomes"),
-		BiomeSettings.LandBiomes.Num());
-	
-	// Pass 1: Generate the land mask (determine which pixels are land)
-	GenerateLandMask();
+	UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator::GenerateBiomesOnly - Assigning %d biomes to %d land pixels"),
+		BiomeSettings.LandBiomes.Num(), LandPixels.Num());
 	
 	// Pass 2: Assign biomes to land pixels using flood-fill
 	AssignBiomesToLand();
@@ -273,7 +303,7 @@ void UContinentMapGenerator::AssignBiomesToLand()
 			// Shuffle edge pixels and find an unassigned one
 			for (int32 Attempt = 0; Attempt < EdgePixels.Num(); ++Attempt)
 			{
-				int32 RandIdx = RandomStream.RandRange(0, EdgePixels.Num() - 1);
+				int32 RandIdx = BiomeRandomStream.RandRange(0, EdgePixels.Num() - 1);
 				FIntPoint CandidatePixel = EdgePixels[RandIdx];
 				int32 CandidateIndex = CandidatePixel.Y * Width + CandidatePixel.X;
 				
@@ -313,7 +343,7 @@ void UContinentMapGenerator::AssignBiomesToLand()
 			while (Target.CurrentCount < PixelsNeeded && Frontier.Num() > 0)
 			{
 				// Pick a random frontier pixel to expand from
-				int32 FrontierIdx = RandomStream.RandRange(0, Frontier.Num() - 1);
+				int32 FrontierIdx = BiomeRandomStream.RandRange(0, Frontier.Num() - 1);
 				FIntPoint CurrentPixel = Frontier[FrontierIdx];
 				
 				// Collect all valid neighbors
@@ -337,7 +367,7 @@ void UContinentMapGenerator::AssignBiomesToLand()
 				if (ValidNeighbors.Num() > 0)
 				{
 					// Pick a random neighbor to claim
-					int32 RandNeighbor = RandomStream.RandRange(0, ValidNeighbors.Num() - 1);
+					int32 RandNeighbor = BiomeRandomStream.RandRange(0, ValidNeighbors.Num() - 1);
 					FIntPoint ChosenNeighbor = ValidNeighbors[RandNeighbor];
 					int32 ChosenIndex = ChosenNeighbor.Y * Width + ChosenNeighbor.X;
 					
@@ -571,6 +601,9 @@ void UContinentMapGenerator::GeneratePreviewTexture()
 	const int32 Width = TextureResolution;
 	const int32 Height = TextureResolution;
 
+	// Check if biomes have been assigned
+	bool bHasBiomes = BiomeMap.Num() > 0 && BiomeSettings.LandBiomes.Num() > 0;
+
 	for (int32 Y = 0; Y < Height; ++Y)
 	{
 		for (int32 X = 0; X < Width; ++X)
@@ -584,12 +617,47 @@ void UContinentMapGenerator::GeneratePreviewTexture()
 				bIsLand = LandMask[MapIndex];
 			}
 			
-			// White for land, black for ocean
-			uint8 V = bIsLand ? 255 : 0;
-			Pixels[PixelIndex + 0] = V; // B
-			Pixels[PixelIndex + 1] = V; // G
-			Pixels[PixelIndex + 2] = V; // R
-			Pixels[PixelIndex + 3] = 255; // A
+			FLinearColor PixelColor;
+			
+			if (!bIsLand)
+			{
+				// Ocean - use ocean color if we have biomes, otherwise black
+				if (bHasBiomes)
+				{
+					PixelColor = BiomeSettings.OceanColor;
+				}
+				else
+				{
+					PixelColor = FLinearColor::Black;
+				}
+			}
+			else if (bHasBiomes)
+			{
+				// Land with biomes - use biome color
+				int32 BiomeIndex = (MapIndex < BiomeMap.Num()) ? BiomeMap[MapIndex] : -1;
+				
+				if (BiomeIndex >= 0 && BiomeIndex < BiomeSettings.LandBiomes.Num())
+				{
+					PixelColor = BiomeSettings.LandBiomes[BiomeIndex].Color;
+				}
+				else
+				{
+					// Fallback - default green for unassigned land
+					PixelColor = FLinearColor(0.2f, 0.6f, 0.2f, 1.0f);
+				}
+			}
+			else
+			{
+				// Land without biomes - white
+				PixelColor = FLinearColor::White;
+			}
+			
+			// Convert to 8-bit and write (BGRA format)
+			FColor FinalColor = PixelColor.ToFColor(false);
+			Pixels[PixelIndex + 0] = FinalColor.B;
+			Pixels[PixelIndex + 1] = FinalColor.G;
+			Pixels[PixelIndex + 2] = FinalColor.R;
+			Pixels[PixelIndex + 3] = 255;
 		}
 	}
 
@@ -597,8 +665,8 @@ void UContinentMapGenerator::GeneratePreviewTexture()
 	Mip.BulkData.Unlock();
 	PreviewTexture->UpdateResource();
 
-	UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator::GeneratePreviewTexture - Created %dx%d landmask texture"),
-		TextureResolution, TextureResolution);
+	UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator::GeneratePreviewTexture - Created %dx%d %s texture"),
+		TextureResolution, TextureResolution, bHasBiomes ? TEXT("biome") : TEXT("landmask"));
 }
 
 

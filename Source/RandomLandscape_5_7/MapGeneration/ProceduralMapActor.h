@@ -29,6 +29,11 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
+#if WITH_EDITOR
+	/** Called when a property is changed in the editor */
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+
 public:
 	virtual void Tick(float DeltaTime) override;
 
@@ -85,8 +90,9 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Landmass")
 	void GenerateLandmass();
 
+	/** Seed for landmass shape generation. 0 = random. */
 	UPROPERTY(EditAnywhere, Category = "Landmass")
-	int32 Seed = 0; // Editor-exposed seed, 0 means random
+	int32 Seed = 0;
 
 	UPROPERTY(EditAnywhere, Category = "Landmass", meta = (ClampMin = "5.0", ClampMax = "75.0", UIMin = "5.0", UIMax = "75.0"))
 	float LandmassPercentage = 50.0f; // 5..75 percent of land coverage
@@ -97,6 +103,30 @@ public:
 	/** Time in seconds to generate just the black/white landmass texture */
 	UPROPERTY(VisibleAnywhere, Category = "Landmass")
 	float LandmassDuration = 0.0f;
+
+	// ================ Biome Settings ================
+	/**
+	 * Generate biomes on top of the existing landmass.
+	 * Must generate landmass first.
+	 */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Biomes")
+	void GenerateBiomes();
+
+	/** Seed for biome distribution. 0 = random. Separate from landmass seed so you can keep the same island shape with different biome layouts. */
+	UPROPERTY(EditAnywhere, Category = "Biomes")
+	int32 BiomeSeed = 0;
+
+	/** The generated biome map texture (colored by biome) */
+	UPROPERTY(VisibleAnywhere, Category = "Biomes")
+	TObjectPtr<UTexture2D> BiomeTexture = nullptr;
+
+	/** Time in seconds to generate the biome distribution */
+	UPROPERTY(VisibleAnywhere, Category = "Biomes")
+	float BiomeDuration = 0.0f;
+
+	/** Biome configuration settings */
+	UPROPERTY(EditAnywhere, Category = "Biomes")
+	FContinentBiomeSettings BiomeSettings;
 
 protected:
 	/** The current map generator instance */
@@ -130,7 +160,6 @@ private:
 	FRandomStream TerrainRandomStream;
 
 	// Internal settings (not exposed in editor)
-	FContinentBiomeSettings ContinentBiomeSettings;
 	int32 ChunksPerSide = 10;
 	int32 VerticesPerChunkSide = 100;
 

@@ -27,6 +27,49 @@ void AProceduralMapActor::BeginPlay()
 	Super::BeginPlay();
 }
 
+#if WITH_EDITOR
+void AProceduralMapActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	if (!PropertyChangedEvent.Property)
+	{
+		return;
+	}
+
+	const FName PropertyName = PropertyChangedEvent.Property->GetFName();
+
+	// When landmass seed or percentage changes, regenerate landmass and biomes
+	if (PropertyName == GET_MEMBER_NAME_CHECKED(AProceduralMapActor, Seed) ||
+		PropertyName == GET_MEMBER_NAME_CHECKED(AProceduralMapActor, LandmassPercentage))
+	{
+		// Store current biome seed (preserve it across landmass regeneration)
+		int32 CurrentBiomeSeed = BiomeSeed;
+		
+		GenerateLandmass();
+		
+		// Restore biome seed and regenerate biomes
+		BiomeSeed = CurrentBiomeSeed;
+		if (CurrentGenerator)
+		{
+			GenerateBiomes();
+		}
+	}
+	// When biome seed changes, regenerate only biomes (keep same landmass)
+	else if (PropertyName == GET_MEMBER_NAME_CHECKED(AProceduralMapActor, BiomeSeed))
+	{
+		if (CurrentGenerator)
+		{
+			GenerateBiomes();
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("ProceduralMapActor::PostEditChangeProperty - No landmass generated yet. Generate landmass first."));
+		}
+	}
+}
+#endif
+
 void AProceduralMapActor::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
@@ -42,17 +85,22 @@ void AProceduralMapActor::GenerateMap()
 	// Reset durations
 	TotalDuration = 0.0f;
 	LandmassDuration = 0.0f;
+	BiomeDuration = 0.0f;
 
 	// Generate the landmass first (this sets LandmassDuration)
 	GenerateLandmass();
 
-	// TODO: Future steps will go here (biomes, terrain mesh, etc.)
+	// Generate biomes on top of the landmass (this sets BiomeDuration)
+	GenerateBiomes();
+
+	// TODO: Future steps will go here (terrain mesh, etc.)
 	
 	// End total timing
 	double TotalEndTime = FPlatformTime::Seconds();
 	TotalDuration = static_cast<float>(TotalEndTime - TotalStartTime);
 
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Complete (Total: %.4f sec, Landmass: %.4f sec)"), TotalDuration, LandmassDuration);
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Complete (Total: %.4f sec, Landmass: %.4f sec, Biomes: %.4f sec)"), 
+		TotalDuration, LandmassDuration, BiomeDuration);
 }
 
 void AProceduralMapActor::GenerateLandmass()
@@ -68,6 +116,7 @@ void AProceduralMapActor::GenerateLandmass()
 	// Clear any existing preview
 	PreviewTexture = nullptr;
 	LandmassTexture = nullptr;
+	BiomeTexture = nullptr;
 
 	// Create generator
 	CurrentGenerator = FMapGeneratorFactory::CreateGenerator(this, MapType);
@@ -83,45 +132,51 @@ void AProceduralMapActor::GenerateLandmass()
 		UContinentMapGenerator* ContinentGenerator = Cast<UContinentMapGenerator>(CurrentGenerator);
 		if (ContinentGenerator)
 		{
-			// Copy actor biome settings, but override land coverage with the user-visible LandmassPercentage
-			FContinentBiomeSettings SettingsToUse = ContinentBiomeSettings;
+			// If Seed is 0, generate a random seed and store it so subsequent calls use the same seed
+			int32 SeedToUse = Seed;
+			if (SeedToUse == 0)
+			{
+				SeedToUse = FMath::RandRange(1, TNumericLimits<int32>::Max());
+				Seed = SeedToUse; // Store it back so regenerating uses the same seed
+				UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateLandmass - Generated random landmass seed: %d"), SeedToUse);
+			}
+
+			// Copy biome settings, but override land coverage with the user-visible LandmassPercentage
+			FContinentBiomeSettings SettingsToUse = BiomeSettings;
 			SettingsToUse.LandCoveragePercent = LandmassPercentage;
 			ContinentGenerator->SetBiomeSettings(SettingsToUse);
-			ContinentGenerator->SetSeed(Seed);
+			ContinentGenerator->SetSeed(SeedToUse);
 		}
 	}
 
-	// Initialize and generate
+	// Initialize and generate only the landmass
 	FMapGenerationSettings Settings = CreateSettings();
 	CurrentGenerator->Initialize(Settings);
 
-	if (CurrentGenerator->Generate())
+	if (MapType == EMapType::Continent)
 	{
-		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateLandmass - Generator run successful"));
-
-		if (MapType == EMapType::Continent)
+		UContinentMapGenerator* ContinentGenerator = Cast<UContinentMapGenerator>(CurrentGenerator);
+		if (ContinentGenerator && ContinentGenerator->GenerateLandmassOnly())
 		{
-			UContinentMapGenerator* ContinentGenerator = Cast<UContinentMapGenerator>(CurrentGenerator);
-			if (ContinentGenerator)
+			UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateLandmass - Landmass generation successful"));
+
+			// Get the preview texture and expose it as the LandmassTexture property
+			UTexture2D* GenTex = ContinentGenerator->GetPreviewTexture();
+			if (GenTex)
 			{
-				// Get the low-res preview texture and expose it as the LandmassTexture property
-				UTexture2D* GenTex = ContinentGenerator->GetPreviewTexture();
-				if (GenTex)
-				{
-					PreviewTexture = GenTex;
-					LandmassTexture = GenTex;
-					UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateLandmass - Assigned generated texture to LandmassTexture"));
-				}
-				else
-				{
-					UE_LOG(LogTemp, Warning, TEXT("ProceduralMapActor::GenerateLandmass - Generator produced no preview texture"));
-				}
+				PreviewTexture = GenTex;
+				LandmassTexture = GenTex;
+				UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateLandmass - Assigned generated texture to LandmassTexture"));
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("ProceduralMapActor::GenerateLandmass - Generator produced no preview texture"));
 			}
 		}
-	}
-	else
-	{
-		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateLandmass - Generator run failed"));
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateLandmass - Landmass generation failed"));
+		}
 	}
 
 	// End landmass timing
@@ -129,6 +184,75 @@ void AProceduralMapActor::GenerateLandmass()
 	LandmassDuration = static_cast<float>(LandmassEndTime - LandmassStartTime);
 
 	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateLandmass - Complete (%.4f sec)"), LandmassDuration);
+}
+
+void AProceduralMapActor::GenerateBiomes()
+{
+	// Start biome timing
+	double BiomeStartTime = FPlatformTime::Seconds();
+	
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomes - Generating biome distribution"));
+
+	// Reset biome duration
+	BiomeDuration = 0.0f;
+
+	// Check if we have a valid generator with landmass data
+	if (!CurrentGenerator)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateBiomes - No generator. Generate landmass first."));
+		return;
+	}
+
+	UContinentMapGenerator* ContinentGenerator = Cast<UContinentMapGenerator>(CurrentGenerator);
+	if (!ContinentGenerator)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateBiomes - Generator is not a ContinentMapGenerator"));
+		return;
+	}
+
+	// If BiomeSeed is 0, generate a random seed and store it so subsequent calls use the same seed
+	int32 SeedToUse = BiomeSeed;
+	if (SeedToUse == 0)
+	{
+		SeedToUse = FMath::RandRange(1, TNumericLimits<int32>::Max());
+		BiomeSeed = SeedToUse; // Store it back so regenerating uses the same seed
+		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomes - Generated random biome seed: %d"), SeedToUse);
+	}
+
+	// Update biome settings and seed
+	FContinentBiomeSettings SettingsToUse = BiomeSettings;
+	SettingsToUse.LandCoveragePercent = LandmassPercentage;
+	ContinentGenerator->SetBiomeSettings(SettingsToUse);
+	ContinentGenerator->SetBiomeSeed(SeedToUse);
+
+	// Generate biomes on the existing landmass
+	if (ContinentGenerator->GenerateBiomesOnly())
+	{
+		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomes - Biome generation successful"));
+
+		// Get the preview texture with biome colors
+		UTexture2D* GenTex = ContinentGenerator->GetPreviewTexture();
+		if (GenTex)
+		{
+			PreviewTexture = GenTex;
+			BiomeTexture = GenTex;
+			UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomes - Assigned generated texture to BiomeTexture"));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("ProceduralMapActor::GenerateBiomes - Generator produced no preview texture"));
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateBiomes - Biome generation failed"));
+	}
+
+	// End biome timing
+	double BiomeEndTime = FPlatformTime::Seconds();
+	BiomeDuration = static_cast<float>(BiomeEndTime - BiomeStartTime);
+
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomes - Complete (%.4f sec)"), BiomeDuration);
 }
 
 
@@ -140,6 +264,8 @@ void AProceduralMapActor::ClearMap()
 	}
 	
 	PreviewTexture = nullptr;
+	LandmassTexture = nullptr;
+	BiomeTexture = nullptr;
 	
 	// Clear the terrain mesh
 	if (TerrainMesh)
@@ -157,7 +283,7 @@ UTexture2D* AProceduralMapActor::GetPreviewTexture() const
 
 void AProceduralMapActor::NormalizeBiomePercentages()
 {
-	ContinentBiomeSettings.NormalizePercentages();
+	BiomeSettings.NormalizePercentages();
 	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::NormalizeBiomePercentages - Percentages normalized to 100%%"));
 }
 
@@ -218,9 +344,9 @@ float AProceduralMapActor::CalculateBlendedTerrainHeight(float NormX, float Norm
 		float PixelNormX = static_cast<float>(PX) / static_cast<float>(TextureRes - 1);
 		float PixelNormY = static_cast<float>(PY) / static_cast<float>(TextureRes - 1);
 		
-		if (bIsLand && BiomeIndex >= 0 && BiomeIndex < ContinentBiomeSettings.LandBiomes.Num())
+		if (bIsLand && BiomeIndex >= 0 && BiomeIndex < BiomeSettings.LandBiomes.Num())
 		{
-			const FBiomeConfig& BiomeConfig = ContinentBiomeSettings.LandBiomes[BiomeIndex];
+			const FBiomeConfig& BiomeConfig = BiomeSettings.LandBiomes[BiomeIndex];
 			return CalculateTerrainHeight(PixelNormX, PixelNormY, BiomeConfig);
 		}
 		else if (bIsLand)
@@ -277,15 +403,15 @@ FColor AProceduralMapActor::GetBlendedBiomeColor(float NormX, float NormY, int32
 		int32 Index = PY * TextureRes + PX;
 		if (Index < 0 || Index >= LandMask.Num())
 		{
-			return ContinentBiomeSettings.OceanColor;
+			return BiomeSettings.OceanColor;
 		}
 		
 		bool bIsLand = LandMask[Index];
 		int32 BiomeIndex = (Index < BiomeMap.Num()) ? BiomeMap[Index] : -1;
 		
-		if (bIsLand && BiomeIndex >= 0 && BiomeIndex < ContinentBiomeSettings.LandBiomes.Num())
+		if (bIsLand && BiomeIndex >= 0 && BiomeIndex < BiomeSettings.LandBiomes.Num())
 		{
-			const FBiomeConfig& BiomeConfig = ContinentBiomeSettings.LandBiomes[BiomeIndex];
+			const FBiomeConfig& BiomeConfig = BiomeSettings.LandBiomes[BiomeIndex];
 			if (BiomeConfig.bHighlightColor)
 			{
 				return BiomeConfig.Color;
@@ -298,9 +424,9 @@ FColor AProceduralMapActor::GetBlendedBiomeColor(float NormX, float NormY, int32
 		}
 		else
 		{
-			if (ContinentBiomeSettings.bHighlightOcean)
+			if (BiomeSettings.bHighlightOcean)
 			{
-				return ContinentBiomeSettings.OceanColor;
+				return BiomeSettings.OceanColor;
 			}
 			return FLinearColor::White;
 		}

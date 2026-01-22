@@ -52,8 +52,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Map Generation")
 	UTexture2D* GetPreviewTexture() const { return PreviewTexture; }
 
-	/** Set the random seed for generation */
+	/** Set the random seed for landmass generation */
 	void SetSeed(int32 InSeed) { Seed = InSeed; }
+
+	/** Set the random seed for biome distribution */
+	void SetBiomeSeed(int32 InSeed) { BiomeSeed = InSeed; }
+
+	/** Generate only the landmass (land/water mask) */
+	bool GenerateLandmassOnly();
+
+	/** Generate biomes on existing landmass (must call GenerateLandmassOnly first) */
+	bool GenerateBiomesOnly();
 
 	/** Get the biome map (index per pixel, -1 = ocean) */
 	const TArray<int32>& GetBiomeMap() const { return BiomeMap; }
@@ -65,11 +74,17 @@ public:
 	int32 GetTextureResolution() const { return TextureResolution; }
 
 protected:
-	/** Random seed for generation (moved to top as requested) */
+	/** Random seed for landmass generation */
 	int32 Seed = 0;
 
-	/** Random stream for deterministic generation */
+	/** Random seed for biome distribution (separate from landmass) */
+	int32 BiomeSeed = 0;
+
+	/** Random stream for landmass generation */
 	FRandomStream RandomStream;
+
+	/** Random stream for biome distribution */
+	FRandomStream BiomeRandomStream;
 
 	/** Texture resolution (based on MapResolution setting) */
 	int32 TextureResolution = 256;
