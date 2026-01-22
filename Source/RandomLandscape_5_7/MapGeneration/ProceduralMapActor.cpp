@@ -296,84 +296,113 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 	
 	// Get map size in Unreal Units (same for X and Y since it's a square map)
 	float MapSizeUU = GetMapSizeInUnrealUnits();
+	float ChunkSizeUU = MapSizeUU / static_cast<float>(ChunksPerSide);
 	
-	int32 VerticesPerSide = TerrainVerticesPerSide;
-	int32 NumVertices = VerticesPerSide * VerticesPerSide;
-	int32 NumTriangles = (VerticesPerSide - 1) * (VerticesPerSide - 1) * 2;
+	int32 TotalChunks = ChunksPerSide * ChunksPerSide;
+	int32 TotalVertices = 0;
+	int32 TotalTriangles = 0;
 	
-	TArray<FVector> Vertices;
-	TArray<int32> Triangles;
-	TArray<FVector> Normals;
-	TArray<FVector2D> UVs;
-	TArray<FColor> VertexColors;
-	TArray<FProcMeshTangent> Tangents;
-	
-	Vertices.Reserve(NumVertices);
-	UVs.Reserve(NumVertices);
-	VertexColors.Reserve(NumVertices);
-	Triangles.Reserve(NumTriangles * 3);
-	
-	// Generate vertices
-	for (int32 Y = 0; Y < VerticesPerSide; ++Y)
+	// Generate each chunk as a separate mesh section
+	for (int32 ChunkY = 0; ChunkY < ChunksPerSide; ++ChunkY)
 	{
-		for (int32 X = 0; X < VerticesPerSide; ++X)
+		for (int32 ChunkX = 0; ChunkX < ChunksPerSide; ++ChunkX)
 		{
-			float NormX = static_cast<float>(X) / static_cast<float>(VerticesPerSide - 1);
-			float NormY = static_cast<float>(Y) / static_cast<float>(VerticesPerSide - 1);
+			int32 ChunkIndex = ChunkY * ChunksPerSide + ChunkX;
 			
-			// Use bilinear interpolation for smooth height blending between biomes
-			float Height = CalculateBlendedTerrainHeight(NormX, NormY, TextureRes, BiomeMap, LandMask);
+			// Calculate the normalized coordinate range for this chunk
+			float ChunkNormStartX = static_cast<float>(ChunkX) / static_cast<float>(ChunksPerSide);
+			float ChunkNormEndX = static_cast<float>(ChunkX + 1) / static_cast<float>(ChunksPerSide);
+			float ChunkNormStartY = static_cast<float>(ChunkY) / static_cast<float>(ChunksPerSide);
+			float ChunkNormEndY = static_cast<float>(ChunkY + 1) / static_cast<float>(ChunksPerSide);
 			
-			// Get smoothly blended vertex color
-			FColor VertColor = GetBlendedBiomeColor(NormX, NormY, TextureRes, BiomeMap, LandMask);
+			int32 VertsPerSide = VerticesPerChunkSide;
+			int32 NumVertices = VertsPerSide * VertsPerSide;
+			int32 NumTriangles = (VertsPerSide - 1) * (VertsPerSide - 1) * 2;
 			
-
-
-			// Position in world space (centered on actor)
-			FVector Position(
-				(NormX - 0.5f) * MapSizeUU,
-				(NormY - 0.5f) * MapSizeUU,
-				Height
-			);
+			TArray<FVector> Vertices;
+			TArray<int32> Triangles;
+			TArray<FVector> Normals;
+			TArray<FVector2D> UVs;
+			TArray<FColor> VertexColors;
+			TArray<FProcMeshTangent> Tangents;
 			
-			Vertices.Add(Position);
-			UVs.Add(FVector2D(NormX, NormY));
-			VertexColors.Add(VertColor);
+			Vertices.Reserve(NumVertices);
+			UVs.Reserve(NumVertices);
+			VertexColors.Reserve(NumVertices);
+			Triangles.Reserve(NumTriangles * 3);
+			
+			// Generate vertices for this chunk
+			for (int32 Y = 0; Y < VertsPerSide; ++Y)
+			{
+				for (int32 X = 0; X < VertsPerSide; ++X)
+				{
+					// Local normalized position within chunk (0-1)
+					float LocalNormX = static_cast<float>(X) / static_cast<float>(VertsPerSide - 1);
+					float LocalNormY = static_cast<float>(Y) / static_cast<float>(VertsPerSide - 1);
+					
+					// Global normalized position on entire map (0-1)
+					float GlobalNormX = FMath::Lerp(ChunkNormStartX, ChunkNormEndX, LocalNormX);
+					float GlobalNormY = FMath::Lerp(ChunkNormStartY, ChunkNormEndY, LocalNormY);
+					
+					// Use bilinear interpolation for smooth height blending between biomes
+					float Height = CalculateBlendedTerrainHeight(GlobalNormX, GlobalNormY, TextureRes, BiomeMap, LandMask);
+					
+					// Get smoothly blended vertex color
+					FColor VertColor = GetBlendedBiomeColor(GlobalNormX, GlobalNormY, TextureRes, BiomeMap, LandMask);
+					
+					// Position in world space (centered on actor)
+					FVector Position(
+						(GlobalNormX - 0.5f) * MapSizeUU,
+						(GlobalNormY - 0.5f) * MapSizeUU,
+						Height
+					);
+					
+					Vertices.Add(Position);
+					UVs.Add(FVector2D(GlobalNormX, GlobalNormY));
+					VertexColors.Add(VertColor);
+				}
+			}
+			
+			// Generate triangles for this chunk
+			for (int32 Y = 0; Y < VertsPerSide - 1; ++Y)
+			{
+				for (int32 X = 0; X < VertsPerSide - 1; ++X)
+				{
+					int32 TopLeft = Y * VertsPerSide + X;
+					int32 TopRight = TopLeft + 1;
+					int32 BottomLeft = (Y + 1) * VertsPerSide + X;
+					int32 BottomRight = BottomLeft + 1;
+					
+					// First triangle
+					Triangles.Add(TopLeft);
+					Triangles.Add(BottomLeft);
+					Triangles.Add(TopRight);
+					
+					// Second triangle
+					Triangles.Add(TopRight);
+					Triangles.Add(BottomLeft);
+					Triangles.Add(BottomRight);
+				}
+			}
+			
+			// Calculate normals and tangents for this chunk
+			UKismetProceduralMeshLibrary::CalculateTangentsForMesh(Vertices, Triangles, UVs, Normals, Tangents);
+			
+			// Create the mesh section for this chunk
+			TerrainMesh->CreateMeshSection(ChunkIndex, Vertices, Triangles, Normals, UVs, VertexColors, Tangents, true);
+			
+			TotalVertices += Vertices.Num();
+			TotalTriangles += Triangles.Num() / 3;
 		}
 	}
 	
-	// Generate triangles
-	for (int32 Y = 0; Y < VerticesPerSide - 1; ++Y)
-	{
-		for (int32 X = 0; X < VerticesPerSide - 1; ++X)
-		{
-			int32 TopLeft = Y * VerticesPerSide + X;
-			int32 TopRight = TopLeft + 1;
-			int32 BottomLeft = (Y + 1) * VerticesPerSide + X;
-			int32 BottomRight = BottomLeft + 1;
-			
-			// First triangle
-			Triangles.Add(TopLeft);
-			Triangles.Add(BottomLeft);
-			Triangles.Add(TopRight);
-			
-			// Second triangle
-			Triangles.Add(TopRight);
-			Triangles.Add(BottomLeft);
-			Triangles.Add(BottomRight);
-		}
-	}
-	
-	// Calculate normals and tangents
-	UKismetProceduralMeshLibrary::CalculateTangentsForMesh(Vertices, Triangles, UVs, Normals, Tangents);
-	
-	// Create the mesh section with vertex colors
-	TerrainMesh->CreateMeshSection(0, Vertices, Triangles, Normals, UVs, VertexColors, Tangents, true);
-	
-	// Apply material
+	// Apply material to all chunks
 	if (TerrainMaterial)
 	{
-		TerrainMesh->SetMaterial(0, TerrainMaterial);
+		for (int32 i = 0; i < TotalChunks; ++i)
+		{
+			TerrainMesh->SetMaterial(i, TerrainMaterial);
+		}
 	}
 	else
 	{
@@ -381,7 +410,10 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 		UMaterialInterface* DefaultMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Materials/M_VertexColor.M_VertexColor"));
 		if (DefaultMaterial)
 		{
-			TerrainMesh->SetMaterial(0, DefaultMaterial);
+			for (int32 i = 0; i < TotalChunks; ++i)
+			{
+				TerrainMesh->SetMaterial(i, DefaultMaterial);
+			}
 		}
 		else
 		{
@@ -389,7 +421,11 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 		}
 	}
 	
-	UE_LOG(LogTemp, Log, TEXT("GenerateTerrainMesh - Created mesh with %d vertices, %d triangles"),
-		Vertices.Num(), Triangles.Num() / 3);
+	// Calculate effective resolution
+	int32 EffectiveVertsPerSide = ChunksPerSide * (VerticesPerChunkSide - 1) + 1;
+	float MetersPerVertex = static_cast<float>(MapSizeInMeters) / static_cast<float>(EffectiveVertsPerSide - 1);
+	
+	UE_LOG(LogTemp, Log, TEXT("GenerateTerrainMesh - Created %d chunks with %d total vertices, %d triangles. Resolution: ~%.2f meters per vertex"),
+		TotalChunks, TotalVertices, TotalTriangles, MetersPerVertex);
 }
 

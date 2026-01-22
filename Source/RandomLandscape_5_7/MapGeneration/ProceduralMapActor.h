@@ -105,13 +105,22 @@ public:
 	TObjectPtr<UProceduralMeshComponent> TerrainMesh;
 
 	/** 
-	 * Number of vertices per side of the terrain mesh.
-	 * Higher values = smoother terrain with more geometric detail.
-	 * For a 1K map with smooth biomes like the reference image, try 256-512.
-	 * Performance note: Total vertices = VerticesPerSide^2 (128 = 16K verts, 256 = 65K verts)
+	 * Number of chunks per side to divide the terrain into.
+	 * More chunks = higher resolution possible.
+	 * Total chunks = ChunksPerSide^2 (e.g., 10 = 100 chunks)
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Terrain", meta = (ClampMin = "8", ClampMax = "512", UIMin = "8", UIMax = "512"))
-	int32 TerrainVerticesPerSide = 128;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Terrain", meta = (ClampMin = "1", ClampMax = "100", UIMin = "1", UIMax = "100"))
+	int32 ChunksPerSide = 10;
+
+	/** 
+	 * Number of vertices per side for EACH chunk.
+	 * Higher values = smoother terrain within each chunk.
+	 * Total vertices per chunk = VerticesPerChunkSide^2
+	 * Total map vertices = (ChunksPerSide * VerticesPerChunkSide)^2
+	 * Example: 10 chunks x 100 verts = 1000 verts per side = 1M total vertices
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|Terrain", meta = (ClampMin = "8", ClampMax = "255", UIMin = "8", UIMax = "255"))
+	int32 VerticesPerChunkSide = 100;
 
 	/** 
 	 * Material to use for terrain. Should use Vertex Color node to display biome colors.
