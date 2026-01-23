@@ -100,6 +100,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Landmass", meta = (ClampMin = "5.0", ClampMax = "75.0", UIMin = "5.0", UIMax = "75.0"))
 	float LandmassPercentage = 50.0f; // 5..75 percent of land coverage
 
+	/** 
+	 * Black/white landmass texture defining where land exists (512x512).
+	 * White = land, Black = ocean.
+	 */
 	UPROPERTY(VisibleAnywhere, Category = "Landmass")
 	TObjectPtr<UTexture2D> LandmassTexture = nullptr;
 
@@ -119,7 +123,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Biomes")
 	int32 BiomeSeed = 0;
 
-	/** The generated biome map texture (colored by biome) */
+	/** 
+	 * Biome distribution texture showing each biome's position (512x512).
+	 * Each biome is colored based on its FBiomeConfig::Color.
+	 */
 	UPROPERTY(VisibleAnywhere, Category = "Biomes")
 	TObjectPtr<UTexture2D> BiomeTexture = nullptr;
 
@@ -160,21 +167,6 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Mesh", meta = (ClampMin = "1", ClampMax = "100", UIMin = "1", UIMax = "100"))
 	int32 MeshDetailLevel = 50;
 
-	/** 
-	 * Global minimum height in meters for height map normalization.
-	 * This defines the "black" point in height map textures.
-	 * Should be set to accommodate the lowest biome (e.g., ocean floor).
-	 */
-	UPROPERTY(EditAnywhere, Category = "Mesh|Height Range", meta = (ClampMin = "-500.0", ClampMax = "0.0"))
-	float GlobalMinHeightInMeters = -50.0f;
-
-	/** 
-	 * Global maximum height in meters for height map normalization.
-	 * This defines the "white" point in height map textures.
-	 * Should be set to accommodate the highest biome (e.g., mountain peaks).
-	 */
-	UPROPERTY(EditAnywhere, Category = "Mesh|Height Range", meta = (ClampMin = "0.0", ClampMax = "1000.0"))
-	float GlobalMaxHeightInMeters = 200.0f;
 
 	/**
 	 * Use tileable noise generation (GenTileable2D) instead of regular grid (GenUniformGrid2D).
@@ -194,9 +186,11 @@ public:
 	int32 HeightMapResolution = 4096;
 
 	/** 
-	 * Combined height map texture showing the full landmass terrain.
-	 * Merges all individual biome height maps into a single unified texture.
-	 * Grayscale where white = highest, black = lowest.
+	 * Combined noise texture (4096x4096 by default).
+	 * Merges all individual biome HighResTextures masked to their biome areas.
+	 * Each pixel samples the appropriate biome's noise based on BiomeMap lookup.
+	 * Biome boundaries are blended for smooth transitions between regions.
+	 * Grayscale: -1 -> black (0), 0 -> gray (127), 1 -> white (255).
 	 */
 	UPROPERTY(VisibleAnywhere, Category = "Mesh")
 	TObjectPtr<UTexture2D> CombinedHeightMapTexture = nullptr;

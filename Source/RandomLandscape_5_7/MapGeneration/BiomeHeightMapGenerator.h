@@ -22,14 +22,14 @@ public:
 	FBiomeHeightMapGenerator() = default;
 
 	/**
-	 * Generate a heightmap for a specific biome using GenUniformGrid2D.
-	 * @param BiomeType - The biome to generate heightmap for
-	 * @param MeshSettings - Biome-specific mesh/noise settings
+	 * Generate a noise map for a specific biome using GenUniformGrid2D.
+	 * @param BiomeType - The biome to generate noise for
+	 * @param MeshSettings - Biome-specific noise settings (frequency, octaves, persistence)
 	 * @param Resolution - Grid resolution (width and height in samples)
 	 * @param Seed - Random seed for deterministic generation
 	 * @param MapSizeInMeters - Total map size for frequency scaling
 	 * @param bTileable - If true, uses GenTileable2D for seamless edges
-	 * @return Array of height values in Unreal Units (normalized to min/max height range)
+	 * @return Array of raw noise values in -1 to 1 range
 	 */
 	static TArray<float> GenerateBiomeHeightMap(
 		EBiomeType BiomeType,

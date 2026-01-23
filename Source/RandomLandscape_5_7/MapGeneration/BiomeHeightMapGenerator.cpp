@@ -16,7 +16,7 @@ TArray<float> FBiomeHeightMapGenerator::GenerateBiomeHeightMap(
 		MeshSettings.NoiseOctaves,
 		MeshSettings.NoisePersistence);
 
-	// Generate the raw noise grid
+	// Generate the raw noise grid (values in -1 to 1 range)
 	TArray<float> NoiseGrid;
 	if (bTileable)
 	{
@@ -27,26 +27,11 @@ TArray<float> FBiomeHeightMapGenerator::GenerateBiomeHeightMap(
 		NoiseGrid = GenerateNoiseGrid(Generator, Resolution, MeshSettings.NoiseFrequency, Seed, MapSizeInMeters);
 	}
 
-	// Convert heights from Unreal Units
-	float MinHeightUU = MeshSettings.MinHeightInMeters * 100.0f;
-	float MaxHeightUU = MeshSettings.MaxHeightInMeters * 100.0f;
+	UE_LOG(LogTemp, Log, TEXT("Generated %s noise map: %dx%d (raw noise -1 to 1)"),
+		*UEnum::GetValueAsString(BiomeType), Resolution, Resolution);
 
-	// Transform noise values (-1 to 1) to height range
-	TArray<float> HeightMap;
-	HeightMap.SetNumUninitialized(NoiseGrid.Num());
-
-	for (int32 i = 0; i < NoiseGrid.Num(); ++i)
-	{
-		// Normalize from -1..1 to 0..1
-		float NormalizedNoise = (NoiseGrid[i] + 1.0f) * 0.5f;
-		// Lerp to height range
-		HeightMap[i] = FMath::Lerp(MinHeightUU, MaxHeightUU, NormalizedNoise);
-	}
-
-	UE_LOG(LogTemp, Log, TEXT("Generated %s heightmap: %dx%d, Height range: %.1f to %.1f UU"),
-		*UEnum::GetValueAsString(BiomeType), Resolution, Resolution, MinHeightUU, MaxHeightUU);
-
-	return HeightMap;
+	// Return raw noise values (-1 to 1) without height conversion
+	return NoiseGrid;
 }
 
 TMap<EBiomeType, TArray<float>> FBiomeHeightMapGenerator::GenerateAllBiomeHeightMaps(
@@ -97,7 +82,7 @@ float FBiomeHeightMapGenerator::SampleBlendedHeight(
 	// For biome lookup, use the BiomeTextureResolution
 	float BiomeGridX = NormX * (BiomeTextureResolution - 1);
 	float BiomeGridY = NormY * (BiomeTextureResolution - 1);
-	
+
 	// Get the four corner indices for biome interpolation
 	int32 BX0 = FMath::FloorToInt(BiomeGridX);
 	int32 BY0 = FMath::FloorToInt(BiomeGridY);
@@ -114,7 +99,7 @@ float FBiomeHeightMapGenerator::SampleBlendedHeight(
 	// For heightmap sampling, use the HeightMapResolution (high-res noise)
 	float HeightGridX = NormX * (HeightMapResolution - 1);
 	float HeightGridY = NormY * (HeightMapResolution - 1);
-	
+
 	int32 HX0 = FMath::FloorToInt(HeightGridX);
 	int32 HY0 = FMath::FloorToInt(HeightGridY);
 	int32 HX1 = FMath::Min(HX0 + 1, HeightMapResolution - 1);

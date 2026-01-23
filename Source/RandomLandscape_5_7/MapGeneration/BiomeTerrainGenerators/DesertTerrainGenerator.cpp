@@ -16,11 +16,7 @@ float FDesertTerrainGenerator::CalculateHeight(float NormX, float NormY, const F
 		MapSizeInMeters
 	);
 	
-	// Convert biome height settings from meters to Unreal Units (cm)
-	float MinHeightUU = MeshSettings.MinHeightInMeters * 100.0f;
-	float MaxHeightUU = MeshSettings.MaxHeightInMeters * 100.0f;
-	
-	// Lerp between min and max height based on noise
-	return FMath::Lerp(MinHeightUU, MaxHeightUU, NormalizedNoise);
+	// Return raw noise mapped to -1..1 range
+	return (NormalizedNoise * 2.0f) - 1.0f;
 }
 

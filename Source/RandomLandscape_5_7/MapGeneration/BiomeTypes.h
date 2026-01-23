@@ -23,7 +23,7 @@ enum class EBiomeType : uint8
 };
 
 /**
- * Mesh generation settings for a biome or ocean
+ * Noise generation settings for a biome
  */
 USTRUCT(BlueprintType)
 struct FBiomeMeshSettings
@@ -34,29 +34,15 @@ struct FBiomeMeshSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
 	FString DisplayName = TEXT("Biome");
 
-	/** The biome type this mesh settings belongs to */
+	/** The biome type this settings belongs to */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "General")
 	EBiomeType BiomeType = EBiomeType::Forest;
 
-	/** Seed for this biome's terrain generation. 0 = random. */
+	/** Seed for this biome's noise generation. 0 = random. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
 	int32 Seed = 0;
 
-	/** 
-	 * Maximum height for this biome in meters.
-	 * This is the absolute max height the terrain can reach.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain", meta = (ClampMin = "-500.0", ClampMax = "500.0"))
-	float MaxHeightInMeters = 10.0f;
-
-	/** 
-	 * Minimum height for this biome in meters.
-	 * The terrain will vary between MinHeight and MaxHeight.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain", meta = (ClampMin = "-500.0", ClampMax = "500.0"))
-	float MinHeightInMeters = 0.0f;
-
-	/** Noise frequency for terrain height (higher = more frequent hills/features) */
+	/** Noise frequency (higher = more frequent features) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise", meta = (ClampMin = "0.1", ClampMax = "20.0"))
 	float NoiseFrequency = 2.0f;
 
@@ -69,17 +55,17 @@ struct FBiomeMeshSettings
 	float NoisePersistence = 0.5f;
 
 	/** 
-	 * Generated mask texture for this biome.
+	 * Visual representation of this biome's position (512x512).
 	 * Shows biome color where this biome exists, black elsewhere.
-	 * Used for mesh generation.
+	 * Used for debugging and material overlays.
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generated")
 	TObjectPtr<UTexture2D> MaskTexture = nullptr;
 
 	/** 
-	 * Generated high-resolution height map texture for this biome.
-	 * Grayscale noise map where white = max height, black = min height.
-	 * Generated directly from FastNoise2 at HeightMapResolution.
+	 * High-resolution noise texture for this biome (4096x4096 by default).
+	 * Raw noise values mapped to grayscale: -1 -> black, 0 -> gray, 1 -> white.
+	 * Resolution controlled by HeightMapResolution in ProceduralMapActor.
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generated")
 	TObjectPtr<UTexture2D> HighResTexture = nullptr;
@@ -88,12 +74,9 @@ struct FBiomeMeshSettings
 	FBiomeMeshSettings() {}
 
 	FBiomeMeshSettings(EBiomeType InType, const FString& InName, 
-		float InMaxHeight = 10.0f, float InMinHeight = 0.0f, 
 		float InNoiseFreq = 2.0f, int32 InOctaves = 4, float InPersistence = 0.5f)
 		: DisplayName(InName)
 		, BiomeType(InType)
-		, MaxHeightInMeters(InMaxHeight)
-		, MinHeightInMeters(InMinHeight)
 		, NoiseFrequency(InNoiseFreq)
 		, NoiseOctaves(InOctaves)
 		, NoisePersistence(InPersistence)
@@ -225,15 +208,15 @@ struct FMeshGenerationSettings
 
 	FMeshGenerationSettings()
 	{
-		// Initialize ocean with default underwater settings
-		OceanSettings = FBiomeMeshSettings(EBiomeType::Ocean, TEXT("Ocean"), -5.0f, -50.0f, 1.0f, 3, 0.4f);
+		// Initialize ocean with default noise settings (frequency, octaves, persistence)
+		OceanSettings = FBiomeMeshSettings(EBiomeType::Ocean, TEXT("Ocean"), 1.0f, 3, 0.4f);
 
-		// Initialize land biome mesh settings with defaults
-		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Forest, TEXT("Forest"), 4.0f, 0.5f, 0.5f, 4, 0.3f));
-		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Mountain, TEXT("Mountain"), 25.0f, 5.0f, 1.5f, 5, 0.55f));
-		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Desert, TEXT("Desert"), 2.0f, 0.0f, 0.8f, 3, 0.25f));
-		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Snow, TEXT("Snow"), 15.0f, 3.0f, 1.2f, 4, 0.45f));
-		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Volcanic, TEXT("Volcanic"), 20.0f, 2.0f, 2.0f, 5, 0.6f));
+		// Initialize land biome noise settings with defaults
+		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Forest, TEXT("Forest"), 0.5f, 4, 0.3f));
+		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Mountain, TEXT("Mountain"), 1.5f, 5, 0.55f));
+		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Desert, TEXT("Desert"), 0.8f, 3, 0.25f));
+		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Snow, TEXT("Snow"), 1.2f, 4, 0.45f));
+		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Volcanic, TEXT("Volcanic"), 2.0f, 5, 0.6f));
 	}
 
 	/** Get mesh settings for a specific biome type */

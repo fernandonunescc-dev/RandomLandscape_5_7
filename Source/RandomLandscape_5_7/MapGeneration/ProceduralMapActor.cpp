@@ -23,13 +23,13 @@ AProceduralMapActor::AProceduralMapActor()
 	TerrainMesh->SetupAttachment(SceneRoot);
 	TerrainMesh->bUseAsyncCooking = true;
 
-	// Initialize biome mesh settings with defaults
-	OceanMeshSettings = FBiomeMeshSettings(EBiomeType::Ocean, TEXT("Ocean"), -5.0f, -50.0f, 1.0f, 3, 0.4f);
-	ForestMeshSettings = FBiomeMeshSettings(EBiomeType::Forest, TEXT("Forest"), 4.0f, 0.5f, 0.5f, 4, 0.3f);
-	MountainMeshSettings = FBiomeMeshSettings(EBiomeType::Mountain, TEXT("Mountain"), 25.0f, 5.0f, 1.5f, 5, 0.55f);
-	DesertMeshSettings = FBiomeMeshSettings(EBiomeType::Desert, TEXT("Desert"), 2.0f, 0.0f, 0.8f, 3, 0.25f);
-	SnowMeshSettings = FBiomeMeshSettings(EBiomeType::Snow, TEXT("Snow"), 15.0f, 3.0f, 1.2f, 4, 0.45f);
-	VolcanicMeshSettings = FBiomeMeshSettings(EBiomeType::Volcanic, TEXT("Volcanic"), 20.0f, 2.0f, 2.0f, 5, 0.6f);
+	// Initialize biome noise settings with defaults (frequency, octaves, persistence)
+	OceanMeshSettings = FBiomeMeshSettings(EBiomeType::Ocean, TEXT("Ocean"), 1.0f, 3, 0.4f);
+	ForestMeshSettings = FBiomeMeshSettings(EBiomeType::Forest, TEXT("Forest"), 0.5f, 4, 0.3f);
+	MountainMeshSettings = FBiomeMeshSettings(EBiomeType::Mountain, TEXT("Mountain"), 1.5f, 5, 0.55f);
+	DesertMeshSettings = FBiomeMeshSettings(EBiomeType::Desert, TEXT("Desert"), 0.8f, 3, 0.25f);
+	SnowMeshSettings = FBiomeMeshSettings(EBiomeType::Snow, TEXT("Snow"), 1.2f, 4, 0.45f);
+	VolcanicMeshSettings = FBiomeMeshSettings(EBiomeType::Volcanic, TEXT("Volcanic"), 2.0f, 5, 0.6f);
 }
 
 void AProceduralMapActor::BeginPlay()
@@ -492,16 +492,16 @@ void AProceduralMapActor::GenerateBiomeTextures()
 	GenerateBiomeMaskTexture(EBiomeType::Snow);
 	GenerateBiomeMaskTexture(EBiomeType::Volcanic);
 	
-	// Pre-generate all biome heightmaps at full resolution using FastNoise2
+	// Pre-generate all biome noise maps at full resolution using FastNoise2
 	PreGenerateBiomeHeightMaps(HeightMapResolution);
 	
-	// Lambda to generate high-res texture directly from cached heightmap data
+	// Lambda to generate high-res texture directly from cached noise data
 	auto GenerateHighResTextureFromCache = [this](FBiomeMeshSettings& MeshSettingsRef) -> void
 	{
-		const TArray<float>* HeightMapPtr = CachedBiomeHeightMaps.Find(MeshSettingsRef.BiomeType);
-		if (!HeightMapPtr || HeightMapPtr->Num() == 0)
+		const TArray<float>* NoiseMapPtr = CachedBiomeHeightMaps.Find(MeshSettingsRef.BiomeType);
+		if (!NoiseMapPtr || NoiseMapPtr->Num() == 0)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("GenerateBiomeTextures - No cached heightmap for %s, skipping"), *MeshSettingsRef.DisplayName);
+			UE_LOG(LogTemp, Warning, TEXT("GenerateBiomeTextures - No cached noise map for %s, skipping"), *MeshSettingsRef.DisplayName);
 			return;
 		}
 		
@@ -521,21 +521,13 @@ void AProceduralMapActor::GenerateBiomeTextures()
 		void* HighResData = HighResMip.BulkData.Lock(LOCK_READ_WRITE);
 		uint8* HighResPixels = static_cast<uint8*>(HighResData);
 		
-		// Find min/max for normalization
-		float MinValue = TNumericLimits<float>::Max();
-		float MaxValue = TNumericLimits<float>::Lowest();
-		for (float Value : *HeightMapPtr)
+		// Convert noise values (-1 to 1) to grayscale texture (0 to 255)
+		// -1 -> 0 (black), 0 -> 127 (gray), 1 -> 255 (white)
+		for (int32 i = 0; i < NoiseMapPtr->Num(); ++i)
 		{
-			MinValue = FMath::Min(MinValue, Value);
-			MaxValue = FMath::Max(MaxValue, Value);
-		}
-		float ValueRange = MaxValue - MinValue;
-		if (ValueRange <= 0.0f) ValueRange = 1.0f;
-		
-		// Convert float heightmap to grayscale texture
-		for (int32 i = 0; i < HeightMapPtr->Num(); ++i)
-		{
-			float NormalizedValue = ((*HeightMapPtr)[i] - MinValue) / ValueRange;
+			float NoiseValue = (*NoiseMapPtr)[i];
+			// Map -1..1 to 0..1
+			float NormalizedValue = (NoiseValue + 1.0f) * 0.5f;
 			uint8 GrayValue = static_cast<uint8>(FMath::Clamp(NormalizedValue * 255.0f, 0.0f, 255.0f));
 			
 			const int32 PixelIndex = i * 4;
@@ -550,7 +542,7 @@ void AProceduralMapActor::GenerateBiomeTextures()
 		
 		MeshSettingsRef.HighResTexture = HighResTexture;
 		
-		UE_LOG(LogTemp, Verbose, TEXT("GenerateBiomeTextures - Generated %s at %dx%d"), 
+		UE_LOG(LogTemp, Verbose, TEXT("GenerateBiomeTextures - Generated %s noise texture at %dx%d"), 
 			*MeshSettingsRef.DisplayName, HeightMapResolution, HeightMapResolution);
 	};
 	
@@ -597,20 +589,20 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 		return;
 	}
 	
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Creating combined height map (Resolution: %dx%d, Global Range: %.1f to %.1f m)"),
-		HeightMapResolution, HeightMapResolution, GlobalMinHeightInMeters, GlobalMaxHeightInMeters);
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Creating combined noise texture (Resolution: %dx%d)"),
+		HeightMapResolution, HeightMapResolution);
 
-	// Only regenerate heightmaps if not already cached at the correct resolution
+	// Only regenerate noise maps if not already cached at the correct resolution
 	if (CachedBiomeHeightMaps.Num() == 0 || CachedHeightMapResolution != HeightMapResolution)
 	{
 		PreGenerateBiomeHeightMaps(HeightMapResolution);
 	}
 	
-	// Create the combined height map texture at HeightMapResolution (high-res)
+	// Create the combined texture at HeightMapResolution (high-res)
 	UTexture2D* CombinedTexture = UTexture2D::CreateTransient(HeightMapResolution, HeightMapResolution, PF_B8G8R8A8);
 	if (!CombinedTexture)
 	{
-		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Failed to create combined height map texture"));
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Failed to create combined texture"));
 		return;
 	}
 	
@@ -622,13 +614,8 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 	void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
 	uint8* Pixels = static_cast<uint8*>(TextureData);
 	
-	// Use the global height range properties for normalization
-	float GlobalMinHeightUU = GlobalMinHeightInMeters * 100.0f;
-	float GlobalMaxHeightUU = GlobalMaxHeightInMeters * 100.0f;
-	float GlobalHeightRange = GlobalMaxHeightUU - GlobalMinHeightUU;
-	if (GlobalHeightRange <= 0.0f) GlobalHeightRange = 1.0f;
-	
-	// Generate the combined height map using pre-generated heightmaps with biome blending
+	// Generate the combined noise texture using pre-generated noise maps with biome blending
+	// Raw noise values are in -1 to 1 range
 	for (int32 Y = 0; Y < HeightMapResolution; ++Y)
 	{
 		for (int32 X = 0; X < HeightMapResolution; ++X)
@@ -639,11 +626,11 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 			float NormX = static_cast<float>(X) / static_cast<float>(HeightMapResolution - 1);
 			float NormY = static_cast<float>(Y) / static_cast<float>(HeightMapResolution - 1);
 			
-			// Sample blended height from pre-generated heightmaps
-			// This handles biome transitions smoothly via bilinear interpolation
-			float HeightUU = FBiomeHeightMapGenerator::SampleBlendedHeight(
+			// Sample blended noise from pre-generated noise maps
+			// Returns raw noise value in -1 to 1 range
+			float NoiseValue = FBiomeHeightMapGenerator::SampleBlendedHeight(
 				NormX, NormY,
-				HeightMapResolution,    // High-res noise heightmap
+				HeightMapResolution,    // High-res noise map resolution
 				BiomeTextureRes,        // Biome assignment resolution
 				CachedBiomeHeightMaps,
 				BiomeMap,
@@ -652,11 +639,10 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 				0.02f  // Blend radius
 			);
 			
-			// Normalize height against GLOBAL range
-			float NormalizedHeight = FMath::Clamp((HeightUU - GlobalMinHeightUU) / GlobalHeightRange, 0.0f, 1.0f);
-			
-			// Convert to grayscale (0-255)
-			uint8 GrayValue = static_cast<uint8>(NormalizedHeight * 255.0f);
+			// Convert noise (-1 to 1) to grayscale (0 to 255)
+			// -1 -> 0 (black), 0 -> 127 (gray), 1 -> 255 (white)
+			float NormalizedValue = (NoiseValue + 1.0f) * 0.5f;
+			uint8 GrayValue = static_cast<uint8>(FMath::Clamp(NormalizedValue * 255.0f, 0.0f, 255.0f));
 			
 			Pixels[PixelIndex + 0] = GrayValue; // B
 			Pixels[PixelIndex + 1] = GrayValue; // G
@@ -670,7 +656,7 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 	
 	CombinedHeightMapTexture = CombinedTexture;
 	
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Combined height map (%dx%d) generated successfully with biome blending"),
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Combined noise texture (%dx%d) generated with biome blending"),
 		HeightMapResolution, HeightMapResolution);
 }
 

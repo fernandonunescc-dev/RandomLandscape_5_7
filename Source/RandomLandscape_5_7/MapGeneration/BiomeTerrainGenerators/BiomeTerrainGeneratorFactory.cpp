@@ -51,8 +51,6 @@ float FBiomeTerrainGeneratorFactory::CalculateHeightForBiome(EBiomeType BiomeTyp
 		return Generator->CalculateHeight(NormX, NormY, MeshSettings, Seed, MapSizeInMeters);
 	}
 	
-	// Fallback: return flat terrain at midpoint height
-	float MinHeightUU = MeshSettings.MinHeightInMeters * 100.0f;
-	float MaxHeightUU = MeshSettings.MaxHeightInMeters * 100.0f;
-	return (MinHeightUU + MaxHeightUU) * 0.5f;
+	// Fallback: return 0 (midpoint of -1 to 1 noise range)
+	return 0.0f;
 }
