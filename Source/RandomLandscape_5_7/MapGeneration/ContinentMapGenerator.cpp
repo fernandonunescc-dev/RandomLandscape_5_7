@@ -43,6 +43,11 @@ void UContinentMapGenerator::SetBiomeSettings(const FContinentBiomeSettings& InB
 	BiomeSettings = InBiomeSettings;
 }
 
+void UContinentMapGenerator::SetMeshSettings(const FMeshGenerationSettings& InMeshSettings)
+{
+	MeshSettings = InMeshSettings;
+}
+
 
 bool UContinentMapGenerator::Generate()
 {
@@ -102,6 +107,9 @@ bool UContinentMapGenerator::GenerateBiomesOnly()
 	
 	// Pass 3: Generate the final preview texture with biome colors
 	GeneratePreviewTexture();
+	
+	// Pass 4: Generate individual mask textures for each biome
+	GenerateBiomeMaskTextures();
 	
 	return true;
 }
@@ -669,6 +677,140 @@ void UContinentMapGenerator::GeneratePreviewTexture()
 		TextureResolution, TextureResolution, bHasBiomes ? TEXT("biome") : TEXT("landmask"));
 }
 
-
-
-
+void UContinentMapGenerator::GenerateBiomeMaskTextures()
+{
+	const int32 Width = TextureResolution;
+	const int32 Height = TextureResolution;
+	
+	if (BiomeMap.Num() == 0 || BiomeSettings.LandBiomes.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ContinentMapGenerator::GenerateBiomeMaskTextures - No biome data available"));
+		return;
+	}
+	
+	// Generate ocean mask texture first
+	{
+		UTexture2D* OceanMaskTexture = UTexture2D::CreateTransient(TextureResolution, TextureResolution, PF_B8G8R8A8);
+		if (OceanMaskTexture)
+		{
+			OceanMaskTexture->MipGenSettings = TMGS_NoMipmaps;
+			OceanMaskTexture->SRGB = false;
+			OceanMaskTexture->Filter = TF_Nearest;
+			
+			FTexture2DMipMap& Mip = OceanMaskTexture->GetPlatformData()->Mips[0];
+			void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
+			uint8* Pixels = static_cast<uint8*>(TextureData);
+			
+			FColor OceanColor = BiomeSettings.OceanColor.ToFColor(false);
+			
+			for (int32 Y = 0; Y < Height; ++Y)
+			{
+				for (int32 X = 0; X < Width; ++X)
+				{
+					const int32 PixelIndex = (Y * Width + X) * 4;
+					const int32 MapIndex = Y * Width + X;
+					
+					bool bIsLand = (MapIndex < LandMask.Num()) ? LandMask[MapIndex] : false;
+					
+					if (!bIsLand)
+					{
+						// Ocean pixel - use ocean color
+						Pixels[PixelIndex + 0] = OceanColor.B;
+						Pixels[PixelIndex + 1] = OceanColor.G;
+						Pixels[PixelIndex + 2] = OceanColor.R;
+						Pixels[PixelIndex + 3] = 255;
+					}
+					else
+					{
+						// Land - black
+						Pixels[PixelIndex + 0] = 0;
+						Pixels[PixelIndex + 1] = 0;
+						Pixels[PixelIndex + 2] = 0;
+						Pixels[PixelIndex + 3] = 255;
+					}
+				}
+			}
+			
+			Mip.BulkData.Unlock();
+			OceanMaskTexture->UpdateResource();
+			
+			MeshSettings.OceanSettings.MaskTexture = OceanMaskTexture;
+			UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator::GenerateBiomeMaskTextures - Created ocean mask texture"));
+		}
+	}
+	
+	// Generate a mask texture for each land biome
+	for (int32 BiomeIdx = 0; BiomeIdx < BiomeSettings.LandBiomes.Num(); ++BiomeIdx)
+	{
+		const FBiomeConfig& Biome = BiomeSettings.LandBiomes[BiomeIdx];
+		
+		// Find matching mesh settings for this biome
+		FBiomeMeshSettings* MeshSettingsForBiome = MeshSettings.GetSettingsForBiomeMutable(Biome.BiomeType);
+		if (!MeshSettingsForBiome)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("ContinentMapGenerator::GenerateBiomeMaskTextures - No mesh settings for biome %s"), *Biome.DisplayName);
+			continue;
+		}
+		
+		// Create the texture
+		UTexture2D* MaskTexture = UTexture2D::CreateTransient(TextureResolution, TextureResolution, PF_B8G8R8A8);
+		if (!MaskTexture)
+		{
+			UE_LOG(LogTemp, Error, TEXT("ContinentMapGenerator::GenerateBiomeMaskTextures - Failed to create mask texture for biome %s"), *Biome.DisplayName);
+			continue;
+		}
+		
+		// Configure texture settings
+		MaskTexture->MipGenSettings = TMGS_NoMipmaps;
+		MaskTexture->SRGB = false;
+		MaskTexture->Filter = TF_Nearest;
+		
+		// Lock the texture for writing
+		FTexture2DMipMap& Mip = MaskTexture->GetPlatformData()->Mips[0];
+		void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
+		uint8* Pixels = static_cast<uint8*>(TextureData);
+		
+		// Get biome color
+		FColor BiomeColor = Biome.Color.ToFColor(false);
+		
+		for (int32 Y = 0; Y < Height; ++Y)
+		{
+			for (int32 X = 0; X < Width; ++X)
+			{
+				const int32 PixelIndex = (Y * Width + X) * 4;
+				const int32 MapIndex = Y * Width + X;
+				
+				// Check if this pixel belongs to this biome
+				int32 PixelBiomeIdx = (MapIndex < BiomeMap.Num()) ? BiomeMap[MapIndex] : -1;
+				
+				if (PixelBiomeIdx == BiomeIdx)
+				{
+					// This pixel belongs to this biome - use biome color
+					Pixels[PixelIndex + 0] = BiomeColor.B;
+					Pixels[PixelIndex + 1] = BiomeColor.G;
+					Pixels[PixelIndex + 2] = BiomeColor.R;
+					Pixels[PixelIndex + 3] = 255;
+				}
+				else
+				{
+					// Not this biome - black
+					Pixels[PixelIndex + 0] = 0;
+					Pixels[PixelIndex + 1] = 0;
+					Pixels[PixelIndex + 2] = 0;
+					Pixels[PixelIndex + 3] = 255;
+				}
+			}
+		}
+		
+		// Unlock and update the texture
+		Mip.BulkData.Unlock();
+		MaskTexture->UpdateResource();
+		
+		// Assign to the mesh settings
+		MeshSettingsForBiome->MaskTexture = MaskTexture;
+		
+		UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator::GenerateBiomeMaskTextures - Created mask texture for biome %s"), *Biome.DisplayName);
+	}
+	
+	UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator::GenerateBiomeMaskTextures - Generated %d biome mask textures + ocean"), BiomeSettings.LandBiomes.Num());
+}

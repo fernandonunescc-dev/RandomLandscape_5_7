@@ -13,7 +13,7 @@
 class RANDOMLANDSCAPE_5_7_API FForestTerrainGenerator : public FBiomeTerrainGeneratorBase
 {
 public:
-	virtual float CalculateHeight(float NormX, float NormY, const FBiomeConfig& BiomeConfig, int32 Seed, float MapSizeInMeters) const override;
+	virtual float CalculateHeight(float NormX, float NormY, const FBiomeMeshSettings& MeshSettings, int32 Seed, float MapSizeInMeters) const override;
 	virtual EBiomeType GetBiomeType() const override { return EBiomeType::Forest; }
 
 private:
@@ -22,5 +22,5 @@ private:
 	 * Uses multiple octaves with low persistence for gentle terrain.
 	 * @param MapSizeInMeters - Used to scale frequency appropriately for map size
 	 */
-	float FractalNoise(float NormX, float NormY, const FBiomeConfig& BiomeConfig, int32 Seed, float MapSizeInMeters) const;
+	float FractalNoise(float NormX, float NormY, const FBiomeMeshSettings& MeshSettings, int32 Seed, float MapSizeInMeters) const;
 };

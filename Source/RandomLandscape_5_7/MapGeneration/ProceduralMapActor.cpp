@@ -93,7 +93,11 @@ void AProceduralMapActor::GenerateMap()
 	// Generate biomes on top of the landmass (this sets BiomeDuration)
 	GenerateBiomes();
 
-	// TODO: Future steps will go here (terrain mesh, etc.)
+	// Generate all biome mask textures for mesh generation
+	GenerateAllBiomeTextures();
+
+	// Generate the terrain mesh
+	GenerateMesh();
 	
 	// End total timing
 	double TotalEndTime = FPlatformTime::Seconds();
@@ -223,6 +227,7 @@ void AProceduralMapActor::GenerateBiomes()
 	FContinentBiomeSettings SettingsToUse = BiomeSettings;
 	SettingsToUse.LandCoveragePercent = LandmassPercentage;
 	ContinentGenerator->SetBiomeSettings(SettingsToUse);
+	ContinentGenerator->SetMeshSettings(MeshSettings);
 	ContinentGenerator->SetBiomeSeed(SeedToUse);
 
 	// Generate biomes on the existing landmass
@@ -242,6 +247,10 @@ void AProceduralMapActor::GenerateBiomes()
 		{
 			UE_LOG(LogTemp, Warning, TEXT("ProceduralMapActor::GenerateBiomes - Generator produced no preview texture"));
 		}
+
+		// Copy the generated mesh settings (with mask textures) back to the actor
+		MeshSettings = ContinentGenerator->GetMeshSettings();
+		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomes - Copied mesh settings with mask textures"));
 	}
 	else
 	{
@@ -253,6 +262,206 @@ void AProceduralMapActor::GenerateBiomes()
 	BiomeDuration = static_cast<float>(BiomeEndTime - BiomeStartTime);
 
 	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomes - Complete (%.4f sec)"), BiomeDuration);
+}
+
+void AProceduralMapActor::GenerateMesh()
+{
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMesh - Generating terrain mesh"));
+	
+	if (!CurrentGenerator)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateMesh - No generator. Generate landmass and biomes first."));
+		return;
+	}
+	
+	UContinentMapGenerator* ContinentGenerator = Cast<UContinentMapGenerator>(CurrentGenerator);
+	if (ContinentGenerator)
+	{
+		GenerateTerrainMesh(ContinentGenerator);
+	}
+}
+
+void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
+{
+	if (!CurrentGenerator)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - No generator. Generate landmass and biomes first."));
+		return;
+	}
+	
+	UContinentMapGenerator* ContinentGenerator = Cast<UContinentMapGenerator>(CurrentGenerator);
+	if (!ContinentGenerator)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - Generator is not a ContinentMapGenerator"));
+		return;
+	}
+	
+	const TArray<int32>& BiomeMap = ContinentGenerator->GetBiomeMap();
+	const TArray<bool>& LandMask = ContinentGenerator->GetLandMask();
+	int32 TextureRes = ContinentGenerator->GetTextureResolution();
+	
+	if (BiomeMap.Num() == 0 || LandMask.Num() == 0)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - No biome data. Generate biomes first."));
+		return;
+	}
+	
+	// Get the mesh settings for this biome
+	FBiomeMeshSettings* MeshSettingsForBiome = MeshSettings.GetSettingsForBiomeMutable(BiomeType);
+	if (!MeshSettingsForBiome)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - No mesh settings for biome type %d"), (int32)BiomeType);
+		return;
+	}
+	
+	// If seed is 0, generate a random one and store it
+	if (MeshSettingsForBiome->Seed == 0)
+	{
+		MeshSettingsForBiome->Seed = FMath::RandRange(1, TNumericLimits<int32>::Max());
+		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - Generated random seed %d for %s"), 
+			MeshSettingsForBiome->Seed, *MeshSettingsForBiome->DisplayName);
+	}
+	
+	// Create the texture
+	UTexture2D* MaskTexture = UTexture2D::CreateTransient(TextureRes, TextureRes, PF_B8G8R8A8);
+	if (!MaskTexture)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - Failed to create texture for %s"), *MeshSettingsForBiome->DisplayName);
+		return;
+	}
+	
+	MaskTexture->MipGenSettings = TMGS_NoMipmaps;
+	MaskTexture->SRGB = false;
+	MaskTexture->Filter = TF_Nearest;
+	
+	FTexture2DMipMap& Mip = MaskTexture->GetPlatformData()->Mips[0];
+	void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
+	uint8* Pixels = static_cast<uint8*>(TextureData);
+	
+	// Get the color for this biome
+	FColor BiomeColor = FColor::White;
+	if (BiomeType == EBiomeType::Ocean)
+	{
+		BiomeColor = BiomeSettings.OceanColor.ToFColor(false);
+	}
+	else
+	{
+		// Find the biome config to get the color
+		for (const FBiomeConfig& Config : BiomeSettings.LandBiomes)
+		{
+			if (Config.BiomeType == BiomeType)
+			{
+				BiomeColor = Config.Color.ToFColor(false);
+				break;
+			}
+		}
+	}
+	
+	// Find the biome index for land biomes
+	int32 TargetBiomeIndex = -1;
+	if (BiomeType != EBiomeType::Ocean)
+	{
+		for (int32 i = 0; i < BiomeSettings.LandBiomes.Num(); ++i)
+		{
+			if (BiomeSettings.LandBiomes[i].BiomeType == BiomeType)
+			{
+				TargetBiomeIndex = i;
+				break;
+			}
+		}
+	}
+	
+	for (int32 Y = 0; Y < TextureRes; ++Y)
+	{
+		for (int32 X = 0; X < TextureRes; ++X)
+		{
+			const int32 PixelIndex = (Y * TextureRes + X) * 4;
+			const int32 MapIndex = Y * TextureRes + X;
+			
+			bool bIsThisBiome = false;
+			
+			if (BiomeType == EBiomeType::Ocean)
+			{
+				// Ocean is where it's not land
+				bIsThisBiome = (MapIndex < LandMask.Num()) && !LandMask[MapIndex];
+			}
+			else
+			{
+				// Land biome - check if this pixel matches the target biome index
+				if (MapIndex < BiomeMap.Num() && MapIndex < LandMask.Num())
+				{
+					bIsThisBiome = LandMask[MapIndex] && (BiomeMap[MapIndex] == TargetBiomeIndex);
+				}
+			}
+			
+			if (bIsThisBiome)
+			{
+				Pixels[PixelIndex + 0] = BiomeColor.B;
+				Pixels[PixelIndex + 1] = BiomeColor.G;
+				Pixels[PixelIndex + 2] = BiomeColor.R;
+				Pixels[PixelIndex + 3] = 255;
+			}
+			else
+			{
+				Pixels[PixelIndex + 0] = 0;
+				Pixels[PixelIndex + 1] = 0;
+				Pixels[PixelIndex + 2] = 0;
+				Pixels[PixelIndex + 3] = 255;
+			}
+		}
+	}
+	
+	Mip.BulkData.Unlock();
+	MaskTexture->UpdateResource();
+	
+	MeshSettingsForBiome->MaskTexture = MaskTexture;
+	
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - Generated mask texture for %s (Seed: %d)"), 
+		*MeshSettingsForBiome->DisplayName, MeshSettingsForBiome->Seed);
+}
+
+void AProceduralMapActor::GenerateOceanTexture()
+{
+	GenerateBiomeMaskTexture(EBiomeType::Ocean);
+}
+
+void AProceduralMapActor::GenerateForestTexture()
+{
+	GenerateBiomeMaskTexture(EBiomeType::Forest);
+}
+
+void AProceduralMapActor::GenerateMountainTexture()
+{
+	GenerateBiomeMaskTexture(EBiomeType::Mountain);
+}
+
+void AProceduralMapActor::GenerateDesertTexture()
+{
+	GenerateBiomeMaskTexture(EBiomeType::Desert);
+}
+
+void AProceduralMapActor::GenerateSnowTexture()
+{
+	GenerateBiomeMaskTexture(EBiomeType::Snow);
+}
+
+void AProceduralMapActor::GenerateVolcanicTexture()
+{
+	GenerateBiomeMaskTexture(EBiomeType::Volcanic);
+}
+
+void AProceduralMapActor::GenerateAllBiomeTextures()
+{
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateAllBiomeTextures - Generating all biome mask textures"));
+	
+	GenerateOceanTexture();
+	GenerateForestTexture();
+	GenerateMountainTexture();
+	GenerateDesertTexture();
+	GenerateSnowTexture();
+	GenerateVolcanicTexture();
+	
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateAllBiomeTextures - Complete"));
 }
 
 
@@ -298,10 +507,19 @@ FMapGenerationSettings AProceduralMapActor::CreateSettings() const
 
 float AProceduralMapActor::CalculateTerrainHeight(float NormX, float NormY, const FBiomeConfig& BiomeConfig) const
 {
+	// Get mesh settings for this biome type
+	const FBiomeMeshSettings* MeshSettingsForBiome = MeshSettings.GetSettingsForBiome(BiomeConfig.BiomeType);
+	if (!MeshSettingsForBiome)
+	{
+		// Fallback to default mesh settings
+		FBiomeMeshSettings DefaultSettings;
+		return FBiomeTerrainGeneratorFactory::Get().CalculateHeightForBiome(
+			BiomeConfig.BiomeType, NormX, NormY, DefaultSettings, Seed, static_cast<float>(MapSizeInMeters));
+	}
+	
 	// Delegate to the biome-specific terrain generator via factory
-	// Pass MapSizeInMeters for proper frequency scaling
 	return FBiomeTerrainGeneratorFactory::Get().CalculateHeightForBiome(
-		BiomeConfig.BiomeType, NormX, NormY, BiomeConfig, Seed, static_cast<float>(MapSizeInMeters));
+		BiomeConfig.BiomeType, NormX, NormY, *MeshSettingsForBiome, Seed, static_cast<float>(MapSizeInMeters));
 }
 
 float AProceduralMapActor::CalculateBlendedTerrainHeight(float NormX, float NormY, int32 TextureRes,
@@ -412,11 +630,7 @@ FColor AProceduralMapActor::GetBlendedBiomeColor(float NormX, float NormY, int32
 		if (bIsLand && BiomeIndex >= 0 && BiomeIndex < BiomeSettings.LandBiomes.Num())
 		{
 			const FBiomeConfig& BiomeConfig = BiomeSettings.LandBiomes[BiomeIndex];
-			if (BiomeConfig.bHighlightColor)
-			{
-				return BiomeConfig.Color;
-			}
-			return FLinearColor::White;
+			return BiomeConfig.Color;
 		}
 		else if (bIsLand)
 		{
@@ -424,11 +638,7 @@ FColor AProceduralMapActor::GetBlendedBiomeColor(float NormX, float NormY, int32
 		}
 		else
 		{
-			if (BiomeSettings.bHighlightOcean)
-			{
-				return BiomeSettings.OceanColor;
-			}
-			return FLinearColor::White;
+			return BiomeSettings.OceanColor;
 		}
 	};
 	

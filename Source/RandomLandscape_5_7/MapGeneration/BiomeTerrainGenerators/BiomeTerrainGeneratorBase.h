@@ -20,12 +20,12 @@ public:
 	 * Calculate the terrain height at a normalized position.
 	 * @param NormX - Normalized X position (0-1)
 	 * @param NormY - Normalized Y position (0-1)
-	 * @param BiomeConfig - The biome configuration with height/noise settings
+	 * @param MeshSettings - The biome mesh settings with height/noise configuration
 	 * @param Seed - Random seed for deterministic generation
 	 * @param MapSizeInMeters - The total map size in meters (used for frequency scaling)
 	 * @return Height in Unreal Units (centimeters)
 	 */
-	virtual float CalculateHeight(float NormX, float NormY, const FBiomeConfig& BiomeConfig, int32 Seed, float MapSizeInMeters) const = 0;
+	virtual float CalculateHeight(float NormX, float NormY, const FBiomeMeshSettings& MeshSettings, int32 Seed, float MapSizeInMeters) const = 0;
 
 	/**
 	 * Get the biome type this generator handles.

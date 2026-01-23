@@ -128,6 +128,39 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Biomes")
 	FContinentBiomeSettings BiomeSettings;
 
+	// ================ Mesh Settings ================
+	
+	/** Generate the terrain mesh from biome data */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh")
+	void GenerateMesh();
+
+	/** Mesh generation settings for all biomes (including ocean) */
+	UPROPERTY(EditAnywhere, Category = "Mesh")
+	FMeshGenerationSettings MeshSettings;
+
+	// Individual biome texture generation buttons
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh|Generate Textures")
+	void GenerateOceanTexture();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh|Generate Textures")
+	void GenerateForestTexture();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh|Generate Textures")
+	void GenerateMountainTexture();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh|Generate Textures")
+	void GenerateDesertTexture();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh|Generate Textures")
+	void GenerateSnowTexture();
+
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh|Generate Textures")
+	void GenerateVolcanicTexture();
+
+	/** Generate all biome mask textures at once */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh|Generate Textures")
+	void GenerateAllBiomeTextures();
+
 protected:
 	/** The current map generator instance */
 	UPROPERTY()
@@ -155,6 +188,9 @@ protected:
 private:
 	/** Create generator settings from current properties */
 	FMapGenerationSettings CreateSettings() const;
+
+	/** Generate mask texture for a specific biome type */
+	void GenerateBiomeMaskTexture(EBiomeType BiomeType);
 
 	/** Random stream for terrain generation */
 	FRandomStream TerrainRandomStream;

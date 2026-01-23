@@ -6,6 +6,8 @@
 #include "CoreMinimal.h"
 #include "BiomeTypes.generated.h"
 
+class UTexture2D;
+
 /**
  * Defines the available biome types
  */
@@ -21,76 +23,66 @@ enum class EBiomeType : uint8
 };
 
 /**
- * Configuration for a single biome
+ * Mesh generation settings for a biome or ocean
  */
 USTRUCT(BlueprintType)
-struct FBiomeConfig
+struct FBiomeMeshSettings
 {
 	GENERATED_BODY()
 
-	/** The type of biome */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|General")
+	/** Display name for identification */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
+	FString DisplayName = TEXT("Biome");
+
+	/** The biome type this mesh settings belongs to */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "General")
 	EBiomeType BiomeType = EBiomeType::Forest;
 
-	/** Display name for this biome */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|General")
-	FString DisplayName = TEXT("Forest");
-
-	/** 
-	 * Target percentage of land this biome should cover (0-100).
-	 * Note: Ocean is calculated separately as it surrounds the continent.
-	 * Land biomes should add up to 100%.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|General", meta = (ClampMin = "0.0", ClampMax = "100.0", UIMin = "0.0", UIMax = "100.0"))
-	float Percentage = 20.0f;
-
-	/** The color used to represent this biome on the map texture */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|General")
-	FLinearColor Color = FLinearColor::Green;
-
-	/** 
-	 * When true, this biome will be painted with its debug color instead of the terrain material.
-	 * Useful for visualizing biome boundaries.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|General")
-	bool bHighlightColor = false;
-
-	// ==================== Terrain Settings ====================
+	/** Seed for this biome's terrain generation. 0 = random. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
+	int32 Seed = 0;
 
 	/** 
 	 * Maximum height for this biome in meters.
-	 * This is the absolute max height the terrain can reach (independent of global map height).
+	 * This is the absolute max height the terrain can reach.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|Terrain", meta = (ClampMin = "0.1", ClampMax = "500.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain", meta = (ClampMin = "-500.0", ClampMax = "500.0"))
 	float MaxHeightInMeters = 10.0f;
 
 	/** 
 	 * Minimum height for this biome in meters.
 	 * The terrain will vary between MinHeight and MaxHeight.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|Terrain", meta = (ClampMin = "0.0", ClampMax = "500.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Terrain", meta = (ClampMin = "-500.0", ClampMax = "500.0"))
 	float MinHeightInMeters = 0.0f;
 
 	/** Noise frequency for terrain height (higher = more frequent hills/features) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|Terrain", meta = (ClampMin = "0.1", ClampMax = "20.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise", meta = (ClampMin = "0.1", ClampMax = "20.0"))
 	float NoiseFrequency = 2.0f;
 
 	/** Number of noise octaves for fractal detail (more = finer detail) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|Terrain", meta = (ClampMin = "1", ClampMax = "8"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise", meta = (ClampMin = "1", ClampMax = "8"))
 	int32 NoiseOctaves = 4;
 
 	/** Persistence for fractal noise (how much each octave contributes, lower = smoother) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome|Terrain", meta = (ClampMin = "0.1", ClampMax = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise", meta = (ClampMin = "0.1", ClampMax = "1.0"))
 	float NoisePersistence = 0.5f;
 
-	FBiomeConfig() {}
+	/** 
+	 * Generated mask texture for this biome.
+	 * Shows biome color where this biome exists, black elsewhere.
+	 * Used for mesh generation.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generated")
+	TObjectPtr<UTexture2D> MaskTexture = nullptr;
 
-	FBiomeConfig(EBiomeType InType, const FString& InName, float InPercentage, const FLinearColor& InColor,
-		float InMaxHeight = 10.0f, float InMinHeight = 0.0f, float InNoiseFreq = 2.0f, int32 InOctaves = 4, float InPersistence = 0.5f)
-		: BiomeType(InType)
-		, DisplayName(InName)
-		, Percentage(InPercentage)
-		, Color(InColor)
+	FBiomeMeshSettings() {}
+
+	FBiomeMeshSettings(EBiomeType InType, const FString& InName, 
+		float InMaxHeight = 10.0f, float InMinHeight = 0.0f, 
+		float InNoiseFreq = 2.0f, int32 InOctaves = 4, float InPersistence = 0.5f)
+		: DisplayName(InName)
+		, BiomeType(InType)
 		, MaxHeightInMeters(InMaxHeight)
 		, MinHeightInMeters(InMinHeight)
 		, NoiseFrequency(InNoiseFreq)
@@ -100,7 +92,45 @@ struct FBiomeConfig
 };
 
 /**
- * Contains all biome configurations for continent generation
+ * Configuration for a single biome (texture/distribution settings only)
+ */
+USTRUCT(BlueprintType)
+struct FBiomeConfig
+{
+	GENERATED_BODY()
+
+	/** The type of biome */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
+	EBiomeType BiomeType = EBiomeType::Forest;
+
+	/** Display name for this biome */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
+	FString DisplayName = TEXT("Forest");
+
+	/** 
+	 * Target percentage of land this biome should cover (0-100).
+	 * Note: Ocean is calculated separately as it surrounds the continent.
+	 * Land biomes should add up to 100%.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General", meta = (ClampMin = "0.0", ClampMax = "100.0", UIMin = "0.0", UIMax = "100.0"))
+	float Percentage = 20.0f;
+
+	/** The color used to represent this biome on the map texture */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Texture")
+	FLinearColor Color = FLinearColor::Green;
+
+	FBiomeConfig() {}
+
+	FBiomeConfig(EBiomeType InType, const FString& InName, float InPercentage, const FLinearColor& InColor)
+		: BiomeType(InType)
+		, DisplayName(InName)
+		, Percentage(InPercentage)
+		, Color(InColor)
+	{}
+};
+
+/**
+ * Contains all biome configurations for continent generation (texture/distribution only)
  */
 USTRUCT(BlueprintType)
 struct FContinentBiomeSettings
@@ -119,13 +149,6 @@ struct FContinentBiomeSettings
 	FLinearColor OceanColor = FLinearColor(0.4f, 0.7f, 0.9f, 1.0f); // Light blue
 
 	/** 
-	 * When true, ocean will be painted with its debug color instead of the terrain material.
-	 * Useful for visualizing the ocean area.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	bool bHighlightOcean = false;
-
-	/** 
 	 * Land biome configurations.
 	 * Percentages should add up to 100% for proper distribution.
 	 */
@@ -134,30 +157,12 @@ struct FContinentBiomeSettings
 
 	FContinentBiomeSettings()
 	{
-		// Initialize with default biomes
-		// Parameters: Type, Name, Percentage, Color, MaxHeight(m), MinHeight(m), NoiseFreq, Octaves, Persistence
-		
-		// Forest: Smooth rolling hills with gentle terrain variation
-		// Lower frequency = larger, smoother features
-		// Lower persistence = less high-frequency detail, smoother result
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Forest, TEXT("Forest"), 35.0f, 
-			FLinearColor(0.2f, 0.6f, 0.2f, 1.0f), 4.0f, 0.5f, 0.5f, 4, 0.3f));
-		
-		// Mountain: Tall, jagged peaks
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Mountain, TEXT("Mountain"), 20.0f, 
-			FLinearColor(0.5f, 0.5f, 0.5f, 1.0f), 25.0f, 5.0f, 1.5f, 5, 0.55f));
-		
-		// Desert: Flat with gentle dunes
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Desert, TEXT("Desert"), 20.0f, 
-			FLinearColor(0.95f, 0.85f, 0.3f, 1.0f), 2.0f, 0.0f, 0.8f, 3, 0.25f));
-		
-		// Snow: Higher elevation, moderate terrain
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Snow, TEXT("Snow"), 15.0f, 
-			FLinearColor(0.3f, 0.7f, 0.9f, 1.0f), 15.0f, 3.0f, 1.2f, 4, 0.45f));
-		
-		// Volcanic: Dramatic, steep terrain
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Volcanic, TEXT("Volcanic"), 10.0f, 
-			FLinearColor(0.9f, 0.4f, 0.1f, 1.0f), 20.0f, 2.0f, 2.0f, 5, 0.6f));
+		// Initialize with default biomes (texture settings only)
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Forest, TEXT("Forest"), 35.0f, FLinearColor(0.2f, 0.6f, 0.2f, 1.0f)));
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Mountain, TEXT("Mountain"), 20.0f, FLinearColor(0.5f, 0.5f, 0.5f, 1.0f)));
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Desert, TEXT("Desert"), 20.0f, FLinearColor(0.95f, 0.85f, 0.3f, 1.0f)));
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Snow, TEXT("Snow"), 15.0f, FLinearColor(0.9f, 0.95f, 1.0f, 1.0f)));
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Volcanic, TEXT("Volcanic"), 10.0f, FLinearColor(0.9f, 0.4f, 0.1f, 1.0f)));
 	}
 
 	/** Get total percentage of all land biomes */
@@ -190,5 +195,69 @@ struct FContinentBiomeSettings
 				Biome.Percentage *= Scale;
 			}
 		}
+	}
+};
+
+/**
+ * Contains mesh generation settings for all biomes including ocean
+ */
+USTRUCT(BlueprintType)
+struct FMeshGenerationSettings
+{
+	GENERATED_BODY()
+
+	/** Ocean mesh settings (underwater terrain) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ocean")
+	FBiomeMeshSettings OceanSettings;
+
+	/** Mesh settings for each land biome */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Land Biomes")
+	TArray<FBiomeMeshSettings> BiomeMeshSettings;
+
+	FMeshGenerationSettings()
+	{
+		// Initialize ocean with default underwater settings
+		OceanSettings = FBiomeMeshSettings(EBiomeType::Ocean, TEXT("Ocean"), -5.0f, -50.0f, 1.0f, 3, 0.4f);
+
+		// Initialize land biome mesh settings with defaults
+		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Forest, TEXT("Forest"), 4.0f, 0.5f, 0.5f, 4, 0.3f));
+		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Mountain, TEXT("Mountain"), 25.0f, 5.0f, 1.5f, 5, 0.55f));
+		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Desert, TEXT("Desert"), 2.0f, 0.0f, 0.8f, 3, 0.25f));
+		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Snow, TEXT("Snow"), 15.0f, 3.0f, 1.2f, 4, 0.45f));
+		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Volcanic, TEXT("Volcanic"), 20.0f, 2.0f, 2.0f, 5, 0.6f));
+	}
+
+	/** Get mesh settings for a specific biome type */
+	const FBiomeMeshSettings* GetSettingsForBiome(EBiomeType BiomeType) const
+	{
+		if (BiomeType == EBiomeType::Ocean)
+		{
+			return &OceanSettings;
+		}
+		for (const FBiomeMeshSettings& Settings : BiomeMeshSettings)
+		{
+			if (Settings.BiomeType == BiomeType)
+			{
+				return &Settings;
+			}
+		}
+		return nullptr;
+	}
+
+	/** Get mutable mesh settings for a specific biome type */
+	FBiomeMeshSettings* GetSettingsForBiomeMutable(EBiomeType BiomeType)
+	{
+		if (BiomeType == EBiomeType::Ocean)
+		{
+			return &OceanSettings;
+		}
+		for (FBiomeMeshSettings& Settings : BiomeMeshSettings)
+		{
+			if (Settings.BiomeType == BiomeType)
+			{
+				return &Settings;
+			}
+		}
+		return nullptr;
 	}
 };

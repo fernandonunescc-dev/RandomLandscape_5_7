@@ -3,20 +3,20 @@
 
 #include "ForestTerrainGenerator.h"
 
-float FForestTerrainGenerator::CalculateHeight(float NormX, float NormY, const FBiomeConfig& BiomeConfig, int32 Seed, float MapSizeInMeters) const
+float FForestTerrainGenerator::CalculateHeight(float NormX, float NormY, const FBiomeMeshSettings& MeshSettings, int32 Seed, float MapSizeInMeters) const
 {
 	// Use fractal noise for smooth rolling hills
-	float NormalizedNoise = FractalNoise(NormX, NormY, BiomeConfig, Seed, MapSizeInMeters);
+	float NormalizedNoise = FractalNoise(NormX, NormY, MeshSettings, Seed, MapSizeInMeters);
 	
 	// Convert biome height settings from meters to Unreal Units (cm)
-	float MinHeightUU = BiomeConfig.MinHeightInMeters * 100.0f;
-	float MaxHeightUU = BiomeConfig.MaxHeightInMeters * 100.0f;
+	float MinHeightUU = MeshSettings.MinHeightInMeters * 100.0f;
+	float MaxHeightUU = MeshSettings.MaxHeightInMeters * 100.0f;
 	
 	// Lerp between min and max height based on noise
 	return FMath::Lerp(MinHeightUU, MaxHeightUU, NormalizedNoise);
 }
 
-float FForestTerrainGenerator::FractalNoise(float NormX, float NormY, const FBiomeConfig& BiomeConfig, int32 Seed, float MapSizeInMeters) const
+float FForestTerrainGenerator::FractalNoise(float NormX, float NormY, const FBiomeMeshSettings& MeshSettings, int32 Seed, float MapSizeInMeters) const
 {
 	float Total = 0.0f;
 	float Amplitude = 1.0f;
@@ -27,14 +27,14 @@ float FForestTerrainGenerator::FractalNoise(float NormX, float NormY, const FBio
 	// For a 1000m map, we want ~10 hills at the same NoiseFrequency setting
 	// So we multiply by (MapSize / 100) to maintain consistent feature density
 	float MapSizeScale = FMath::Max(MapSizeInMeters / 100.0f, 1.0f);
-	float BaseFrequency = BiomeConfig.NoiseFrequency * MapSizeScale;
+	float BaseFrequency = MeshSettings.NoiseFrequency * MapSizeScale;
 	float Frequency = BaseFrequency;
 	
 	// Use seed to offset the noise for variation
 	float SeedOffsetX = (Seed % 10000) * 0.37f;
 	float SeedOffsetY = (Seed % 10000) * 0.53f;
 	
-	for (int32 i = 0; i < BiomeConfig.NoiseOctaves; ++i)
+	for (int32 i = 0; i < MeshSettings.NoiseOctaves; ++i)
 	{
 		// Calculate noise coordinates
 		float X = (NormX + SeedOffsetX) * Frequency;
@@ -65,7 +65,7 @@ float FForestTerrainGenerator::FractalNoise(float NormX, float NormY, const FBio
 		MaxValue += Amplitude;
 		
 		// Decrease amplitude and increase frequency for next octave
-		Amplitude *= BiomeConfig.NoisePersistence;
+		Amplitude *= MeshSettings.NoisePersistence;
 		Frequency *= 2.0f;
 	}
 	

@@ -41,16 +41,16 @@ const FBiomeTerrainGeneratorBase* FBiomeTerrainGeneratorFactory::GetGenerator(EB
 }
 
 float FBiomeTerrainGeneratorFactory::CalculateHeightForBiome(EBiomeType BiomeType, float NormX, float NormY,
-	const FBiomeConfig& BiomeConfig, int32 Seed, float MapSizeInMeters) const
+	const FBiomeMeshSettings& MeshSettings, int32 Seed, float MapSizeInMeters) const
 {
 	const FBiomeTerrainGeneratorBase* Generator = GetGenerator(BiomeType);
 	if (Generator)
 	{
-		return Generator->CalculateHeight(NormX, NormY, BiomeConfig, Seed, MapSizeInMeters);
+		return Generator->CalculateHeight(NormX, NormY, MeshSettings, Seed, MapSizeInMeters);
 	}
 	
 	// Fallback: return flat terrain at midpoint height
-	float MinHeightUU = BiomeConfig.MinHeightInMeters * 100.0f;
-	float MaxHeightUU = BiomeConfig.MaxHeightInMeters * 100.0f;
+	float MinHeightUU = MeshSettings.MinHeightInMeters * 100.0f;
+	float MaxHeightUU = MeshSettings.MaxHeightInMeters * 100.0f;
 	return (MinHeightUU + MaxHeightUU) * 0.5f;
 }

@@ -45,8 +45,14 @@ public:
 	/** Set the biome configuration */
 	void SetBiomeSettings(const FContinentBiomeSettings& InBiomeSettings);
 
+	/** Set the mesh generation settings */
+	void SetMeshSettings(const FMeshGenerationSettings& InMeshSettings);
+
 	/** Get the biome settings */
 	const FContinentBiomeSettings& GetBiomeSettings() const { return BiomeSettings; }
+
+	/** Get the mesh settings (includes generated mask textures) */
+	const FMeshGenerationSettings& GetMeshSettings() const { return MeshSettings; }
 
 	/** Get the generated preview texture (nullptr if not yet generated) */
 	UFUNCTION(BlueprintPure, Category = "Map Generation")
@@ -63,6 +69,9 @@ public:
 
 	/** Generate biomes on existing landmass (must call GenerateLandmassOnly first) */
 	bool GenerateBiomesOnly();
+
+	/** Generate individual mask textures for each biome (biome color on its area, black elsewhere) */
+	void GenerateBiomeMaskTextures();
 
 	/** Get the biome map (index per pixel, -1 = ocean) */
 	const TArray<int32>& GetBiomeMap() const { return BiomeMap; }
@@ -111,6 +120,10 @@ protected:
 	/** Biome configuration for this continent */
 	UPROPERTY()
 	FContinentBiomeSettings BiomeSettings;
+
+	/** Mesh generation settings (stores generated mask textures) */
+	UPROPERTY()
+	FMeshGenerationSettings MeshSettings;
 
 	/** Preview texture showing biome distribution */
 	UPROPERTY()
