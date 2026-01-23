@@ -28,6 +28,9 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	
+	/** Called when the actor is constructed (including in editor) */
+	virtual void OnConstruction(const FTransform& Transform) override;
 
 #if WITH_EDITOR
 	/** Called when a property is changed in the editor */

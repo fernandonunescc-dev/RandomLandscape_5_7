@@ -33,6 +33,47 @@ AProceduralMapActor::AProceduralMapActor()
 void AProceduralMapActor::BeginPlay()
 {
 	Super::BeginPlay();
+	
+	// Automatically generate the map when the game starts
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::BeginPlay - Auto-generating map"));
+	
+	// Generate landmass first
+	GenerateLandmass();
+	
+	// Generate biome colors on top of landmass
+	GenerateBiomes();
+	
+	// Generate all biome height map textures (includes combined height map)
+	GenerateAllBiomeTextures();
+	
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::BeginPlay - Auto-generation complete (Landmass: %.4f sec, Biomes: %.4f sec, Textures: %.4f sec)"),
+		LandmassDuration, BiomeDuration, MeshTexturesDuration);
+}
+
+void AProceduralMapActor::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+	
+#if WITH_EDITOR
+	// Only auto-generate in editor if we don't already have textures
+	// This prevents regeneration every time a property changes
+	if (!LandmassTexture || !BiomeTexture || !CombinedHeightMapTexture)
+	{
+		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::OnConstruction - Auto-generating map in editor"));
+		
+		// Generate landmass first
+		GenerateLandmass();
+		
+		// Generate biome colors on top of landmass
+		GenerateBiomes();
+		
+		// Generate all biome height map textures (includes combined height map)
+		GenerateAllBiomeTextures();
+		
+		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::OnConstruction - Auto-generation complete (Landmass: %.4f sec, Biomes: %.4f sec, Textures: %.4f sec)"),
+			LandmassDuration, BiomeDuration, MeshTexturesDuration);
+	}
+#endif
 }
 
 #if WITH_EDITOR
