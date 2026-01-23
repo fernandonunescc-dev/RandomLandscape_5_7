@@ -5,10 +5,12 @@
 
 #include "CoreMinimal.h"
 #include "../BiomeTypes.h"
+#include <FastNoise/FastNoise.h>
 
 /**
  * Base class for biome terrain generators.
  * Each biome type can have its own derived class with custom terrain logic.
+ * Uses FastNoise2 for high-quality Perlin noise generation.
  */
 class RANDOMLANDSCAPE_5_7_API FBiomeTerrainGeneratorBase
 {
@@ -34,7 +36,46 @@ public:
 
 protected:
 	/**
-	 * Simple hash-based noise function.
+	 * FastNoise2 Perlin noise with fractal Brownian motion (fBm).
+	 * Uses true Perlin noise algorithm for high-quality coherent noise.
+	 * @param NormX - Normalized X position (0-1)
+	 * @param NormY - Normalized Y position (0-1) 
+	 * @param Frequency - Base noise frequency
+	 * @param Octaves - Number of octave layers
+	 * @param Persistence - How much each octave contributes (gain)
+	 * @param Seed - Random seed for deterministic generation
+	 * @param MapSizeInMeters - Map size for frequency scaling
+	 * @return Noise value normalized to 0-1 range
+	 */
+	static float PerlinNoise(float NormX, float NormY, float Frequency, int32 Octaves, float Persistence, int32 Seed, float MapSizeInMeters)
+	{
+		// Scale frequency based on map size
+		float MapSizeScale = FMath::Max(MapSizeInMeters / 100.0f, 1.0f);
+		float ScaledFrequency = Frequency * MapSizeScale;
+		
+		// Create FastNoise2 Perlin generator with fractal fBm
+		auto PerlinGen = FastNoise::New<FastNoise::Perlin>();
+		
+		auto FractalGen = FastNoise::New<FastNoise::FractalFBm>();
+		FractalGen->SetSource(PerlinGen);
+		FractalGen->SetOctaveCount(Octaves);
+		FractalGen->SetGain(Persistence);
+		FractalGen->SetLacunarity(2.0f);
+		
+		// Calculate scaled coordinates
+		float X = NormX * ScaledFrequency;
+		float Y = NormY * ScaledFrequency;
+		
+		// GenSingle2D returns noise in approximately -1 to 1 range
+		// The seed is passed directly to the generation function
+		float NoiseValue = FractalGen->GenSingle2D(X, Y, Seed);
+		
+		// Normalize to 0-1 range
+		return (NoiseValue + 1.0f) * 0.5f;
+	}
+	
+	/**
+	 * Simple hash-based noise function (legacy fallback).
 	 * Can be used by derived classes for basic noise generation.
 	 */
 	static float HashNoise(int32 X, int32 Y, int32 Seed)

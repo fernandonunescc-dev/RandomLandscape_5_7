@@ -7,6 +7,7 @@
 #include "ContinentMapGenerator.h"
 #include "Engine/Texture2D.h"
 #include "BiomeTerrainGenerators/BiomeTerrainGeneratorFactory.h"
+#include "KismetProceduralMeshLibrary.h"
 
 AProceduralMapActor::AProceduralMapActor()
 {
@@ -486,11 +487,15 @@ void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
 	void* HeightTextureData = HeightMip.BulkData.Lock(LOCK_READ_WRITE);
 	uint8* HeightPixels = static_cast<uint8*>(HeightTextureData);
 	
-	// Get height range for normalization
-	float MinHeightUU = MeshSettingsForBiome->MinHeightInMeters * 100.0f;
-	float MaxHeightUU = MeshSettingsForBiome->MaxHeightInMeters * 100.0f;
-	float HeightRange = MaxHeightUU - MinHeightUU;
-	if (HeightRange <= 0.0f) HeightRange = 1.0f; // Avoid division by zero
+	// Use GLOBAL height range for normalization (not per-biome)
+	// This ensures all biome height maps are comparable:
+	// - Ocean (e.g., -20m) will appear dark
+	// - Mountains (e.g., 150m) will appear bright white
+	// - Plains (e.g., 20m) will appear dark gray
+	float GlobalMinHeightUU = GlobalMinHeightInMeters * 100.0f;
+	float GlobalMaxHeightUU = GlobalMaxHeightInMeters * 100.0f;
+	float GlobalHeightRange = GlobalMaxHeightUU - GlobalMinHeightUU;
+	if (GlobalHeightRange <= 0.0f) GlobalHeightRange = 1.0f; // Avoid division by zero
 	
 	for (int32 Y = 0; Y < TextureRes; ++Y)
 	{
@@ -523,8 +528,8 @@ void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
 				float HeightUU = FBiomeTerrainGeneratorFactory::Get().CalculateHeightForBiome(
 					BiomeType, NormX, NormY, *MeshSettingsForBiome, MeshSettingsForBiome->Seed, static_cast<float>(MapSizeInMeters));
 				
-				// Normalize height to 0-1 range
-				float NormalizedHeight = FMath::Clamp((HeightUU - MinHeightUU) / HeightRange, 0.0f, 1.0f);
+				// Normalize height against GLOBAL range (not per-biome range)
+				float NormalizedHeight = FMath::Clamp((HeightUU - GlobalMinHeightUU) / GlobalHeightRange, 0.0f, 1.0f);
 				
 				// Convert to grayscale (0-255)
 				uint8 GrayValue = static_cast<uint8>(NormalizedHeight * 255.0f);
@@ -550,8 +555,10 @@ void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
 	
 	MeshSettingsForBiome->HeightMapTexture = HeightMapTexture;
 	
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - Generated mask and height map textures for %s (Seed: %d)"), 
-		*MeshSettingsForBiome->DisplayName, MeshSettingsForBiome->Seed);
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - Generated mask and height map textures for %s (Seed: %d, Heights: %.1f to %.1f m, Global: %.1f to %.1f m)"), 
+		*MeshSettingsForBiome->DisplayName, MeshSettingsForBiome->Seed, 
+		MeshSettingsForBiome->MinHeightInMeters, MeshSettingsForBiome->MaxHeightInMeters,
+		GlobalMinHeightInMeters, GlobalMaxHeightInMeters);
 }
 
 void AProceduralMapActor::GenerateAllBiomeTextures()
@@ -601,7 +608,8 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 		return;
 	}
 	
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Creating combined height map (Resolution: %d)"), TextureRes);
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Creating combined height map (Resolution: %d, Global Range: %.1f to %.1f m)"), 
+		TextureRes, GlobalMinHeightInMeters, GlobalMaxHeightInMeters);
 	
 	// Create the combined height map texture
 	UTexture2D* CombinedTexture = UTexture2D::CreateTransient(TextureRes, TextureRes, PF_B8G8R8A8);
@@ -619,33 +627,13 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 	void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
 	uint8* Pixels = static_cast<uint8*>(TextureData);
 	
-	// First pass: calculate the global min/max heights across all biomes
-	float GlobalMinHeight = TNumericLimits<float>::Max();
-	float GlobalMaxHeight = TNumericLimits<float>::Lowest();
-	
-	// Include all biome height ranges in the global min/max
-	TArray<EBiomeType> AllBiomeTypes = { EBiomeType::Ocean, EBiomeType::Forest, EBiomeType::Mountain, 
-	                                      EBiomeType::Desert, EBiomeType::Snow, EBiomeType::Volcanic };
-	
-	for (EBiomeType BiomeType : AllBiomeTypes)
-	{
-		const FBiomeMeshSettings* MeshSettingsForBiome = GetMeshSettingsForBiome(BiomeType);
-		if (MeshSettingsForBiome)
-		{
-			float MinHeightUU = MeshSettingsForBiome->MinHeightInMeters * 100.0f;
-			float MaxHeightUU = MeshSettingsForBiome->MaxHeightInMeters * 100.0f;
-			GlobalMinHeight = FMath::Min(GlobalMinHeight, MinHeightUU);
-			GlobalMaxHeight = FMath::Max(GlobalMaxHeight, MaxHeightUU);
-		}
-	}
-	
-	float GlobalHeightRange = GlobalMaxHeight - GlobalMinHeight;
+	// Use the global height range properties for normalization
+	float GlobalMinHeightUU = GlobalMinHeightInMeters * 100.0f;
+	float GlobalMaxHeightUU = GlobalMaxHeightInMeters * 100.0f;
+	float GlobalHeightRange = GlobalMaxHeightUU - GlobalMinHeightUU;
 	if (GlobalHeightRange <= 0.0f) GlobalHeightRange = 1.0f;
 	
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Global height range: %.2f to %.2f UU (%.2f meters range)"), 
-		GlobalMinHeight, GlobalMaxHeight, GlobalHeightRange / 100.0f);
-	
-	// Second pass: generate the combined height map
+	// Generate the combined height map
 	for (int32 Y = 0; Y < TextureRes; ++Y)
 	{
 		for (int32 X = 0; X < TextureRes; ++X)
@@ -690,8 +678,8 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 				}
 			}
 			
-			// Normalize height to 0-1 range using global min/max
-			float NormalizedHeight = FMath::Clamp((HeightUU - GlobalMinHeight) / GlobalHeightRange, 0.0f, 1.0f);
+			// Normalize height against GLOBAL range
+			float NormalizedHeight = FMath::Clamp((HeightUU - GlobalMinHeightUU) / GlobalHeightRange, 0.0f, 1.0f);
 			
 			// Convert to grayscale (0-255)
 			uint8 GrayValue = static_cast<uint8>(NormalizedHeight * 255.0f);
@@ -805,7 +793,7 @@ float AProceduralMapActor::CalculateBlendedTerrainHeight(float NormX, float Norm
 	NormX = FMath::Clamp(NormX, 0.0f, 1.0f);
 	NormY = FMath::Clamp(NormY, 0.0f, 1.0f);
 	
-	// Calculate float position in biome map
+	// Calculate float position in biome map for bilinear interpolation
 	float BiomeX = NormX * (TextureRes - 1);
 	float BiomeY = NormY * (TextureRes - 1);
 	
@@ -818,53 +806,58 @@ float AProceduralMapActor::CalculateBlendedTerrainHeight(float NormX, float Norm
 	float FracX = BiomeX - X0;
 	float FracY = BiomeY - Y0;
 	
-	// Apply smoothstep for smoother interpolation
+	// Apply smoothstep for smoother interpolation at biome boundaries
 	FracX = FracX * FracX * (3.0f - 2.0f * FracX);
 	FracY = FracY * FracY * (3.0f - 2.0f * FracY);
 	
-	// Sample heights at 4 corners
+	// Lambda to get height at a specific pixel coordinate
 	auto GetHeightAtPixel = [&](int32 PX, int32 PY) -> float
 	{
 		int32 Index = PY * TextureRes + PX;
 		if (Index < 0 || Index >= LandMask.Num())
 		{
-			return -50.0f; // Ocean depth
+			return 0.0f;
 		}
 		
 		bool bIsLand = LandMask[Index];
 		int32 BiomeIndex = (Index < BiomeMap.Num()) ? BiomeMap[Index] : -1;
 		
-		// Calculate normalized position for this pixel
-		float PixelNormX = static_cast<float>(PX) / static_cast<float>(TextureRes - 1);
-		float PixelNormY = static_cast<float>(PY) / static_cast<float>(TextureRes - 1);
+		const FBiomeMeshSettings* MeshSettingsPtr = nullptr;
+		EBiomeType BiomeType = EBiomeType::Ocean;
 		
-		if (bIsLand && BiomeIndex >= 0 && BiomeIndex < BiomeSettings.LandBiomes.Num())
+		if (!bIsLand)
 		{
-			const FBiomeConfig& BiomeConfig = BiomeSettings.LandBiomes[BiomeIndex];
-			return CalculateTerrainHeight(PixelNormX, PixelNormY, BiomeConfig);
+			MeshSettingsPtr = GetMeshSettingsForBiome(EBiomeType::Ocean);
+			BiomeType = EBiomeType::Ocean;
 		}
-		else if (bIsLand)
+		else if (BiomeIndex >= 0 && BiomeIndex < BiomeSettings.LandBiomes.Num())
 		{
-			FBiomeConfig DefaultConfig;
-			return CalculateTerrainHeight(PixelNormX, PixelNormY, DefaultConfig);
+			BiomeType = BiomeSettings.LandBiomes[BiomeIndex].BiomeType;
+			MeshSettingsPtr = GetMeshSettingsForBiome(BiomeType);
 		}
-		else
+		
+		if (!MeshSettingsPtr)
 		{
-			return -50.0f; // Ocean
+			return 0.0f;
 		}
+		
+		// Use the biome terrain generator with Perlin noise
+		return FBiomeTerrainGeneratorFactory::Get().CalculateHeightForBiome(
+			BiomeType, NormX, NormY, *MeshSettingsPtr, MeshSettingsPtr->Seed, static_cast<float>(MapSizeInMeters));
 	};
 	
-	// Get heights at 4 corners
+	// Sample heights at 4 corners for bilinear interpolation
 	float H00 = GetHeightAtPixel(X0, Y0);
 	float H10 = GetHeightAtPixel(X1, Y0);
 	float H01 = GetHeightAtPixel(X0, Y1);
 	float H11 = GetHeightAtPixel(X1, Y1);
 	
-	// Bilinear interpolation
+	// Bilinear interpolation to lerp between biome heights
 	float H0 = FMath::Lerp(H00, H10, FracX);
 	float H1 = FMath::Lerp(H01, H11, FracX);
+	float BlendedHeight = FMath::Lerp(H0, H1, FracY);
 	
-	return FMath::Lerp(H0, H1, FracY);
+	return BlendedHeight;
 }
 
 FColor AProceduralMapActor::GetBlendedBiomeColor(float NormX, float NormY, int32 TextureRes,
@@ -934,30 +927,28 @@ FColor AProceduralMapActor::GetBlendedBiomeColor(float NormX, float NormY, int32
 
 void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 {
-	// Mesh creation disabled (temporary safe-guard).
-	UE_LOG(LogTemp, Log, TEXT("GenerateTerrainMesh - Mesh creation disabled by configuration"));
+	if (!Generator || !TerrainMesh)
+	{
+		UE_LOG(LogTemp, Error, TEXT("GenerateTerrainMesh - Generator or TerrainMesh is null"));
+		return;
+	}
 	
 	// Calculate mesh parameters based on MeshDetailLevel (1-100)
-	// At level 1: 2x2 chunks, 10 vertices per side = minimal detail
-	// At level 100: 20x20 chunks, 200 vertices per side = maximum detail
-	int32 CalculatedChunksPerSide = FMath::Clamp(2 + (MeshDetailLevel * 18 / 100), 2, 20);
-	int32 CalculatedVerticesPerChunk = FMath::Clamp(10 + (MeshDetailLevel * 190 / 100), 10, 200);
+	// Scaling for reasonable performance:
+	// At level 1:   1x1 chunks, 16 vertices per side = ~256 total vertices
+	// At level 50:  5x5 chunks, 48 vertices per side = ~35k total vertices  
+	// At level 100: 10x10 chunks, 80 vertices per side = ~640k total vertices
+	int32 CalculatedChunksPerSide = FMath::Clamp(1 + (MeshDetailLevel * 9 / 100), 1, 10);
+	int32 CalculatedVerticesPerChunk = FMath::Clamp(16 + (MeshDetailLevel * 64 / 100), 16, 80);
 	
 	// Update internal settings based on detail level
 	ChunksPerSide = CalculatedChunksPerSide;
 	VerticesPerChunkSide = CalculatedVerticesPerChunk;
 	
-	UE_LOG(LogTemp, Log, TEXT("GenerateTerrainMesh - MeshDetailLevel %d maps to: %d chunks per side, %d vertices per chunk"), 
-		MeshDetailLevel, ChunksPerSide, VerticesPerChunkSide);
+	int32 EstimatedTotalVerts = ChunksPerSide * ChunksPerSide * VerticesPerChunkSide * VerticesPerChunkSide;
 	
-	return;
-
-	/* Original implementation commented out while mesh creation is disabled
-
-	if (!Generator || !TerrainMesh)
-	{
-		return;
-	}
+	UE_LOG(LogTemp, Log, TEXT("GenerateTerrainMesh - MeshDetailLevel %d maps to: %d chunks per side, %d vertices per chunk (~%d total vertices)"), 
+		MeshDetailLevel, ChunksPerSide, VerticesPerChunkSide, EstimatedTotalVerts);
 	
 	// Initialize random stream
 	TerrainRandomStream.Initialize(Seed != 0 ? Seed : FMath::Rand());
@@ -972,9 +963,11 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 		return;
 	}
 	
-	// Get map size in Unreal Units (same for X and Y since it's a square map)
-	float MapSizeUU = GetMapSizeInUnrealUnits();
-	float ChunkSizeUU = MapSizeUU / static_cast<float>(ChunksPerSide);
+	// Clear any existing mesh
+	TerrainMesh->ClearAllMeshSections();
+	
+	// Get map size in Unreal Units (MapSizeInMeters * 100 to convert to cm)
+	float MapSizeUU = static_cast<float>(MapSizeInMeters) * 100.0f;
 	
 	int32 TotalChunks = ChunksPerSide * ChunksPerSide;
 	int32 TotalVertices = 0;
@@ -986,6 +979,8 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 		for (int32 ChunkX = 0; ChunkX < ChunksPerSide; ++ChunkX)
 		{
 			int32 ChunkIndex = ChunkY * ChunksPerSide + ChunkX;
+			
+			UE_LOG(LogTemp, Log, TEXT("GenerateTerrainMesh - Generating chunk %d/%d"), ChunkIndex + 1, TotalChunks);
 			
 			// Calculate the normalized coordinate range for this chunk
 			float ChunkNormStartX = static_cast<float>(ChunkX) / static_cast<float>(ChunksPerSide);
@@ -1105,6 +1100,4 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 	
 	UE_LOG(LogTemp, Log, TEXT("GenerateTerrainMesh - Created %d chunks with %d total vertices, %d triangles. Resolution: ~%.2f meters per vertex"),
 		TotalChunks, TotalVertices, TotalTriangles, MetersPerVertex);
-
-	*/
 }

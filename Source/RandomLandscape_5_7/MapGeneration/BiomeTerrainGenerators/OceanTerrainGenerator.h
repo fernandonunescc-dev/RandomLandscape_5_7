@@ -7,14 +7,11 @@
 
 /**
  * Ocean biome terrain generator.
- * Creates underwater terrain with gentle variations.
+ * Creates underwater terrain with gentle variations using FastNoise2 Perlin noise.
  */
 class RANDOMLANDSCAPE_5_7_API FOceanTerrainGenerator : public FBiomeTerrainGeneratorBase
 {
 public:
 	virtual float CalculateHeight(float NormX, float NormY, const FBiomeMeshSettings& MeshSettings, int32 Seed, float MapSizeInMeters) const override;
 	virtual EBiomeType GetBiomeType() const override { return EBiomeType::Ocean; }
-
-private:
-	float FractalNoise(float NormX, float NormY, const FBiomeMeshSettings& MeshSettings, int32 Seed, float MapSizeInMeters) const;
 };

@@ -75,8 +75,8 @@ public:
 	 * Height is determined independently for each biome.
 	 * (Internally converted to Unreal Units: 1 meter = 100 UU)
 	 */
-	//UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation|General", meta = (ClampMin = "10", ClampMax = "10000"))
-	int32 MapSizeInMeters = 100;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Core", meta = (ClampMin = "10", ClampMax = "100000", UIMin = "10", UIMax = "100000"))
+	int32 MapSizeInMeters = 1000;
 
 	/** 
 	 * Resolution scale (1-100) where 100 is maximum vertices/triangles per chunk.
@@ -157,12 +157,35 @@ public:
 	int32 MeshDetailLevel = 50;
 
 	/** 
+	 * Global minimum height in meters for height map normalization.
+	 * This defines the "black" point in height map textures.
+	 * Should be set to accommodate the lowest biome (e.g., ocean floor).
+	 */
+	UPROPERTY(EditAnywhere, Category = "Mesh|Height Range", meta = (ClampMin = "-500.0", ClampMax = "0.0"))
+	float GlobalMinHeightInMeters = -50.0f;
+
+	/** 
+	 * Global maximum height in meters for height map normalization.
+	 * This defines the "white" point in height map textures.
+	 * Should be set to accommodate the highest biome (e.g., mountain peaks).
+	 */
+	UPROPERTY(EditAnywhere, Category = "Mesh|Height Range", meta = (ClampMin = "0.0", ClampMax = "1000.0"))
+	float GlobalMaxHeightInMeters = 200.0f;
+
+	/** 
 	 * Combined height map texture showing the full landmass terrain.
 	 * Merges all individual biome height maps into a single unified texture.
 	 * Grayscale where white = highest, black = lowest.
 	 */
 	UPROPERTY(VisibleAnywhere, Category = "Mesh")
 	TObjectPtr<UTexture2D> CombinedHeightMapTexture = nullptr;
+
+	/** 
+	 * Material to apply to the terrain mesh.
+	 * Tip: Use a material with Vertex Color node to display biome colors.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Mesh")
+	TObjectPtr<UMaterialInterface> TerrainMaterial = nullptr;
 
 	UPROPERTY(EditAnywhere, Category = "Mesh|Ocean")
 	FBiomeMeshSettings OceanMeshSettings;
@@ -235,8 +258,6 @@ private:
 	UPROPERTY()
 	TObjectPtr<UProceduralMeshComponent> TerrainMesh;
 
-	UPROPERTY()
-	TObjectPtr<UMaterialInterface> TerrainMaterial;
 
 	// Utility functions
 	void NormalizeBiomePercentages();
