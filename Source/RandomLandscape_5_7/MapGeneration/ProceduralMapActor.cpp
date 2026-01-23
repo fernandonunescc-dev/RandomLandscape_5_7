@@ -738,96 +738,7 @@ const FBiomeMeshSettings* AProceduralMapActor::GetMeshSettingsForBiome(EBiomeTyp
 	}
 }
 
-float AProceduralMapActor::CalculateTerrainHeight(float NormX, float NormY, const FBiomeConfig& BiomeConfig) const
-{
-	// Get mesh settings for this biome type
-	const FBiomeMeshSettings* MeshSettingsForBiome = GetMeshSettingsForBiome(BiomeConfig.BiomeType);
-	if (!MeshSettingsForBiome)
-	{
-		// Fallback to default mesh settings
-		FBiomeMeshSettings DefaultSettings;
-		return FBiomeTerrainGeneratorFactory::Get().CalculateHeightForBiome(
-			BiomeConfig.BiomeType, NormX, NormY, DefaultSettings, Seed, static_cast<float>(MapSizeInMeters));
-	}
-	
-	// Delegate to the biome-specific terrain generator via factory
-	return FBiomeTerrainGeneratorFactory::Get().CalculateHeightForBiome(
-		BiomeConfig.BiomeType, NormX, NormY, *MeshSettingsForBiome, Seed, static_cast<float>(MapSizeInMeters));
-}
 
-float AProceduralMapActor::CalculateBlendedTerrainHeight(float NormX, float NormY, int32 TextureRes,
-	const TArray<int32>& BiomeMap, const TArray<bool>& LandMask) const
-{
-	// Clamp coordinates to valid range
-	NormX = FMath::Clamp(NormX, 0.0f, 1.0f);
-	NormY = FMath::Clamp(NormY, 0.0f, 1.0f);
-	
-	// Calculate float position in biome map for bilinear interpolation
-	float BiomeX = NormX * (TextureRes - 1);
-	float BiomeY = NormY * (TextureRes - 1);
-	
-	// Get integer coordinates and fractional parts for bilinear interpolation
-	int32 X0 = FMath::FloorToInt(BiomeX);
-	int32 Y0 = FMath::FloorToInt(BiomeY);
-	int32 X1 = FMath::Min(X0 + 1, TextureRes - 1);
-	int32 Y1 = FMath::Min(Y0 + 1, TextureRes - 1);
-	
-	float FracX = BiomeX - X0;
-	float FracY = BiomeY - Y0;
-	
-	// Apply smoothstep for smoother interpolation at biome boundaries
-	FracX = FracX * FracX * (3.0f - 2.0f * FracX);
-	FracY = FracY * FracY * (3.0f - 2.0f * FracY);
-	
-	// Lambda to get height at a specific pixel coordinate
-	auto GetHeightAtPixel = [&](int32 PX, int32 PY) -> float
-	{
-		int32 Index = PY * TextureRes + PX;
-		if (Index < 0 || Index >= LandMask.Num())
-		{
-			return 0.0f;
-		}
-		
-		bool bIsLand = LandMask[Index];
-		int32 BiomeIndex = (Index < BiomeMap.Num()) ? BiomeMap[Index] : -1;
-		
-		const FBiomeMeshSettings* MeshSettingsPtr = nullptr;
-		EBiomeType BiomeType = EBiomeType::Ocean;
-		
-		if (!bIsLand)
-		{
-			MeshSettingsPtr = GetMeshSettingsForBiome(EBiomeType::Ocean);
-			BiomeType = EBiomeType::Ocean;
-		}
-		else if (BiomeIndex >= 0 && BiomeIndex < BiomeSettings.LandBiomes.Num())
-		{
-			BiomeType = BiomeSettings.LandBiomes[BiomeIndex].BiomeType;
-			MeshSettingsPtr = GetMeshSettingsForBiome(BiomeType);
-		}
-		
-		if (!MeshSettingsPtr)
-		{
-			return 0.0f;
-		}
-		
-		// Use the biome terrain generator with Perlin noise
-		return FBiomeTerrainGeneratorFactory::Get().CalculateHeightForBiome(
-			BiomeType, NormX, NormY, *MeshSettingsPtr, MeshSettingsPtr->Seed, static_cast<float>(MapSizeInMeters));
-	};
-	
-	// Sample heights at 4 corners for bilinear interpolation
-	float H00 = GetHeightAtPixel(X0, Y0);
-	float H10 = GetHeightAtPixel(X1, Y0);
-	float H01 = GetHeightAtPixel(X0, Y1);
-	float H11 = GetHeightAtPixel(X1, Y1);
-	
-	// Bilinear interpolation to lerp between biome heights
-	float H0 = FMath::Lerp(H00, H10, FracX);
-	float H1 = FMath::Lerp(H01, H11, FracX);
-	float BlendedHeight = FMath::Lerp(H0, H1, FracY);
-	
-	return BlendedHeight;
-}
 
 FColor AProceduralMapActor::GetBlendedBiomeColor(float NormX, float NormY, int32 TextureRes,
 	const TArray<int32>& BiomeMap, const TArray<bool>& LandMask) const
@@ -996,7 +907,7 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 					// Sample from pre-generated heightmaps (FAST - uses cached GenUniformGrid2D data)
 					// Uses HeightMapResolution (up to 8K) for high-detail noise
 					// BiomeTextureRes is used for biome assignment lookup
-					float Height = SamplePreGeneratedHeight(GlobalNormX, GlobalNormY, BiomeTextureRes, BiomeMap, LandMask);
+					float Height = 10.f;
 					
 					// Get smoothly blended vertex color (uses biome texture resolution)
 					FColor VertColor = GetBlendedBiomeColor(GlobalNormX, GlobalNormY, BiomeTextureRes, BiomeMap, LandMask);
@@ -1118,25 +1029,4 @@ void AProceduralMapActor::PreGenerateBiomeHeightMaps(int32 Resolution)
 		CachedBiomeHeightMaps.Num(), Resolution, Resolution, TotalMB, Duration);
 }
 
-float AProceduralMapActor::SamplePreGeneratedHeight(float NormX, float NormY, int32 BiomeTextureRes,
-	const TArray<int32>& BiomeMap, const TArray<bool>& LandMask) const
-{
-	// Fast path: use pre-generated heightmaps if available
-	if (CachedBiomeHeightMaps.Num() > 0 && CachedHeightMapResolution > 0)
-	{
-		return FBiomeHeightMapGenerator::SampleBlendedHeight(
-			NormX, NormY,
-			CachedHeightMapResolution,  // High-res noise heightmap (e.g., 4096 or 8192)
-			BiomeTextureRes,             // Biome assignment resolution (for biome lookup)
-			CachedBiomeHeightMaps,
-			BiomeMap,
-			LandMask,
-			BiomeSettings.LandBiomes,
-			0.02f  // Blend radius for smooth biome transitions
-		);
-	}
-	
-	// Fallback to per-vertex calculation (slower)
-	return CalculateBlendedTerrainHeight(NormX, NormY, BiomeTextureRes, BiomeMap, LandMask);
-}
 

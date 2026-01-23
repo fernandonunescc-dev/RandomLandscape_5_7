@@ -41,16 +41,3 @@ const FBiomeTerrainGeneratorBase* FBiomeTerrainGeneratorFactory::GetGenerator(EB
 	}
 	return nullptr;
 }
-
-float FBiomeTerrainGeneratorFactory::CalculateHeightForBiome(EBiomeType BiomeType, float NormX, float NormY,
-	const FBiomeMeshSettings& MeshSettings, int32 Seed, float MapSizeInMeters) const
-{
-	const FBiomeTerrainGeneratorBase* Generator = GetGenerator(BiomeType);
-	if (Generator)
-	{
-		return Generator->CalculateHeight(NormX, NormY, MeshSettings, Seed, MapSizeInMeters);
-	}
-	
-	// Fallback: return 0 (midpoint of -1 to 1 noise range)
-	return 0.0f;
-}

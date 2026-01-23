@@ -230,16 +230,6 @@ protected:
 	/** Generate the 3D terrain mesh from the biome map */
 	void GenerateTerrainMesh(UContinentMapGenerator* Generator);
 
-	/** Calculate terrain height using fractal Perlin noise with biome-specific settings */
-	float CalculateTerrainHeight(float NormX, float NormY, const FBiomeConfig& BiomeConfig) const;
-
-	/** 
-	 * Calculate smoothly blended terrain height at a position.
-	 * Uses bilinear interpolation of surrounding biome heights for smooth transitions.
-	 */
-	float CalculateBlendedTerrainHeight(float NormX, float NormY, int32 TextureRes,
-		const TArray<int32>& BiomeMap, const TArray<bool>& LandMask) const;
-
 	/**
 	 * Get biome-blended color at a position with smooth transitions.
 	 */
@@ -266,13 +256,6 @@ private:
 	 * Called before mesh generation to batch-compute all noise values.
 	 */
 	void PreGenerateBiomeHeightMaps(int32 Resolution);
-
-	/** 
-	 * Sample height from pre-generated heightmaps with biome blending.
-	 * Much faster than computing noise per-vertex.
-	 */
-	float SamplePreGeneratedHeight(float NormX, float NormY, int32 TextureRes,
-		const TArray<int32>& BiomeMap, const TArray<bool>& LandMask) const;
 
 	/** Random stream for terrain generation */
 	FRandomStream TerrainRandomStream;
