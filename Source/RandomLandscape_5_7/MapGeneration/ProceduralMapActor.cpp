@@ -989,19 +989,24 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 
 void AProceduralMapActor::PreGenerateBiomeHeightMaps(int32 Resolution)
 {
-	// Calculate memory usage: Resolution^2 floats per biome, only Ocean for now
+	// Calculate memory usage: Resolution^2 floats per biome
 	int64 BytesPerHeightMap = static_cast<int64>(Resolution) * Resolution * sizeof(float);
-	int64 TotalBytes = BytesPerHeightMap * 1; // Only Ocean biome for now
+	int64 TotalBytes = BytesPerHeightMap * 6; // All 6 biomes
 	float TotalMB = TotalBytes / (1024.0f * 1024.0f);
 	
-	UE_LOG(LogTemp, Log, TEXT("PreGenerateBiomeHeightMaps - Generating %dx%d heightmap for Ocean biome (%.1f MB) using GenUniformGrid2D"), 
+	UE_LOG(LogTemp, Log, TEXT("PreGenerateBiomeHeightMaps - Generating %dx%d heightmaps for all biomes (%.1f MB) using GenUniformGrid2D"), 
 		Resolution, Resolution, TotalMB);
 	
 	double StartTime = FPlatformTime::Seconds();
 	
-	// Only generate heightmap for Ocean biome for now
+	// Generate heightmaps for all biomes
 	TArray<FBiomeMeshSettings> AllBiomeSettings;
 	AllBiomeSettings.Add(OceanMeshSettings);
+	AllBiomeSettings.Add(ForestMeshSettings);
+	AllBiomeSettings.Add(MountainMeshSettings);
+	AllBiomeSettings.Add(DesertMeshSettings);
+	AllBiomeSettings.Add(SnowMeshSettings);
+	AllBiomeSettings.Add(VolcanicMeshSettings);
 	
 	// Generate heightmap using SIMD-optimized GenUniformGrid2D
 	// Set bTileable = true for seamless world wrapping terrain
@@ -1016,8 +1021,6 @@ void AProceduralMapActor::PreGenerateBiomeHeightMaps(int32 Resolution)
 	CachedHeightMapResolution = Resolution;
 	
 	double Duration = FPlatformTime::Seconds() - StartTime;
-	UE_LOG(LogTemp, Log, TEXT("PreGenerateBiomeHeightMaps - Generated Ocean heightmap (%dx%d, %.1f MB) in %.4f seconds"), 
-		Resolution, Resolution, TotalMB, Duration);
+	UE_LOG(LogTemp, Log, TEXT("PreGenerateBiomeHeightMaps - Generated %d biome heightmaps (%dx%d, %.1f MB) in %.4f seconds"), 
+		AllBiomeSettings.Num(), Resolution, Resolution, TotalMB, Duration);
 }
-
-
