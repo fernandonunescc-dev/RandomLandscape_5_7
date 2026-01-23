@@ -94,6 +94,8 @@ void AProceduralMapActor::GenerateMap()
 	TotalDuration = 0.0f;
 	LandmassDuration = 0.0f;
 	BiomeDuration = 0.0f;
+	MeshTexturesDuration = 0.0f;
+	MeshGenerationDuration = 0.0f;
 
 	// Generate the landmass first (this sets LandmassDuration)
 	GenerateLandmass();
@@ -101,18 +103,18 @@ void AProceduralMapActor::GenerateMap()
 	// Generate biomes on top of the landmass (this sets BiomeDuration)
 	GenerateBiomes();
 
-	// Generate all biome mask textures for mesh generation
+	// Generate all biome mask textures for mesh generation (includes combined height map)
 	GenerateAllBiomeTextures();
 
-	// Generate the terrain mesh
+	// Generate the terrain mesh (this sets MeshGenerationDuration)
 	GenerateMesh();
 	
 	// End total timing
 	double TotalEndTime = FPlatformTime::Seconds();
 	TotalDuration = static_cast<float>(TotalEndTime - TotalStartTime);
 
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Complete (Total: %.4f sec, Landmass: %.4f sec, Biomes: %.4f sec)"), 
-		TotalDuration, LandmassDuration, BiomeDuration);
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMap - Complete (Total: %.4f sec, Landmass: %.4f sec, Biomes: %.4f sec, Textures: %.4f sec, Mesh: %.4f sec)"), 
+		TotalDuration, LandmassDuration, BiomeDuration, MeshTexturesDuration, MeshGenerationDuration);
 }
 
 void AProceduralMapActor::GenerateLandmass()
@@ -269,11 +271,14 @@ void AProceduralMapActor::GenerateBiomes()
 
 void AProceduralMapActor::GenerateMesh()
 {
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMesh - Generating terrain mesh"));
+	double MeshStartTime = FPlatformTime::Seconds();
+	
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMesh - Generating terrain mesh (Detail Level: %d)"), MeshDetailLevel);
 	
 	if (!CurrentGenerator)
 	{
 		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateMesh - No generator. Generate landmass and biomes first."));
+		MeshGenerationDuration = 0.0f;
 		return;
 	}
 	
@@ -282,6 +287,11 @@ void AProceduralMapActor::GenerateMesh()
 	{
 		GenerateTerrainMesh(ContinentGenerator);
 	}
+	
+	double MeshEndTime = FPlatformTime::Seconds();
+	MeshGenerationDuration = static_cast<float>(MeshEndTime - MeshStartTime);
+	
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateMesh - Complete (%.4f sec)"), MeshGenerationDuration);
 }
 
 void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
@@ -516,10 +526,148 @@ void AProceduralMapActor::GenerateAllBiomeTextures()
 	GenerateBiomeMaskTexture(EBiomeType::Snow);
 	GenerateBiomeMaskTexture(EBiomeType::Volcanic);
 	
+	// Generate the combined height map texture
+	GenerateCombinedHeightMapTexture();
+	
 	double EndTime = FPlatformTime::Seconds();
 	MeshTexturesDuration = static_cast<float>(EndTime - StartTime);
 	
 	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateAllBiomeTextures - Complete (%.4f sec)"), MeshTexturesDuration);
+}
+
+void AProceduralMapActor::GenerateCombinedHeightMapTexture()
+{
+	if (!CurrentGenerator)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - No generator. Generate landmass and biomes first."));
+		return;
+	}
+	
+	UContinentMapGenerator* ContinentGenerator = Cast<UContinentMapGenerator>(CurrentGenerator);
+	if (!ContinentGenerator)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Generator is not a ContinentMapGenerator"));
+		return;
+	}
+	
+	const TArray<int32>& BiomeMap = ContinentGenerator->GetBiomeMap();
+	const TArray<bool>& LandMask = ContinentGenerator->GetLandMask();
+	int32 TextureRes = ContinentGenerator->GetTextureResolution();
+	
+	if (BiomeMap.Num() == 0 || LandMask.Num() == 0)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - No biome data. Generate biomes first."));
+		return;
+	}
+	
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Creating combined height map (Resolution: %d)"), TextureRes);
+	
+	// Create the combined height map texture
+	UTexture2D* CombinedTexture = UTexture2D::CreateTransient(TextureRes, TextureRes, PF_B8G8R8A8);
+	if (!CombinedTexture)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Failed to create combined height map texture"));
+		return;
+	}
+	
+	CombinedTexture->MipGenSettings = TMGS_NoMipmaps;
+	CombinedTexture->SRGB = false;
+	CombinedTexture->Filter = TF_Bilinear;
+	
+	FTexture2DMipMap& Mip = CombinedTexture->GetPlatformData()->Mips[0];
+	void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
+	uint8* Pixels = static_cast<uint8*>(TextureData);
+	
+	// First pass: calculate the global min/max heights across all biomes
+	float GlobalMinHeight = TNumericLimits<float>::Max();
+	float GlobalMaxHeight = TNumericLimits<float>::Lowest();
+	
+	// Include all biome height ranges in the global min/max
+	TArray<EBiomeType> AllBiomeTypes = { EBiomeType::Ocean, EBiomeType::Forest, EBiomeType::Mountain, 
+	                                      EBiomeType::Desert, EBiomeType::Snow, EBiomeType::Volcanic };
+	
+	for (EBiomeType BiomeType : AllBiomeTypes)
+	{
+		const FBiomeMeshSettings* MeshSettingsForBiome = GetMeshSettingsForBiome(BiomeType);
+		if (MeshSettingsForBiome)
+		{
+			float MinHeightUU = MeshSettingsForBiome->MinHeightInMeters * 100.0f;
+			float MaxHeightUU = MeshSettingsForBiome->MaxHeightInMeters * 100.0f;
+			GlobalMinHeight = FMath::Min(GlobalMinHeight, MinHeightUU);
+			GlobalMaxHeight = FMath::Max(GlobalMaxHeight, MaxHeightUU);
+		}
+	}
+	
+	float GlobalHeightRange = GlobalMaxHeight - GlobalMinHeight;
+	if (GlobalHeightRange <= 0.0f) GlobalHeightRange = 1.0f;
+	
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Global height range: %.2f to %.2f UU (%.2f meters range)"), 
+		GlobalMinHeight, GlobalMaxHeight, GlobalHeightRange / 100.0f);
+	
+	// Second pass: generate the combined height map
+	for (int32 Y = 0; Y < TextureRes; ++Y)
+	{
+		for (int32 X = 0; X < TextureRes; ++X)
+		{
+			const int32 PixelIndex = (Y * TextureRes + X) * 4;
+			const int32 MapIndex = Y * TextureRes + X;
+			
+			// Calculate normalized position
+			float NormX = static_cast<float>(X) / static_cast<float>(TextureRes - 1);
+			float NormY = static_cast<float>(Y) / static_cast<float>(TextureRes - 1);
+			
+			float HeightUU = 0.0f;
+			
+			// Determine the biome at this pixel
+			bool bIsLand = (MapIndex < LandMask.Num()) ? LandMask[MapIndex] : false;
+			
+			if (!bIsLand)
+			{
+				// Ocean - use ocean mesh settings
+				const FBiomeMeshSettings* OceanSettings = GetMeshSettingsForBiome(EBiomeType::Ocean);
+				if (OceanSettings)
+				{
+					HeightUU = FBiomeTerrainGeneratorFactory::Get().CalculateHeightForBiome(
+						EBiomeType::Ocean, NormX, NormY, *OceanSettings, OceanSettings->Seed, static_cast<float>(MapSizeInMeters));
+				}
+			}
+			else
+			{
+				// Land biome - find which biome this pixel belongs to
+				int32 BiomeIndex = (MapIndex < BiomeMap.Num()) ? BiomeMap[MapIndex] : -1;
+				
+				if (BiomeIndex >= 0 && BiomeIndex < BiomeSettings.LandBiomes.Num())
+				{
+					const FBiomeConfig& BiomeConfig = BiomeSettings.LandBiomes[BiomeIndex];
+					const FBiomeMeshSettings* MeshSettingsForBiome = GetMeshSettingsForBiome(BiomeConfig.BiomeType);
+					
+					if (MeshSettingsForBiome)
+					{
+						HeightUU = FBiomeTerrainGeneratorFactory::Get().CalculateHeightForBiome(
+							BiomeConfig.BiomeType, NormX, NormY, *MeshSettingsForBiome, MeshSettingsForBiome->Seed, static_cast<float>(MapSizeInMeters));
+					}
+				}
+			}
+			
+			// Normalize height to 0-1 range using global min/max
+			float NormalizedHeight = FMath::Clamp((HeightUU - GlobalMinHeight) / GlobalHeightRange, 0.0f, 1.0f);
+			
+			// Convert to grayscale (0-255)
+			uint8 GrayValue = static_cast<uint8>(NormalizedHeight * 255.0f);
+			
+			Pixels[PixelIndex + 0] = GrayValue; // B
+			Pixels[PixelIndex + 1] = GrayValue; // G
+			Pixels[PixelIndex + 2] = GrayValue; // R
+			Pixels[PixelIndex + 3] = 255;       // A
+		}
+	}
+	
+	Mip.BulkData.Unlock();
+	CombinedTexture->UpdateResource();
+	
+	CombinedHeightMapTexture = CombinedTexture;
+	
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Combined height map generated successfully"));
 }
 
 
@@ -533,6 +681,7 @@ void AProceduralMapActor::ClearMap()
 	PreviewTexture = nullptr;
 	LandmassTexture = nullptr;
 	BiomeTexture = nullptr;
+	CombinedHeightMapTexture = nullptr;
 	
 	// Clear the terrain mesh
 	if (TerrainMesh)
@@ -746,6 +895,20 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 {
 	// Mesh creation disabled (temporary safe-guard).
 	UE_LOG(LogTemp, Log, TEXT("GenerateTerrainMesh - Mesh creation disabled by configuration"));
+	
+	// Calculate mesh parameters based on MeshDetailLevel (1-100)
+	// At level 1: 2x2 chunks, 10 vertices per side = minimal detail
+	// At level 100: 20x20 chunks, 200 vertices per side = maximum detail
+	int32 CalculatedChunksPerSide = FMath::Clamp(2 + (MeshDetailLevel * 18 / 100), 2, 20);
+	int32 CalculatedVerticesPerChunk = FMath::Clamp(10 + (MeshDetailLevel * 190 / 100), 10, 200);
+	
+	// Update internal settings based on detail level
+	ChunksPerSide = CalculatedChunksPerSide;
+	VerticesPerChunkSide = CalculatedVerticesPerChunk;
+	
+	UE_LOG(LogTemp, Log, TEXT("GenerateTerrainMesh - MeshDetailLevel %d maps to: %d chunks per side, %d vertices per chunk"), 
+		MeshDetailLevel, ChunksPerSide, VerticesPerChunkSide);
+	
 	return;
 
 	/* Original implementation commented out while mesh creation is disabled

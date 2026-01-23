@@ -142,6 +142,25 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "Mesh")
 	float MeshTexturesDuration = 0.0f;
 
+	/** Time in seconds to generate the terrain mesh */
+	UPROPERTY(VisibleAnywhere, Category = "Mesh")
+	float MeshGenerationDuration = 0.0f;
+
+	/** 
+	 * Mesh detail level (1-100). Higher values = more vertices/triangles.
+	 * 1 = Low detail (faster), 100 = Maximum detail (slower).
+	 */
+	UPROPERTY(EditAnywhere, Category = "Mesh", meta = (ClampMin = "1", ClampMax = "100", UIMin = "1", UIMax = "100"))
+	int32 MeshDetailLevel = 50;
+
+	/** 
+	 * Combined height map texture showing the full landmass terrain.
+	 * Merges all individual biome height maps into a single unified texture.
+	 * Grayscale where white = highest, black = lowest.
+	 */
+	UPROPERTY(VisibleAnywhere, Category = "Mesh")
+	TObjectPtr<UTexture2D> CombinedHeightMapTexture = nullptr;
+
 	UPROPERTY(EditAnywhere, Category = "Mesh|Ocean")
 	FBiomeMeshSettings OceanMeshSettings;
 
@@ -191,6 +210,9 @@ private:
 
 	/** Generate mask texture for a specific biome type */
 	void GenerateBiomeMaskTexture(EBiomeType BiomeType);
+
+	/** Generate the combined height map texture from all biomes */
+	void GenerateCombinedHeightMapTexture();
 
 	/** Get mesh settings for a specific biome type */
 	FBiomeMeshSettings* GetMeshSettingsForBiome(EBiomeType BiomeType);
