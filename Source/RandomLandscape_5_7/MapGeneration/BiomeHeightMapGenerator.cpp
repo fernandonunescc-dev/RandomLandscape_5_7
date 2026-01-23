@@ -1,7 +1,9 @@
 // BiomeHeightMapGenerator.cpp
-// Implementation of efficient biome heightmap generation using FastNoise2
+// Delegates heightmap generation to individual biome terrain generators
 
 #include "BiomeHeightMapGenerator.h"
+#include "BiomeTerrainGenerators/BiomeTerrainGeneratorFactory.h"
+#include "BiomeTerrainGenerators/BiomeTerrainGeneratorBase.h"
 
 TArray<float> FBiomeHeightMapGenerator::GenerateBiomeHeightMap(
 	EBiomeType BiomeType,
@@ -11,27 +13,20 @@ TArray<float> FBiomeHeightMapGenerator::GenerateBiomeHeightMap(
 	float MapSizeInMeters,
 	bool bTileable)
 {
-	// Create the fractal Perlin generator
-	auto Generator = CreatePerlinFractalGenerator(
-		MeshSettings.NoiseOctaves,
-		MeshSettings.NoisePersistence);
-
-	// Generate the raw noise grid (values in -1 to 1 range)
-	TArray<float> NoiseGrid;
-	if (bTileable)
+	// Delegate to the biome-specific terrain generator
+	const FBiomeTerrainGeneratorBase* Generator = FBiomeTerrainGeneratorFactory::Get().GetGenerator(BiomeType);
+	if (Generator)
 	{
-		NoiseGrid = GenerateTileableNoiseGrid(Generator, Resolution, MeshSettings.NoiseFrequency, Seed, MapSizeInMeters);
-	}
-	else
-	{
-		NoiseGrid = GenerateNoiseGrid(Generator, Resolution, MeshSettings.NoiseFrequency, Seed, MapSizeInMeters);
+		TArray<float> HeightMap = Generator->GenerateHeightMap(MeshSettings, Resolution, Seed, MapSizeInMeters, bTileable);
+		UE_LOG(LogTemp, Log, TEXT("Generated %s heightmap: %dx%d via terrain generator"),
+			*UEnum::GetValueAsString(BiomeType), Resolution, Resolution);
+		return HeightMap;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("Generated %s noise map: %dx%d (raw noise -1 to 1)"),
-		*UEnum::GetValueAsString(BiomeType), Resolution, Resolution);
-
-	// Return raw noise values (-1 to 1) without height conversion
-	return NoiseGrid;
+	// Fallback: return empty if no generator found
+	UE_LOG(LogTemp, Warning, TEXT("No terrain generator found for %s, returning empty heightmap"),
+		*UEnum::GetValueAsString(BiomeType));
+	return TArray<float>();
 }
 
 TMap<EBiomeType, TArray<float>> FBiomeHeightMapGenerator::GenerateAllBiomeHeightMaps(
@@ -45,8 +40,10 @@ TMap<EBiomeType, TArray<float>> FBiomeHeightMapGenerator::GenerateAllBiomeHeight
 
 	for (const FBiomeMeshSettings& Settings : BiomeSettings)
 	{
-		// Use a different seed for each biome to ensure variety
-		int32 BiomeSeed = Seed + static_cast<int32>(Settings.BiomeType) * 12345;
+		// Use biome's own seed if specified (non-zero), otherwise derive from global seed
+		int32 BiomeSeed = (Settings.Seed != 0) 
+			? Settings.Seed 
+			: Seed + static_cast<int32>(Settings.BiomeType) * 12345;
 		
 		TArray<float> HeightMap = GenerateBiomeHeightMap(
 			Settings.BiomeType,
@@ -56,7 +53,10 @@ TMap<EBiomeType, TArray<float>> FBiomeHeightMapGenerator::GenerateAllBiomeHeight
 			MapSizeInMeters,
 			bTileable);
 
-		AllHeightMaps.Add(Settings.BiomeType, MoveTemp(HeightMap));
+		if (HeightMap.Num() > 0)
+		{
+			AllHeightMaps.Add(Settings.BiomeType, MoveTemp(HeightMap));
+		}
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("Generated %d biome heightmaps at %dx%d resolution"), 
@@ -193,96 +193,3 @@ float FBiomeHeightMapGenerator::SampleBlendedHeight(
 	return FMath::Lerp(H0, H1, BiomeFracY);
 }
 
-FastNoise::SmartNode<FastNoise::Generator> FBiomeHeightMapGenerator::CreatePerlinFractalGenerator(
-	int32 Octaves,
-	float Persistence,
-	float Lacunarity)
-{
-	// Create base Perlin noise generator
-	auto PerlinGen = FastNoise::New<FastNoise::Perlin>();
-
-	// Wrap in fractal fBm for multi-octave noise
-	auto FractalGen = FastNoise::New<FastNoise::FractalFBm>();
-	FractalGen->SetSource(PerlinGen);
-	FractalGen->SetOctaveCount(Octaves);
-	FractalGen->SetGain(Persistence);
-	FractalGen->SetLacunarity(Lacunarity);
-
-	return FractalGen;
-}
-
-TArray<float> FBiomeHeightMapGenerator::GenerateNoiseGrid(
-	const FastNoise::SmartNode<FastNoise::Generator>& Generator,
-	int32 Resolution,
-	float Frequency,
-	int32 Seed,
-	float MapSizeInMeters)
-{
-	TArray<float> NoiseGrid;
-	int32 TotalSamples = Resolution * Resolution;
-	NoiseGrid.SetNumUninitialized(TotalSamples);
-
-	// Scale frequency based on map size
-	float MapSizeScale = FMath::Max(MapSizeInMeters / 100.0f, 1.0f);
-	float ScaledFrequency = Frequency * MapSizeScale;
-
-	// Step size: we want the grid to span from 0 to ScaledFrequency
-	// GenUniformGrid2D generates at positions: offset + (index * stepSize)
-	float StepSize = ScaledFrequency / static_cast<float>(Resolution - 1);
-
-	// Generate the entire grid in one SIMD-optimized call
-	// Parameters:
-	// - out: output array
-	// - xOffset, yOffset: starting position
-	// - xCount, yCount: grid dimensions
-	// - xStepSize, yStepSize: spacing between samples
-	// - seed: random seed
-	FastNoise::OutputMinMax MinMax = Generator->GenUniformGrid2D(
-		NoiseGrid.GetData(),
-		0.0f, 0.0f,              // Start at origin
-		Resolution, Resolution,   // Grid size
-		StepSize, StepSize,       // Step between samples
-		Seed);
-
-	UE_LOG(LogTemp, Verbose, TEXT("GenUniformGrid2D: %dx%d samples, freq=%.4f, stepSize=%.4f, range=[%.2f, %.2f]"),
-		Resolution, Resolution, ScaledFrequency, StepSize, MinMax.min, MinMax.max);
-
-	return NoiseGrid;
-}
-
-TArray<float> FBiomeHeightMapGenerator::GenerateTileableNoiseGrid(
-	const FastNoise::SmartNode<FastNoise::Generator>& Generator,
-	int32 Resolution,
-	float Frequency,
-	int32 Seed,
-	float MapSizeInMeters)
-{
-	TArray<float> NoiseGrid;
-	int32 TotalSamples = Resolution * Resolution;
-	NoiseGrid.SetNumUninitialized(TotalSamples);
-
-	// Scale frequency based on map size
-	float MapSizeScale = FMath::Max(MapSizeInMeters / 100.0f, 1.0f);
-	float ScaledFrequency = Frequency * MapSizeScale;
-
-	// For tileable noise, step size determines the frequency of repetition
-	float StepSize = ScaledFrequency / static_cast<float>(Resolution);
-
-	// GenTileable2D creates seamlessly wrapping noise
-	// The edges will smoothly connect when tiled
-	// Parameters:
-	// - out: output array
-	// - xSize, ySize: grid dimensions
-	// - xStepSize, yStepSize: determines how much "noise space" is covered (affects frequency)
-	// - seed: random seed
-	FastNoise::OutputMinMax MinMax = Generator->GenTileable2D(
-		NoiseGrid.GetData(),
-		Resolution, Resolution,   // Grid size
-		StepSize, StepSize,       // Step size (frequency control)
-		Seed);
-
-	UE_LOG(LogTemp, Verbose, TEXT("GenTileable2D: %dx%d samples, freq=%.4f, stepSize=%.4f, range=[%.2f, %.2f]"),
-		Resolution, Resolution, ScaledFrequency, StepSize, MinMax.min, MinMax.max);
-
-	return NoiseGrid;
-}

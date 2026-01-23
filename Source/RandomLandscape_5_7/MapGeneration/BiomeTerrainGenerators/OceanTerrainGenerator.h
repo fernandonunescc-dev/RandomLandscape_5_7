@@ -13,4 +13,12 @@ class RANDOMLANDSCAPE_5_7_API FOceanTerrainGenerator : public FBiomeTerrainGener
 {
 public:
 	virtual EBiomeType GetBiomeType() const override { return EBiomeType::Ocean; }
+
+	/** Ocean-specific heightmap generation */
+	virtual TArray<float> GenerateHeightMap(
+		const FBiomeMeshSettings& MeshSettings,
+		int32 Resolution,
+		int32 Seed,
+		float MapSizeInMeters,
+		bool bTileable = false) const override;
 };

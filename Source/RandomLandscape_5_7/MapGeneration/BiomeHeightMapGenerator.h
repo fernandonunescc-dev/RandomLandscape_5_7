@@ -1,20 +1,21 @@
 // BiomeHeightMapGenerator.h
-// Efficient biome heightmap generation using FastNoise2 GenUniformGrid2D
+// Coordinates heightmap generation by delegating to individual terrain generators
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "BiomeTypes.h"
-#include <FastNoise/FastNoise.h>
 
 /**
- * Generates heightmaps for each biome using SIMD-optimized batch generation.
- * Uses GenUniformGrid2D for efficient grid-based noise generation instead of
- * per-point sampling with GenSingle2D.
+ * Coordinates heightmap generation for biomes.
+ * Delegates actual generation to individual FBiomeTerrainGeneratorBase subclasses
+ * via FBiomeTerrainGeneratorFactory.
  * 
  * Workflow:
- * 1. Generate individual heightmaps for each biome type (Forest, Ocean, Desert, Snow, etc.)
- * 2. Lerp/blend between biome heightmaps based on biome boundaries for smooth transitions
+ * 1. Call GenerateBiomeHeightMap() or GenerateAllBiomeHeightMaps()
+ * 2. Factory retrieves the appropriate terrain generator for each biome
+ * 3. Each generator uses its own noise algorithm (Perlin, Simplex, Voronoi, etc.)
+ * 4. SampleBlendedHeight() blends between biome heightmaps at boundaries
  */
 class RANDOMLANDSCAPE_5_7_API FBiomeHeightMapGenerator
 {
@@ -22,14 +23,14 @@ public:
 	FBiomeHeightMapGenerator() = default;
 
 	/**
-	 * Generate a noise map for a specific biome using GenUniformGrid2D.
-	 * @param BiomeType - The biome to generate noise for
-	 * @param MeshSettings - Biome-specific noise settings (frequency, octaves, persistence)
-	 * @param Resolution - Grid resolution (width and height in samples)
-	 * @param Seed - Random seed for deterministic generation
-	 * @param MapSizeInMeters - Total map size for frequency scaling
-	 * @param bTileable - If true, uses GenTileable2D for seamless edges
-	 * @return Array of raw noise values in -1 to 1 range
+	 * Generate a heightmap for a specific biome via its terrain generator.
+	 * @param BiomeType - The biome to generate
+	 * @param MeshSettings - Biome-specific noise settings
+	 * @param Resolution - Grid resolution
+	 * @param Seed - Random seed
+	 * @param MapSizeInMeters - Map size for frequency scaling
+	 * @param bTileable - Use tileable generation
+	 * @return Array of raw noise values (-1 to 1 range), empty if no generator found
 	 */
 	static TArray<float> GenerateBiomeHeightMap(
 		EBiomeType BiomeType,
@@ -40,7 +41,7 @@ public:
 		bool bTileable = false);
 
 	/**
-	 * Generate heightmaps for all biomes at once.
+	 * Generate heightmaps for multiple biomes.
 	 * @param BiomeSettings - Array of biome mesh settings
 	 * @param Resolution - Grid resolution
 	 * @param Seed - Base seed (each biome gets a derived seed)
@@ -57,17 +58,7 @@ public:
 
 	/**
 	 * Sample a blended height from pre-generated biome heightmaps.
-	 * Performs bilinear interpolation and biome blending.
-	 * @param NormX - Normalized X position (0-1)
-	 * @param NormY - Normalized Y position (0-1)
-	 * @param HeightMapResolution - Resolution of the noise heightmaps (e.g., 4096 or 8192)
-	 * @param BiomeTextureResolution - Resolution of biome assignment map (for biome lookup)
-	 * @param BiomeHeightMaps - Pre-generated heightmaps per biome
-	 * @param BiomeMap - Biome assignments per pixel (at BiomeTextureResolution)
-	 * @param LandMask - Land/water mask (at BiomeTextureResolution)
-	 * @param BiomeConfigs - Biome configuration array
-	 * @param BlendRadius - Blend radius in normalized coords (0-1)
-	 * @return Blended height value in Unreal Units
+	 * Performs bilinear interpolation and biome blending at boundaries.
 	 */
 	static float SampleBlendedHeight(
 		float NormX, float NormY,
@@ -78,39 +69,4 @@ public:
 		const TArray<bool>& LandMask,
 		const TArray<FBiomeConfig>& BiomeConfigs,
 		float BlendRadius = 0.02f);
-
-private:
-	/**
-	 * Create a FastNoise2 fractal Perlin generator with the given settings.
-	 */
-	static FastNoise::SmartNode<FastNoise::Generator> CreatePerlinFractalGenerator(
-		int32 Octaves, 
-		float Persistence, 
-		float Lacunarity = 2.0f);
-
-	/**
-	 * Generate raw noise grid using GenUniformGrid2D.
-	 * @param Generator - FastNoise2 generator node
-	 * @param Resolution - Grid resolution (width = height)
-	 * @param Frequency - Noise frequency
-	 * @param Seed - Random seed
-	 * @param MapSizeInMeters - Map size for scaling
-	 * @return Array of noise values (typically -1 to 1 range)
-	 */
-	static TArray<float> GenerateNoiseGrid(
-		const FastNoise::SmartNode<FastNoise::Generator>& Generator,
-		int32 Resolution,
-		float Frequency,
-		int32 Seed,
-		float MapSizeInMeters);
-
-	/**
-	 * Generate tileable noise grid using GenTileable2D.
-	 */
-	static TArray<float> GenerateTileableNoiseGrid(
-		const FastNoise::SmartNode<FastNoise::Generator>& Generator,
-		int32 Resolution,
-		float Frequency,
-		int32 Seed,
-		float MapSizeInMeters);
 };

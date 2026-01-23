@@ -43,8 +43,8 @@ struct FBiomeMeshSettings
 	int32 Seed = 0;
 
 	/** Noise frequency (higher = more frequent features) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise", meta = (ClampMin = "0.1", ClampMax = "20.0"))
-	float NoiseFrequency = 2.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise", meta = (ClampMin = "0.001", ClampMax = "1.0"))
+	float NoiseFrequency = 0.02f;
 
 	/** Number of noise octaves for fractal detail (more = finer detail) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise", meta = (ClampMin = "1", ClampMax = "8"))

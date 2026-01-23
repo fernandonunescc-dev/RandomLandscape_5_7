@@ -24,7 +24,8 @@ AProceduralMapActor::AProceduralMapActor()
 	TerrainMesh->bUseAsyncCooking = true;
 
 	// Initialize biome noise settings with defaults (frequency, octaves, persistence)
-	OceanMeshSettings = FBiomeMeshSettings(EBiomeType::Ocean, TEXT("Ocean"), 1.0f, 3, 0.4f);
+	// Frequency is step size per pixel - 0.02 gives good variation at 4096 resolution
+	OceanMeshSettings = FBiomeMeshSettings(EBiomeType::Ocean, TEXT("Ocean"), 0.02f, 3, 0.5f);
 	ForestMeshSettings = FBiomeMeshSettings(EBiomeType::Forest, TEXT("Forest"), 0.5f, 4, 0.3f);
 	MountainMeshSettings = FBiomeMeshSettings(EBiomeType::Mountain, TEXT("Mountain"), 1.5f, 5, 0.55f);
 	DesertMeshSettings = FBiomeMeshSettings(EBiomeType::Desert, TEXT("Desert"), 0.8f, 3, 0.25f);
@@ -521,14 +522,11 @@ void AProceduralMapActor::GenerateBiomeTextures()
 		void* HighResData = HighResMip.BulkData.Lock(LOCK_READ_WRITE);
 		uint8* HighResPixels = static_cast<uint8*>(HighResData);
 		
-		// Convert noise values (-1 to 1) to grayscale texture (0 to 255)
-		// -1 -> 0 (black), 0 -> 127 (gray), 1 -> 255 (white)
+		// Convert noise values (0 to 1) to grayscale texture (0 to 255)
 		for (int32 i = 0; i < NoiseMapPtr->Num(); ++i)
 		{
 			float NoiseValue = (*NoiseMapPtr)[i];
-			// Map -1..1 to 0..1
-			float NormalizedValue = (NoiseValue + 1.0f) * 0.5f;
-			uint8 GrayValue = static_cast<uint8>(FMath::Clamp(NormalizedValue * 255.0f, 0.0f, 255.0f));
+			uint8 GrayValue = static_cast<uint8>(FMath::Clamp(NoiseValue * 255.0f, 0.0f, 255.0f));
 			
 			const int32 PixelIndex = i * 4;
 			HighResPixels[PixelIndex + 0] = GrayValue; // B
@@ -627,7 +625,7 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 			float NormY = static_cast<float>(Y) / static_cast<float>(HeightMapResolution - 1);
 			
 			// Sample blended noise from pre-generated noise maps
-			// Returns raw noise value in -1 to 1 range
+			// Returns noise value in 0 to 1 range
 			float NoiseValue = FBiomeHeightMapGenerator::SampleBlendedHeight(
 				NormX, NormY,
 				HeightMapResolution,    // High-res noise map resolution
@@ -639,10 +637,8 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 				0.02f  // Blend radius
 			);
 			
-			// Convert noise (-1 to 1) to grayscale (0 to 255)
-			// -1 -> 0 (black), 0 -> 127 (gray), 1 -> 255 (white)
-			float NormalizedValue = (NoiseValue + 1.0f) * 0.5f;
-			uint8 GrayValue = static_cast<uint8>(FMath::Clamp(NormalizedValue * 255.0f, 0.0f, 255.0f));
+			// Convert noise (0 to 1) to grayscale (0 to 255)
+			uint8 GrayValue = static_cast<uint8>(FMath::Clamp(NoiseValue * 255.0f, 0.0f, 255.0f));
 			
 			Pixels[PixelIndex + 0] = GrayValue; // B
 			Pixels[PixelIndex + 1] = GrayValue; // G
@@ -993,26 +989,21 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 
 void AProceduralMapActor::PreGenerateBiomeHeightMaps(int32 Resolution)
 {
-	// Calculate memory usage: Resolution^2 floats per biome, 6 biomes
+	// Calculate memory usage: Resolution^2 floats per biome, only Ocean for now
 	int64 BytesPerHeightMap = static_cast<int64>(Resolution) * Resolution * sizeof(float);
-	int64 TotalBytes = BytesPerHeightMap * 6; // 6 biome types
+	int64 TotalBytes = BytesPerHeightMap * 1; // Only Ocean biome for now
 	float TotalMB = TotalBytes / (1024.0f * 1024.0f);
 	
-	UE_LOG(LogTemp, Log, TEXT("PreGenerateBiomeHeightMaps - Generating %dx%d heightmaps for all biomes (%.1f MB total) using GenUniformGrid2D"), 
+	UE_LOG(LogTemp, Log, TEXT("PreGenerateBiomeHeightMaps - Generating %dx%d heightmap for Ocean biome (%.1f MB) using GenUniformGrid2D"), 
 		Resolution, Resolution, TotalMB);
 	
 	double StartTime = FPlatformTime::Seconds();
 	
-	// Collect all biome mesh settings
+	// Only generate heightmap for Ocean biome for now
 	TArray<FBiomeMeshSettings> AllBiomeSettings;
 	AllBiomeSettings.Add(OceanMeshSettings);
-	AllBiomeSettings.Add(ForestMeshSettings);
-	AllBiomeSettings.Add(MountainMeshSettings);
-	AllBiomeSettings.Add(DesertMeshSettings);
-	AllBiomeSettings.Add(SnowMeshSettings);
-	AllBiomeSettings.Add(VolcanicMeshSettings);
 	
-	// Generate all heightmaps in batch using SIMD-optimized GenUniformGrid2D
+	// Generate heightmap using SIMD-optimized GenUniformGrid2D
 	// Set bTileable = true for seamless world wrapping terrain
 	CachedBiomeHeightMaps = FBiomeHeightMapGenerator::GenerateAllBiomeHeightMaps(
 		AllBiomeSettings,
@@ -1025,8 +1016,8 @@ void AProceduralMapActor::PreGenerateBiomeHeightMaps(int32 Resolution)
 	CachedHeightMapResolution = Resolution;
 	
 	double Duration = FPlatformTime::Seconds() - StartTime;
-	UE_LOG(LogTemp, Log, TEXT("PreGenerateBiomeHeightMaps - Generated %d biome heightmaps (%dx%d, %.1f MB) in %.4f seconds"), 
-		CachedBiomeHeightMaps.Num(), Resolution, Resolution, TotalMB, Duration);
+	UE_LOG(LogTemp, Log, TEXT("PreGenerateBiomeHeightMaps - Generated Ocean heightmap (%dx%d, %.1f MB) in %.4f seconds"), 
+		Resolution, Resolution, TotalMB, Duration);
 }
 
 
