@@ -7,6 +7,7 @@
 #include "ContinentMapGenerator.h"
 #include "Engine/Texture2D.h"
 #include "BiomeTerrainGenerators/BiomeTerrainGeneratorFactory.h"
+#include "BiomeHeightMapGenerator.h"
 #include "KismetProceduralMeshLibrary.h"
 
 AProceduralMapActor::AProceduralMapActor()
@@ -44,8 +45,8 @@ void AProceduralMapActor::BeginPlay()
 	// Generate biome colors on top of landmass
 	GenerateBiomes();
 	
-	// Generate all biome height map textures (includes combined height map)
-	GenerateAllBiomeTextures();
+	// Generate all biome textures (color, low-res, and high-res)
+	GenerateBiomeTextures();
 	
 	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::BeginPlay - Auto-generation complete (Landmass: %.4f sec, Biomes: %.4f sec, Textures: %.4f sec)"),
 		LandmassDuration, BiomeDuration, MeshTexturesDuration);
@@ -68,8 +69,8 @@ void AProceduralMapActor::OnConstruction(const FTransform& Transform)
 		// Generate biome colors on top of landmass
 		GenerateBiomes();
 		
-		// Generate all biome height map textures (includes combined height map)
-		GenerateAllBiomeTextures();
+		// Generate all biome textures (color, low-res, and high-res)
+		GenerateBiomeTextures();
 		
 		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::OnConstruction - Auto-generation complete (Landmass: %.4f sec, Biomes: %.4f sec, Textures: %.4f sec)"),
 			LandmassDuration, BiomeDuration, MeshTexturesDuration);
@@ -145,8 +146,8 @@ void AProceduralMapActor::GenerateMap()
 	// Generate biomes on top of the landmass (this sets BiomeDuration)
 	GenerateBiomes();
 
-	// Generate all biome mask textures for mesh generation (includes combined height map)
-	GenerateAllBiomeTextures();
+	// Generate all biome textures (color, low-res, and high-res)
+	GenerateBiomeTextures();
 
 	// Generate the terrain mesh (this sets MeshGenerationDuration)
 	GenerateMesh();
@@ -343,24 +344,24 @@ void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
 		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - No generator. Generate landmass and biomes first."));
 		return;
 	}
-	
+
 	UContinentMapGenerator* ContinentGenerator = Cast<UContinentMapGenerator>(CurrentGenerator);
 	if (!ContinentGenerator)
 	{
 		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - Generator is not a ContinentMapGenerator"));
 		return;
 	}
-	
+
 	const TArray<int32>& BiomeMap = ContinentGenerator->GetBiomeMap();
 	const TArray<bool>& LandMask = ContinentGenerator->GetLandMask();
-	int32 TextureRes = ContinentGenerator->GetTextureResolution();
-	
+	int32 BiomeTextureRes = ContinentGenerator->GetTextureResolution(); // Biome assignment resolution (e.g., 512)
+
 	if (BiomeMap.Num() == 0 || LandMask.Num() == 0)
 	{
 		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - No biome data. Generate biomes first."));
 		return;
 	}
-	
+
 	// Get the mesh settings for this biome
 	FBiomeMeshSettings* MeshSettingsForBiome = GetMeshSettingsForBiome(BiomeType);
 	if (!MeshSettingsForBiome)
@@ -373,12 +374,12 @@ void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
 	if (MeshSettingsForBiome->Seed == 0)
 	{
 		MeshSettingsForBiome->Seed = FMath::RandRange(1, TNumericLimits<int32>::Max());
-		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - Generated random seed %d for %s"), 
+		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - Generated random seed %d for %s"),
 			MeshSettingsForBiome->Seed, *MeshSettingsForBiome->DisplayName);
 	}
 	
-	// Create the texture
-	UTexture2D* MaskTexture = UTexture2D::CreateTransient(TextureRes, TextureRes, PF_B8G8R8A8);
+	// Create the MASK texture at biome texture resolution (for biome boundaries)
+	UTexture2D* MaskTexture = UTexture2D::CreateTransient(BiomeTextureRes, BiomeTextureRes, PF_B8G8R8A8);
 	if (!MaskTexture)
 	{
 		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - Failed to create texture for %s"), *MeshSettingsForBiome->DisplayName);
@@ -388,11 +389,11 @@ void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
 	MaskTexture->MipGenSettings = TMGS_NoMipmaps;
 	MaskTexture->SRGB = false;
 	MaskTexture->Filter = TF_Nearest;
-	
+
 	FTexture2DMipMap& Mip = MaskTexture->GetPlatformData()->Mips[0];
 	void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
 	uint8* Pixels = static_cast<uint8*>(TextureData);
-	
+
 	// Get the color for this biome
 	FColor BiomeColor = FColor::White;
 	if (BiomeType == EBiomeType::Ocean)
@@ -411,7 +412,7 @@ void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
 			}
 		}
 	}
-	
+
 	// Find the biome index for land biomes
 	int32 TargetBiomeIndex = -1;
 	if (BiomeType != EBiomeType::Ocean)
@@ -425,16 +426,16 @@ void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
 			}
 		}
 	}
-	
-	for (int32 Y = 0; Y < TextureRes; ++Y)
+
+	for (int32 Y = 0; Y < BiomeTextureRes; ++Y)
 	{
-		for (int32 X = 0; X < TextureRes; ++X)
+		for (int32 X = 0; X < BiomeTextureRes; ++X)
 		{
-			const int32 PixelIndex = (Y * TextureRes + X) * 4;
-			const int32 MapIndex = Y * TextureRes + X;
-			
+			const int32 PixelIndex = (Y * BiomeTextureRes + X) * 4;
+			const int32 MapIndex = Y * BiomeTextureRes + X;
+
 			bool bIsThisBiome = false;
-			
+
 			if (BiomeType == EBiomeType::Ocean)
 			{
 				// Ocean is where it's not land
@@ -448,7 +449,7 @@ void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
 					bIsThisBiome = LandMask[MapIndex] && (BiomeMap[MapIndex] == TargetBiomeIndex);
 				}
 			}
-			
+
 			if (bIsThisBiome)
 			{
 				Pixels[PixelIndex + 0] = BiomeColor.B;
@@ -465,108 +466,25 @@ void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
 			}
 		}
 	}
-	
+
 	Mip.BulkData.Unlock();
 	MaskTexture->UpdateResource();
-	
+
 	MeshSettingsForBiome->MaskTexture = MaskTexture;
-	
-	// ========== Generate Height Map Texture ==========
-	UTexture2D* HeightMapTexture = UTexture2D::CreateTransient(TextureRes, TextureRes, PF_B8G8R8A8);
-	if (!HeightMapTexture)
-	{
-		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - Failed to create height map texture for %s"), *MeshSettingsForBiome->DisplayName);
-		return;
-	}
-	
-	HeightMapTexture->MipGenSettings = TMGS_NoMipmaps;
-	HeightMapTexture->SRGB = false;
-	HeightMapTexture->Filter = TF_Bilinear;
-	
-	FTexture2DMipMap& HeightMip = HeightMapTexture->GetPlatformData()->Mips[0];
-	void* HeightTextureData = HeightMip.BulkData.Lock(LOCK_READ_WRITE);
-	uint8* HeightPixels = static_cast<uint8*>(HeightTextureData);
-	
-	// Use GLOBAL height range for normalization (not per-biome)
-	// This ensures all biome height maps are comparable:
-	// - Ocean (e.g., -20m) will appear dark
-	// - Mountains (e.g., 150m) will appear bright white
-	// - Plains (e.g., 20m) will appear dark gray
-	float GlobalMinHeightUU = GlobalMinHeightInMeters * 100.0f;
-	float GlobalMaxHeightUU = GlobalMaxHeightInMeters * 100.0f;
-	float GlobalHeightRange = GlobalMaxHeightUU - GlobalMinHeightUU;
-	if (GlobalHeightRange <= 0.0f) GlobalHeightRange = 1.0f; // Avoid division by zero
-	
-	for (int32 Y = 0; Y < TextureRes; ++Y)
-	{
-		for (int32 X = 0; X < TextureRes; ++X)
-		{
-			const int32 PixelIndex = (Y * TextureRes + X) * 4;
-			const int32 MapIndex = Y * TextureRes + X;
-			
-			bool bIsThisBiome = false;
-			
-			if (BiomeType == EBiomeType::Ocean)
-			{
-				bIsThisBiome = (MapIndex < LandMask.Num()) && !LandMask[MapIndex];
-			}
-			else
-			{
-				if (MapIndex < BiomeMap.Num() && MapIndex < LandMask.Num())
-				{
-					bIsThisBiome = LandMask[MapIndex] && (BiomeMap[MapIndex] == TargetBiomeIndex);
-				}
-			}
-			
-			if (bIsThisBiome)
-			{
-				// Calculate normalized position
-				float NormX = static_cast<float>(X) / static_cast<float>(TextureRes - 1);
-				float NormY = static_cast<float>(Y) / static_cast<float>(TextureRes - 1);
-				
-				// Get terrain height using the biome's terrain generator
-				float HeightUU = FBiomeTerrainGeneratorFactory::Get().CalculateHeightForBiome(
-					BiomeType, NormX, NormY, *MeshSettingsForBiome, MeshSettingsForBiome->Seed, static_cast<float>(MapSizeInMeters));
-				
-				// Normalize height against GLOBAL range (not per-biome range)
-				float NormalizedHeight = FMath::Clamp((HeightUU - GlobalMinHeightUU) / GlobalHeightRange, 0.0f, 1.0f);
-				
-				// Convert to grayscale (0-255)
-				uint8 GrayValue = static_cast<uint8>(NormalizedHeight * 255.0f);
-				
-				HeightPixels[PixelIndex + 0] = GrayValue; // B
-				HeightPixels[PixelIndex + 1] = GrayValue; // G
-				HeightPixels[PixelIndex + 2] = GrayValue; // R
-				HeightPixels[PixelIndex + 3] = 255;       // A
-			}
-			else
-			{
-				// Not this biome - black
-				HeightPixels[PixelIndex + 0] = 0;
-				HeightPixels[PixelIndex + 1] = 0;
-				HeightPixels[PixelIndex + 2] = 0;
-				HeightPixels[PixelIndex + 3] = 255;
-			}
-		}
-	}
-	
-	HeightMip.BulkData.Unlock();
-	HeightMapTexture->UpdateResource();
-	
-	MeshSettingsForBiome->HeightMapTexture = HeightMapTexture;
-	
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - Generated mask and height map textures for %s (Seed: %d, Heights: %.1f to %.1f m, Global: %.1f to %.1f m)"), 
-		*MeshSettingsForBiome->DisplayName, MeshSettingsForBiome->Seed, 
-		MeshSettingsForBiome->MinHeightInMeters, MeshSettingsForBiome->MaxHeightInMeters,
-		GlobalMinHeightInMeters, GlobalMaxHeightInMeters);
+
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomeMaskTexture - Generated mask texture (%dx%d) for %s (Seed: %d)"),
+		BiomeTextureRes, BiomeTextureRes,
+		*MeshSettingsForBiome->DisplayName, MeshSettingsForBiome->Seed);
 }
 
-void AProceduralMapActor::GenerateAllBiomeTextures()
+void AProceduralMapActor::GenerateBiomeTextures()
 {
 	double StartTime = FPlatformTime::Seconds();
 	
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateAllBiomeTextures - Generating all biome mask textures"));
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomeTextures - Generating biome textures directly from FastNoise2 (Resolution: %dx%d)"), 
+		HeightMapResolution, HeightMapResolution);
 	
+	// Generate mask (color) textures for each biome at biome texture resolution
 	GenerateBiomeMaskTexture(EBiomeType::Ocean);
 	GenerateBiomeMaskTexture(EBiomeType::Forest);
 	GenerateBiomeMaskTexture(EBiomeType::Mountain);
@@ -574,13 +492,84 @@ void AProceduralMapActor::GenerateAllBiomeTextures()
 	GenerateBiomeMaskTexture(EBiomeType::Snow);
 	GenerateBiomeMaskTexture(EBiomeType::Volcanic);
 	
-	// Generate the combined height map texture
+	// Pre-generate all biome heightmaps at full resolution using FastNoise2
+	PreGenerateBiomeHeightMaps(HeightMapResolution);
+	
+	// Lambda to generate high-res texture directly from cached heightmap data
+	auto GenerateHighResTextureFromCache = [this](FBiomeMeshSettings& MeshSettingsRef) -> void
+	{
+		const TArray<float>* HeightMapPtr = CachedBiomeHeightMaps.Find(MeshSettingsRef.BiomeType);
+		if (!HeightMapPtr || HeightMapPtr->Num() == 0)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("GenerateBiomeTextures - No cached heightmap for %s, skipping"), *MeshSettingsRef.DisplayName);
+			return;
+		}
+		
+		// Create the high-res texture
+		UTexture2D* HighResTexture = UTexture2D::CreateTransient(HeightMapResolution, HeightMapResolution, PF_B8G8R8A8);
+		if (!HighResTexture)
+		{
+			UE_LOG(LogTemp, Error, TEXT("GenerateBiomeTextures - Failed to create high-res texture for %s"), *MeshSettingsRef.DisplayName);
+			return;
+		}
+		
+		HighResTexture->MipGenSettings = TMGS_NoMipmaps;
+		HighResTexture->SRGB = false;
+		HighResTexture->Filter = TF_Bilinear;
+		
+		FTexture2DMipMap& HighResMip = HighResTexture->GetPlatformData()->Mips[0];
+		void* HighResData = HighResMip.BulkData.Lock(LOCK_READ_WRITE);
+		uint8* HighResPixels = static_cast<uint8*>(HighResData);
+		
+		// Find min/max for normalization
+		float MinValue = TNumericLimits<float>::Max();
+		float MaxValue = TNumericLimits<float>::Lowest();
+		for (float Value : *HeightMapPtr)
+		{
+			MinValue = FMath::Min(MinValue, Value);
+			MaxValue = FMath::Max(MaxValue, Value);
+		}
+		float ValueRange = MaxValue - MinValue;
+		if (ValueRange <= 0.0f) ValueRange = 1.0f;
+		
+		// Convert float heightmap to grayscale texture
+		for (int32 i = 0; i < HeightMapPtr->Num(); ++i)
+		{
+			float NormalizedValue = ((*HeightMapPtr)[i] - MinValue) / ValueRange;
+			uint8 GrayValue = static_cast<uint8>(FMath::Clamp(NormalizedValue * 255.0f, 0.0f, 255.0f));
+			
+			const int32 PixelIndex = i * 4;
+			HighResPixels[PixelIndex + 0] = GrayValue; // B
+			HighResPixels[PixelIndex + 1] = GrayValue; // G
+			HighResPixels[PixelIndex + 2] = GrayValue; // R
+			HighResPixels[PixelIndex + 3] = 255;       // A
+		}
+		
+		HighResMip.BulkData.Unlock();
+		HighResTexture->UpdateResource();
+		
+		MeshSettingsRef.HighResTexture = HighResTexture;
+		
+		UE_LOG(LogTemp, Verbose, TEXT("GenerateBiomeTextures - Generated %s at %dx%d"), 
+			*MeshSettingsRef.DisplayName, HeightMapResolution, HeightMapResolution);
+	};
+	
+	// Generate high-res texture for each biome directly from cached FastNoise2 data
+	GenerateHighResTextureFromCache(OceanMeshSettings);
+	GenerateHighResTextureFromCache(ForestMeshSettings);
+	GenerateHighResTextureFromCache(MountainMeshSettings);
+	GenerateHighResTextureFromCache(DesertMeshSettings);
+	GenerateHighResTextureFromCache(SnowMeshSettings);
+	GenerateHighResTextureFromCache(VolcanicMeshSettings);
+	
+	// Generate the combined height map texture using the cached high-res heightmaps
 	GenerateCombinedHeightMapTexture();
 	
 	double EndTime = FPlatformTime::Seconds();
 	MeshTexturesDuration = static_cast<float>(EndTime - StartTime);
 	
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateAllBiomeTextures - Complete (%.4f sec)"), MeshTexturesDuration);
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomeTextures - Generated 6 high-res textures (%dx%d) + combined height map in %.4f seconds"), 
+		HeightMapResolution, HeightMapResolution, MeshTexturesDuration);
 }
 
 void AProceduralMapActor::GenerateCombinedHeightMapTexture()
@@ -600,7 +589,7 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 	
 	const TArray<int32>& BiomeMap = ContinentGenerator->GetBiomeMap();
 	const TArray<bool>& LandMask = ContinentGenerator->GetLandMask();
-	int32 TextureRes = ContinentGenerator->GetTextureResolution();
+	int32 BiomeTextureRes = ContinentGenerator->GetTextureResolution(); // Biome assignment resolution
 	
 	if (BiomeMap.Num() == 0 || LandMask.Num() == 0)
 	{
@@ -608,11 +597,17 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 		return;
 	}
 	
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Creating combined height map (Resolution: %d, Global Range: %.1f to %.1f m)"), 
-		TextureRes, GlobalMinHeightInMeters, GlobalMaxHeightInMeters);
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Creating combined height map (Resolution: %dx%d, Global Range: %.1f to %.1f m)"),
+		HeightMapResolution, HeightMapResolution, GlobalMinHeightInMeters, GlobalMaxHeightInMeters);
+
+	// Only regenerate heightmaps if not already cached at the correct resolution
+	if (CachedBiomeHeightMaps.Num() == 0 || CachedHeightMapResolution != HeightMapResolution)
+	{
+		PreGenerateBiomeHeightMaps(HeightMapResolution);
+	}
 	
-	// Create the combined height map texture
-	UTexture2D* CombinedTexture = UTexture2D::CreateTransient(TextureRes, TextureRes, PF_B8G8R8A8);
+	// Create the combined height map texture at HeightMapResolution (high-res)
+	UTexture2D* CombinedTexture = UTexture2D::CreateTransient(HeightMapResolution, HeightMapResolution, PF_B8G8R8A8);
 	if (!CombinedTexture)
 	{
 		UE_LOG(LogTemp, Error, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Failed to create combined height map texture"));
@@ -633,50 +628,29 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 	float GlobalHeightRange = GlobalMaxHeightUU - GlobalMinHeightUU;
 	if (GlobalHeightRange <= 0.0f) GlobalHeightRange = 1.0f;
 	
-	// Generate the combined height map
-	for (int32 Y = 0; Y < TextureRes; ++Y)
+	// Generate the combined height map using pre-generated heightmaps with biome blending
+	for (int32 Y = 0; Y < HeightMapResolution; ++Y)
 	{
-		for (int32 X = 0; X < TextureRes; ++X)
+		for (int32 X = 0; X < HeightMapResolution; ++X)
 		{
-			const int32 PixelIndex = (Y * TextureRes + X) * 4;
-			const int32 MapIndex = Y * TextureRes + X;
+			const int32 PixelIndex = (Y * HeightMapResolution + X) * 4;
 			
-			// Calculate normalized position
-			float NormX = static_cast<float>(X) / static_cast<float>(TextureRes - 1);
-			float NormY = static_cast<float>(Y) / static_cast<float>(TextureRes - 1);
+			// Calculate normalized position (0-1)
+			float NormX = static_cast<float>(X) / static_cast<float>(HeightMapResolution - 1);
+			float NormY = static_cast<float>(Y) / static_cast<float>(HeightMapResolution - 1);
 			
-			float HeightUU = 0.0f;
-			
-			// Determine the biome at this pixel
-			bool bIsLand = (MapIndex < LandMask.Num()) ? LandMask[MapIndex] : false;
-			
-			if (!bIsLand)
-			{
-				// Ocean - use ocean mesh settings
-				const FBiomeMeshSettings* OceanSettings = GetMeshSettingsForBiome(EBiomeType::Ocean);
-				if (OceanSettings)
-				{
-					HeightUU = FBiomeTerrainGeneratorFactory::Get().CalculateHeightForBiome(
-						EBiomeType::Ocean, NormX, NormY, *OceanSettings, OceanSettings->Seed, static_cast<float>(MapSizeInMeters));
-				}
-			}
-			else
-			{
-				// Land biome - find which biome this pixel belongs to
-				int32 BiomeIndex = (MapIndex < BiomeMap.Num()) ? BiomeMap[MapIndex] : -1;
-				
-				if (BiomeIndex >= 0 && BiomeIndex < BiomeSettings.LandBiomes.Num())
-				{
-					const FBiomeConfig& BiomeConfig = BiomeSettings.LandBiomes[BiomeIndex];
-					const FBiomeMeshSettings* MeshSettingsForBiome = GetMeshSettingsForBiome(BiomeConfig.BiomeType);
-					
-					if (MeshSettingsForBiome)
-					{
-						HeightUU = FBiomeTerrainGeneratorFactory::Get().CalculateHeightForBiome(
-							BiomeConfig.BiomeType, NormX, NormY, *MeshSettingsForBiome, MeshSettingsForBiome->Seed, static_cast<float>(MapSizeInMeters));
-					}
-				}
-			}
+			// Sample blended height from pre-generated heightmaps
+			// This handles biome transitions smoothly via bilinear interpolation
+			float HeightUU = FBiomeHeightMapGenerator::SampleBlendedHeight(
+				NormX, NormY,
+				HeightMapResolution,    // High-res noise heightmap
+				BiomeTextureRes,        // Biome assignment resolution
+				CachedBiomeHeightMaps,
+				BiomeMap,
+				LandMask,
+				BiomeSettings.LandBiomes,
+				0.02f  // Blend radius
+			);
 			
 			// Normalize height against GLOBAL range
 			float NormalizedHeight = FMath::Clamp((HeightUU - GlobalMinHeightUU) / GlobalHeightRange, 0.0f, 1.0f);
@@ -696,7 +670,8 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 	
 	CombinedHeightMapTexture = CombinedTexture;
 	
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Combined height map generated successfully"));
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateCombinedHeightMapTexture - Combined height map (%dx%d) generated successfully with biome blending"),
+		HeightMapResolution, HeightMapResolution);
 }
 
 
@@ -711,6 +686,14 @@ void AProceduralMapActor::ClearMap()
 	LandmassTexture = nullptr;
 	BiomeTexture = nullptr;
 	CombinedHeightMapTexture = nullptr;
+	
+	// Clear high-res textures from mesh settings
+	OceanMeshSettings.HighResTexture = nullptr;
+	ForestMeshSettings.HighResTexture = nullptr;
+	MountainMeshSettings.HighResTexture = nullptr;
+	DesertMeshSettings.HighResTexture = nullptr;
+	SnowMeshSettings.HighResTexture = nullptr;
+	VolcanicMeshSettings.HighResTexture = nullptr;
 	
 	// Clear the terrain mesh
 	if (TerrainMesh)
@@ -876,7 +859,7 @@ FColor AProceduralMapActor::GetBlendedBiomeColor(float NormX, float NormY, int32
 	int32 Y0 = FMath::FloorToInt(BiomeY);
 	int32 X1 = FMath::Min(X0 + 1, TextureRes - 1);
 	int32 Y1 = FMath::Min(Y0 + 1, TextureRes - 1);
-	
+
 	float FracX = BiomeX - X0;
 	float FracY = BiomeY - Y0;
 	
@@ -955,13 +938,20 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 	
 	const TArray<int32>& BiomeMap = Generator->GetBiomeMap();
 	const TArray<bool>& LandMask = Generator->GetLandMask();
-	int32 TextureRes = Generator->GetTextureResolution();
+	int32 BiomeTextureRes = Generator->GetTextureResolution(); // Resolution of biome assignment map
 	
 	if (BiomeMap.Num() == 0 || LandMask.Num() == 0)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("GenerateTerrainMesh - No biome map data"));
 		return;
 	}
+	
+	// PRE-GENERATE all biome heightmaps using SIMD-optimized GenUniformGrid2D
+	// Use HeightMapResolution (configurable up to 8K) for high-detail noise sampling
+	// This is independent of the biome texture resolution
+	UE_LOG(LogTemp, Log, TEXT("GenerateTerrainMesh - Using HeightMapResolution: %d (BiomeTextureRes: %d)"), 
+		HeightMapResolution, BiomeTextureRes);
+	PreGenerateBiomeHeightMaps(HeightMapResolution);
 	
 	// Clear any existing mesh
 	TerrainMesh->ClearAllMeshSections();
@@ -1017,11 +1007,13 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 					float GlobalNormX = FMath::Lerp(ChunkNormStartX, ChunkNormEndX, LocalNormX);
 					float GlobalNormY = FMath::Lerp(ChunkNormStartY, ChunkNormEndY, LocalNormY);
 					
-					// Use bilinear interpolation for smooth height blending between biomes
-					float Height = CalculateBlendedTerrainHeight(GlobalNormX, GlobalNormY, TextureRes, BiomeMap, LandMask);
+					// Sample from pre-generated heightmaps (FAST - uses cached GenUniformGrid2D data)
+					// Uses HeightMapResolution (up to 8K) for high-detail noise
+					// BiomeTextureRes is used for biome assignment lookup
+					float Height = SamplePreGeneratedHeight(GlobalNormX, GlobalNormY, BiomeTextureRes, BiomeMap, LandMask);
 					
-					// Get smoothly blended vertex color
-					FColor VertColor = GetBlendedBiomeColor(GlobalNormX, GlobalNormY, TextureRes, BiomeMap, LandMask);
+					// Get smoothly blended vertex color (uses biome texture resolution)
+					FColor VertColor = GetBlendedBiomeColor(GlobalNormX, GlobalNormY, BiomeTextureRes, BiomeMap, LandMask);
 					
 					// Position in world space (centered on actor)
 					FVector Position(
@@ -1101,3 +1093,64 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 	UE_LOG(LogTemp, Log, TEXT("GenerateTerrainMesh - Created %d chunks with %d total vertices, %d triangles. Resolution: ~%.2f meters per vertex"),
 		TotalChunks, TotalVertices, TotalTriangles, MetersPerVertex);
 }
+
+void AProceduralMapActor::PreGenerateBiomeHeightMaps(int32 Resolution)
+{
+	// Calculate memory usage: Resolution^2 floats per biome, 6 biomes
+	int64 BytesPerHeightMap = static_cast<int64>(Resolution) * Resolution * sizeof(float);
+	int64 TotalBytes = BytesPerHeightMap * 6; // 6 biome types
+	float TotalMB = TotalBytes / (1024.0f * 1024.0f);
+	
+	UE_LOG(LogTemp, Log, TEXT("PreGenerateBiomeHeightMaps - Generating %dx%d heightmaps for all biomes (%.1f MB total) using GenUniformGrid2D"), 
+		Resolution, Resolution, TotalMB);
+	
+	double StartTime = FPlatformTime::Seconds();
+	
+	// Collect all biome mesh settings
+	TArray<FBiomeMeshSettings> AllBiomeSettings;
+	AllBiomeSettings.Add(OceanMeshSettings);
+	AllBiomeSettings.Add(ForestMeshSettings);
+	AllBiomeSettings.Add(MountainMeshSettings);
+	AllBiomeSettings.Add(DesertMeshSettings);
+	AllBiomeSettings.Add(SnowMeshSettings);
+	AllBiomeSettings.Add(VolcanicMeshSettings);
+	
+	// Generate all heightmaps in batch using SIMD-optimized GenUniformGrid2D
+	// Set bTileable = true for seamless world wrapping terrain
+	CachedBiomeHeightMaps = FBiomeHeightMapGenerator::GenerateAllBiomeHeightMaps(
+		AllBiomeSettings,
+		Resolution,
+		Seed,
+		static_cast<float>(MapSizeInMeters),
+		bUseTileableNoise  // Use tileable noise for seamless wrapping
+	);
+	
+	CachedHeightMapResolution = Resolution;
+	
+	double Duration = FPlatformTime::Seconds() - StartTime;
+	UE_LOG(LogTemp, Log, TEXT("PreGenerateBiomeHeightMaps - Generated %d biome heightmaps (%dx%d, %.1f MB) in %.4f seconds"), 
+		CachedBiomeHeightMaps.Num(), Resolution, Resolution, TotalMB, Duration);
+}
+
+float AProceduralMapActor::SamplePreGeneratedHeight(float NormX, float NormY, int32 BiomeTextureRes,
+	const TArray<int32>& BiomeMap, const TArray<bool>& LandMask) const
+{
+	// Fast path: use pre-generated heightmaps if available
+	if (CachedBiomeHeightMaps.Num() > 0 && CachedHeightMapResolution > 0)
+	{
+		return FBiomeHeightMapGenerator::SampleBlendedHeight(
+			NormX, NormY,
+			CachedHeightMapResolution,  // High-res noise heightmap (e.g., 4096 or 8192)
+			BiomeTextureRes,             // Biome assignment resolution (for biome lookup)
+			CachedBiomeHeightMaps,
+			BiomeMap,
+			LandMask,
+			BiomeSettings.LandBiomes,
+			0.02f  // Blend radius for smooth biome transitions
+		);
+	}
+	
+	// Fallback to per-vertex calculation (slower)
+	return CalculateBlendedTerrainHeight(NormX, NormY, BiomeTextureRes, BiomeMap, LandMask);
+}
+

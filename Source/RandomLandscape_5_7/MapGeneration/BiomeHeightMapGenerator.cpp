@@ -1,0 +1,303 @@
+// BiomeHeightMapGenerator.cpp
+// Implementation of efficient biome heightmap generation using FastNoise2
+
+#include "BiomeHeightMapGenerator.h"
+
+TArray<float> FBiomeHeightMapGenerator::GenerateBiomeHeightMap(
+	EBiomeType BiomeType,
+	const FBiomeMeshSettings& MeshSettings,
+	int32 Resolution,
+	int32 Seed,
+	float MapSizeInMeters,
+	bool bTileable)
+{
+	// Create the fractal Perlin generator
+	auto Generator = CreatePerlinFractalGenerator(
+		MeshSettings.NoiseOctaves,
+		MeshSettings.NoisePersistence);
+
+	// Generate the raw noise grid
+	TArray<float> NoiseGrid;
+	if (bTileable)
+	{
+		NoiseGrid = GenerateTileableNoiseGrid(Generator, Resolution, MeshSettings.NoiseFrequency, Seed, MapSizeInMeters);
+	}
+	else
+	{
+		NoiseGrid = GenerateNoiseGrid(Generator, Resolution, MeshSettings.NoiseFrequency, Seed, MapSizeInMeters);
+	}
+
+	// Convert heights from Unreal Units
+	float MinHeightUU = MeshSettings.MinHeightInMeters * 100.0f;
+	float MaxHeightUU = MeshSettings.MaxHeightInMeters * 100.0f;
+
+	// Transform noise values (-1 to 1) to height range
+	TArray<float> HeightMap;
+	HeightMap.SetNumUninitialized(NoiseGrid.Num());
+
+	for (int32 i = 0; i < NoiseGrid.Num(); ++i)
+	{
+		// Normalize from -1..1 to 0..1
+		float NormalizedNoise = (NoiseGrid[i] + 1.0f) * 0.5f;
+		// Lerp to height range
+		HeightMap[i] = FMath::Lerp(MinHeightUU, MaxHeightUU, NormalizedNoise);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("Generated %s heightmap: %dx%d, Height range: %.1f to %.1f UU"),
+		*UEnum::GetValueAsString(BiomeType), Resolution, Resolution, MinHeightUU, MaxHeightUU);
+
+	return HeightMap;
+}
+
+TMap<EBiomeType, TArray<float>> FBiomeHeightMapGenerator::GenerateAllBiomeHeightMaps(
+	const TArray<FBiomeMeshSettings>& BiomeSettings,
+	int32 Resolution,
+	int32 Seed,
+	float MapSizeInMeters,
+	bool bTileable)
+{
+	TMap<EBiomeType, TArray<float>> AllHeightMaps;
+
+	for (const FBiomeMeshSettings& Settings : BiomeSettings)
+	{
+		// Use a different seed for each biome to ensure variety
+		int32 BiomeSeed = Seed + static_cast<int32>(Settings.BiomeType) * 12345;
+		
+		TArray<float> HeightMap = GenerateBiomeHeightMap(
+			Settings.BiomeType,
+			Settings,
+			Resolution,
+			BiomeSeed,
+			MapSizeInMeters,
+			bTileable);
+
+		AllHeightMaps.Add(Settings.BiomeType, MoveTemp(HeightMap));
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("Generated %d biome heightmaps at %dx%d resolution"), 
+		AllHeightMaps.Num(), Resolution, Resolution);
+
+	return AllHeightMaps;
+}
+
+float FBiomeHeightMapGenerator::SampleBlendedHeight(
+	float NormX, float NormY,
+	int32 HeightMapResolution,
+	int32 BiomeTextureResolution,
+	const TMap<EBiomeType, TArray<float>>& BiomeHeightMaps,
+	const TArray<int32>& BiomeMap,
+	const TArray<bool>& LandMask,
+	const TArray<FBiomeConfig>& BiomeConfigs,
+	float BlendRadius)
+{
+	// Clamp to valid range
+	NormX = FMath::Clamp(NormX, 0.0f, 1.0f);
+	NormY = FMath::Clamp(NormY, 0.0f, 1.0f);
+
+	// For biome lookup, use the BiomeTextureResolution
+	float BiomeGridX = NormX * (BiomeTextureResolution - 1);
+	float BiomeGridY = NormY * (BiomeTextureResolution - 1);
+	
+	// Get the four corner indices for biome interpolation
+	int32 BX0 = FMath::FloorToInt(BiomeGridX);
+	int32 BY0 = FMath::FloorToInt(BiomeGridY);
+	int32 BX1 = FMath::Min(BX0 + 1, BiomeTextureResolution - 1);
+	int32 BY1 = FMath::Min(BY0 + 1, BiomeTextureResolution - 1);
+
+	float BiomeFracX = BiomeGridX - BX0;
+	float BiomeFracY = BiomeGridY - BY0;
+
+	// Smoothstep for smoother biome transitions
+	BiomeFracX = BiomeFracX * BiomeFracX * (3.0f - 2.0f * BiomeFracX);
+	BiomeFracY = BiomeFracY * BiomeFracY * (3.0f - 2.0f * BiomeFracY);
+
+	// For heightmap sampling, use the HeightMapResolution (high-res noise)
+	float HeightGridX = NormX * (HeightMapResolution - 1);
+	float HeightGridY = NormY * (HeightMapResolution - 1);
+	
+	int32 HX0 = FMath::FloorToInt(HeightGridX);
+	int32 HY0 = FMath::FloorToInt(HeightGridY);
+	int32 HX1 = FMath::Min(HX0 + 1, HeightMapResolution - 1);
+	int32 HY1 = FMath::Min(HY0 + 1, HeightMapResolution - 1);
+
+	float HeightFracX = HeightGridX - HX0;
+	float HeightFracY = HeightGridY - HY0;
+
+	// Smoothstep for smoother height transitions
+	HeightFracX = HeightFracX * HeightFracX * (3.0f - 2.0f * HeightFracX);
+	HeightFracY = HeightFracY * HeightFracY * (3.0f - 2.0f * HeightFracY);
+
+	// Lambda to get biome type at a biome grid position
+	auto GetBiomeAtPos = [&](int32 BX, int32 BY) -> EBiomeType
+	{
+		int32 Index = BY * BiomeTextureResolution + BX;
+		if (Index < 0 || Index >= LandMask.Num())
+		{
+			return EBiomeType::Ocean;
+		}
+
+		if (LandMask[Index] && Index < BiomeMap.Num())
+		{
+			int32 BiomeIndex = BiomeMap[Index];
+			if (BiomeIndex >= 0 && BiomeIndex < BiomeConfigs.Num())
+			{
+				return BiomeConfigs[BiomeIndex].BiomeType;
+			}
+		}
+
+		return EBiomeType::Ocean;
+	};
+
+	// Lambda to sample height from a specific biome's heightmap using high-res coordinates
+	auto SampleHeightFromBiome = [&](EBiomeType BiomeType) -> float
+	{
+		const TArray<float>* HeightMapPtr = BiomeHeightMaps.Find(BiomeType);
+		if (!HeightMapPtr || HeightMapPtr->Num() == 0)
+		{
+			return 0.0f;
+		}
+
+		// Bilinear interpolation from the high-res heightmap
+		int32 Idx00 = HY0 * HeightMapResolution + HX0;
+		int32 Idx10 = HY0 * HeightMapResolution + HX1;
+		int32 Idx01 = HY1 * HeightMapResolution + HX0;
+		int32 Idx11 = HY1 * HeightMapResolution + HX1;
+
+		// Safety bounds check
+		int32 MaxIdx = HeightMapPtr->Num() - 1;
+		Idx00 = FMath::Clamp(Idx00, 0, MaxIdx);
+		Idx10 = FMath::Clamp(Idx10, 0, MaxIdx);
+		Idx01 = FMath::Clamp(Idx01, 0, MaxIdx);
+		Idx11 = FMath::Clamp(Idx11, 0, MaxIdx);
+
+		float H00 = (*HeightMapPtr)[Idx00];
+		float H10 = (*HeightMapPtr)[Idx10];
+		float H01 = (*HeightMapPtr)[Idx01];
+		float H11 = (*HeightMapPtr)[Idx11];
+
+		float H0 = FMath::Lerp(H00, H10, HeightFracX);
+		float H1 = FMath::Lerp(H01, H11, HeightFracX);
+
+		return FMath::Lerp(H0, H1, HeightFracY);
+	};
+
+	// Get biome at 4 corners of the biome grid
+	EBiomeType Biome00 = GetBiomeAtPos(BX0, BY0);
+	EBiomeType Biome10 = GetBiomeAtPos(BX1, BY0);
+	EBiomeType Biome01 = GetBiomeAtPos(BX0, BY1);
+	EBiomeType Biome11 = GetBiomeAtPos(BX1, BY1);
+
+	// Optimization: If all 4 corners are the same biome, just sample directly from
+	// the high-res heightmap without biome blending overhead
+	if (Biome00 == Biome10 && Biome00 == Biome01 && Biome00 == Biome11)
+	{
+		return SampleHeightFromBiome(Biome00);
+	}
+
+	// Multiple biomes present - need to blend between them
+	// Sample heights from each biome's heightmap (using high-res sampling)
+	float H00 = SampleHeightFromBiome(Biome00);
+	float H10 = SampleHeightFromBiome(Biome10);
+	float H01 = SampleHeightFromBiome(Biome01);
+	float H11 = SampleHeightFromBiome(Biome11);
+
+	// Bilinear interpolation of heights based on biome boundaries
+	float H0 = FMath::Lerp(H00, H10, BiomeFracX);
+	float H1 = FMath::Lerp(H01, H11, BiomeFracX);
+
+	return FMath::Lerp(H0, H1, BiomeFracY);
+}
+
+FastNoise::SmartNode<FastNoise::Generator> FBiomeHeightMapGenerator::CreatePerlinFractalGenerator(
+	int32 Octaves,
+	float Persistence,
+	float Lacunarity)
+{
+	// Create base Perlin noise generator
+	auto PerlinGen = FastNoise::New<FastNoise::Perlin>();
+
+	// Wrap in fractal fBm for multi-octave noise
+	auto FractalGen = FastNoise::New<FastNoise::FractalFBm>();
+	FractalGen->SetSource(PerlinGen);
+	FractalGen->SetOctaveCount(Octaves);
+	FractalGen->SetGain(Persistence);
+	FractalGen->SetLacunarity(Lacunarity);
+
+	return FractalGen;
+}
+
+TArray<float> FBiomeHeightMapGenerator::GenerateNoiseGrid(
+	const FastNoise::SmartNode<FastNoise::Generator>& Generator,
+	int32 Resolution,
+	float Frequency,
+	int32 Seed,
+	float MapSizeInMeters)
+{
+	TArray<float> NoiseGrid;
+	int32 TotalSamples = Resolution * Resolution;
+	NoiseGrid.SetNumUninitialized(TotalSamples);
+
+	// Scale frequency based on map size
+	float MapSizeScale = FMath::Max(MapSizeInMeters / 100.0f, 1.0f);
+	float ScaledFrequency = Frequency * MapSizeScale;
+
+	// Step size: we want the grid to span from 0 to ScaledFrequency
+	// GenUniformGrid2D generates at positions: offset + (index * stepSize)
+	float StepSize = ScaledFrequency / static_cast<float>(Resolution - 1);
+
+	// Generate the entire grid in one SIMD-optimized call
+	// Parameters:
+	// - out: output array
+	// - xOffset, yOffset: starting position
+	// - xCount, yCount: grid dimensions
+	// - xStepSize, yStepSize: spacing between samples
+	// - seed: random seed
+	FastNoise::OutputMinMax MinMax = Generator->GenUniformGrid2D(
+		NoiseGrid.GetData(),
+		0.0f, 0.0f,              // Start at origin
+		Resolution, Resolution,   // Grid size
+		StepSize, StepSize,       // Step between samples
+		Seed);
+
+	UE_LOG(LogTemp, Verbose, TEXT("GenUniformGrid2D: %dx%d samples, freq=%.4f, stepSize=%.4f, range=[%.2f, %.2f]"),
+		Resolution, Resolution, ScaledFrequency, StepSize, MinMax.min, MinMax.max);
+
+	return NoiseGrid;
+}
+
+TArray<float> FBiomeHeightMapGenerator::GenerateTileableNoiseGrid(
+	const FastNoise::SmartNode<FastNoise::Generator>& Generator,
+	int32 Resolution,
+	float Frequency,
+	int32 Seed,
+	float MapSizeInMeters)
+{
+	TArray<float> NoiseGrid;
+	int32 TotalSamples = Resolution * Resolution;
+	NoiseGrid.SetNumUninitialized(TotalSamples);
+
+	// Scale frequency based on map size
+	float MapSizeScale = FMath::Max(MapSizeInMeters / 100.0f, 1.0f);
+	float ScaledFrequency = Frequency * MapSizeScale;
+
+	// For tileable noise, step size determines the frequency of repetition
+	float StepSize = ScaledFrequency / static_cast<float>(Resolution);
+
+	// GenTileable2D creates seamlessly wrapping noise
+	// The edges will smoothly connect when tiled
+	// Parameters:
+	// - out: output array
+	// - xSize, ySize: grid dimensions
+	// - xStepSize, yStepSize: determines how much "noise space" is covered (affects frequency)
+	// - seed: random seed
+	FastNoise::OutputMinMax MinMax = Generator->GenTileable2D(
+		NoiseGrid.GetData(),
+		Resolution, Resolution,   // Grid size
+		StepSize, StepSize,       // Step size (frequency control)
+		Seed);
+
+	UE_LOG(LogTemp, Verbose, TEXT("GenTileable2D: %dx%d samples, freq=%.4f, stepSize=%.4f, range=[%.2f, %.2f]"),
+		Resolution, Resolution, ScaledFrequency, StepSize, MinMax.min, MinMax.max);
+
+	return NoiseGrid;
+}

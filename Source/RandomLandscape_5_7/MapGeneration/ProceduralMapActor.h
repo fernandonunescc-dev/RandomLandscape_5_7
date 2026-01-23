@@ -137,9 +137,13 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh")
 	void GenerateMesh();
 
-	/** Generate all biome mask textures at once */
+	/** 
+	 * Generate all biome textures: mask textures and high-res height maps directly from FastNoise2.
+	 * This is the main function that generates everything needed for mesh generation.
+	 */
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh")
-	void GenerateAllBiomeTextures();
+	void GenerateBiomeTextures();
+
 
 	/** Time in seconds to generate all biome mask/height textures */
 	UPROPERTY(VisibleAnywhere, Category = "Mesh")
@@ -171,6 +175,23 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, Category = "Mesh|Height Range", meta = (ClampMin = "0.0", ClampMax = "1000.0"))
 	float GlobalMaxHeightInMeters = 200.0f;
+
+	/**
+	 * Use tileable noise generation (GenTileable2D) instead of regular grid (GenUniformGrid2D).
+	 * Enable for seamless world wrapping where terrain edges connect smoothly.
+	 * Disable for better variety in non-wrapping worlds.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Mesh|Noise Settings")
+	bool bUseTileableNoise = false;
+
+	/**
+	 * Resolution of the noise heightmap used for terrain generation.
+	 * Higher values = more terrain detail but more memory usage.
+	 * Common values: 1024 (1K), 2048 (2K), 4096 (4K), 8192 (8K)
+	 * This is independent of mesh vertex count - allows high-detail noise sampling.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Mesh|Noise Settings", meta = (ClampMin = "256", ClampMax = "8192", UIMin = "256", UIMax = "8192"))
+	int32 HeightMapResolution = 4096;
 
 	/** 
 	 * Combined height map texture showing the full landmass terrain.
@@ -206,6 +227,7 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Mesh|Volcanic")
 	FBiomeMeshSettings VolcanicMeshSettings;
 
+
 protected:
 	/** The current map generator instance */
 	UPROPERTY()
@@ -240,9 +262,23 @@ private:
 	/** Generate the combined height map texture from all biomes */
 	void GenerateCombinedHeightMapTexture();
 
+
 	/** Get mesh settings for a specific biome type */
 	FBiomeMeshSettings* GetMeshSettingsForBiome(EBiomeType BiomeType);
 	const FBiomeMeshSettings* GetMeshSettingsForBiome(EBiomeType BiomeType) const;
+
+	/** 
+	 * Pre-generate all biome heightmaps using GenUniformGrid2D for efficiency.
+	 * Called before mesh generation to batch-compute all noise values.
+	 */
+	void PreGenerateBiomeHeightMaps(int32 Resolution);
+
+	/** 
+	 * Sample height from pre-generated heightmaps with biome blending.
+	 * Much faster than computing noise per-vertex.
+	 */
+	float SamplePreGeneratedHeight(float NormX, float NormY, int32 TextureRes,
+		const TArray<int32>& BiomeMap, const TArray<bool>& LandMask) const;
 
 	/** Random stream for terrain generation */
 	FRandomStream TerrainRandomStream;
@@ -250,6 +286,12 @@ private:
 	// Internal settings (not exposed in editor)
 	int32 ChunksPerSide = 10;
 	int32 VerticesPerChunkSide = 100;
+
+	/** Cached pre-generated heightmaps per biome (generated using GenUniformGrid2D) */
+	TMap<EBiomeType, TArray<float>> CachedBiomeHeightMaps;
+	
+	/** Resolution of the cached heightmaps */
+	int32 CachedHeightMapResolution = 0;
 
 	// Internal pointers - keep as UPROPERTY to avoid GC warnings
 	UPROPERTY()
