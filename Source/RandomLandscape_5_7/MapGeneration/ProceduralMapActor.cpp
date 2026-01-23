@@ -505,6 +505,8 @@ void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
 
 void AProceduralMapActor::GenerateAllBiomeTextures()
 {
+	double StartTime = FPlatformTime::Seconds();
+	
 	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateAllBiomeTextures - Generating all biome mask textures"));
 	
 	GenerateBiomeMaskTexture(EBiomeType::Ocean);
@@ -514,7 +516,10 @@ void AProceduralMapActor::GenerateAllBiomeTextures()
 	GenerateBiomeMaskTexture(EBiomeType::Snow);
 	GenerateBiomeMaskTexture(EBiomeType::Volcanic);
 	
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateAllBiomeTextures - Complete"));
+	double EndTime = FPlatformTime::Seconds();
+	MeshTexturesDuration = static_cast<float>(EndTime - StartTime);
+	
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateAllBiomeTextures - Complete (%.4f sec)"), MeshTexturesDuration);
 }
 
 

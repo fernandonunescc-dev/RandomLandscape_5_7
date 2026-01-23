@@ -138,6 +138,10 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh")
 	void GenerateAllBiomeTextures();
 
+	/** Time in seconds to generate all biome mask/height textures */
+	UPROPERTY(VisibleAnywhere, Category = "Mesh")
+	float MeshTexturesDuration = 0.0f;
+
 	UPROPERTY(EditAnywhere, Category = "Mesh|Ocean")
 	FBiomeMeshSettings OceanMeshSettings;
 
