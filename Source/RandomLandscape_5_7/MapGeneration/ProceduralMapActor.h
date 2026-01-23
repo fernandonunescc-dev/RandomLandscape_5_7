@@ -134,32 +134,28 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh")
 	void GenerateMesh();
 
-	/** Mesh generation settings for all biomes (including ocean) */
-	UPROPERTY(EditAnywhere, Category = "Mesh")
-	FMeshGenerationSettings MeshSettings;
-
-	// Individual biome texture generation buttons
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh|Generate Textures")
-	void GenerateOceanTexture();
-
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh|Generate Textures")
-	void GenerateForestTexture();
-
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh|Generate Textures")
-	void GenerateMountainTexture();
-
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh|Generate Textures")
-	void GenerateDesertTexture();
-
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh|Generate Textures")
-	void GenerateSnowTexture();
-
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh|Generate Textures")
-	void GenerateVolcanicTexture();
-
 	/** Generate all biome mask textures at once */
-	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh|Generate Textures")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Mesh")
 	void GenerateAllBiomeTextures();
+
+	UPROPERTY(EditAnywhere, Category = "Mesh|Ocean")
+	FBiomeMeshSettings OceanMeshSettings;
+
+	UPROPERTY(EditAnywhere, Category = "Mesh|Forest")
+	FBiomeMeshSettings ForestMeshSettings;
+
+	UPROPERTY(EditAnywhere, Category = "Mesh|Mountain")
+	FBiomeMeshSettings MountainMeshSettings;
+
+	UPROPERTY(EditAnywhere, Category = "Mesh|Desert")
+	FBiomeMeshSettings DesertMeshSettings;
+
+	UPROPERTY(EditAnywhere, Category = "Mesh|Snow")
+	FBiomeMeshSettings SnowMeshSettings;
+
+
+	UPROPERTY(EditAnywhere, Category = "Mesh|Volcanic")
+	FBiomeMeshSettings VolcanicMeshSettings;
 
 protected:
 	/** The current map generator instance */
@@ -191,6 +187,10 @@ private:
 
 	/** Generate mask texture for a specific biome type */
 	void GenerateBiomeMaskTexture(EBiomeType BiomeType);
+
+	/** Get mesh settings for a specific biome type */
+	FBiomeMeshSettings* GetMeshSettingsForBiome(EBiomeType BiomeType);
+	const FBiomeMeshSettings* GetMeshSettingsForBiome(EBiomeType BiomeType) const;
 
 	/** Random stream for terrain generation */
 	FRandomStream TerrainRandomStream;

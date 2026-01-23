@@ -7,11 +7,14 @@
 
 /**
  * Snow biome terrain generator.
- * Currently flat - ready for future implementation of snowy peaks and frozen terrain.
+ * Creates icy peaks and frozen valleys.
  */
 class RANDOMLANDSCAPE_5_7_API FSnowTerrainGenerator : public FBiomeTerrainGeneratorBase
 {
 public:
 	virtual float CalculateHeight(float NormX, float NormY, const FBiomeMeshSettings& MeshSettings, int32 Seed, float MapSizeInMeters) const override;
 	virtual EBiomeType GetBiomeType() const override { return EBiomeType::Snow; }
+
+private:
+	float FractalNoise(float NormX, float NormY, const FBiomeMeshSettings& MeshSettings, int32 Seed, float MapSizeInMeters) const;
 };

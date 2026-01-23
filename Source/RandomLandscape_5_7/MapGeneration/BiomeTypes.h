@@ -76,6 +76,14 @@ struct FBiomeMeshSettings
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generated")
 	TObjectPtr<UTexture2D> MaskTexture = nullptr;
 
+	/** 
+	 * Generated height map texture for this biome.
+	 * Grayscale noise map where white = max height, black = min height.
+	 * Only shows values within this biome's area, black elsewhere.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generated")
+	TObjectPtr<UTexture2D> HeightMapTexture = nullptr;
+
 	FBiomeMeshSettings() {}
 
 	FBiomeMeshSettings(EBiomeType InType, const FString& InName, 

@@ -1,22 +1,20 @@
-// DesertTerrainGenerator.cpp
-// Desert biome terrain generation implementation
+// OceanTerrainGenerator.cpp
+// Ocean biome terrain generation implementation
 
-#include "DesertTerrainGenerator.h"
+#include "OceanTerrainGenerator.h"
 
-float FDesertTerrainGenerator::CalculateHeight(float NormX, float NormY, const FBiomeMeshSettings& MeshSettings, int32 Seed, float MapSizeInMeters) const
+float FOceanTerrainGenerator::CalculateHeight(float NormX, float NormY, const FBiomeMeshSettings& MeshSettings, int32 Seed, float MapSizeInMeters) const
 {
-	// Desert terrain: gentle rolling dunes with occasional flat areas
+	// Ocean terrain: underwater with gentle variations
 	float NormalizedNoise = FractalNoise(NormX, NormY, MeshSettings, Seed, MapSizeInMeters);
 	
-	// Convert biome height settings from meters to Unreal Units (cm)
 	float MinHeightUU = MeshSettings.MinHeightInMeters * 100.0f;
 	float MaxHeightUU = MeshSettings.MaxHeightInMeters * 100.0f;
 	
-	// Lerp between min and max height based on noise
 	return FMath::Lerp(MinHeightUU, MaxHeightUU, NormalizedNoise);
 }
 
-float FDesertTerrainGenerator::FractalNoise(float NormX, float NormY, const FBiomeMeshSettings& MeshSettings, int32 Seed, float MapSizeInMeters) const
+float FOceanTerrainGenerator::FractalNoise(float NormX, float NormY, const FBiomeMeshSettings& MeshSettings, int32 Seed, float MapSizeInMeters) const
 {
 	float Total = 0.0f;
 	float Amplitude = 1.0f;
@@ -58,6 +56,5 @@ float FDesertTerrainGenerator::FractalNoise(float NormX, float NormY, const FBio
 		Frequency *= 2.0f;
 	}
 	
-	// Normalize to 0-1 range
 	return (Total / MaxValue + 1.0f) * 0.5f;
 }

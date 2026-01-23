@@ -3,6 +3,7 @@
 
 #include "BiomeTerrainGeneratorFactory.h"
 #include "BiomeTerrainGeneratorBase.h"
+#include "OceanTerrainGenerator.h"
 #include "ForestTerrainGenerator.h"
 #include "MountainTerrainGenerator.h"
 #include "DesertTerrainGenerator.h"
@@ -18,6 +19,7 @@ FBiomeTerrainGeneratorFactory& FBiomeTerrainGeneratorFactory::Get()
 FBiomeTerrainGeneratorFactory::FBiomeTerrainGeneratorFactory()
 {
 	// Register all biome terrain generators
+	Generators.Add(EBiomeType::Ocean, MakeUnique<FOceanTerrainGenerator>());
 	Generators.Add(EBiomeType::Forest, MakeUnique<FForestTerrainGenerator>());
 	Generators.Add(EBiomeType::Mountain, MakeUnique<FMountainTerrainGenerator>());
 	Generators.Add(EBiomeType::Desert, MakeUnique<FDesertTerrainGenerator>());
