@@ -24,8 +24,8 @@ AProceduralMapActor::AProceduralMapActor()
 	TerrainMesh->bUseAsyncCooking = true;
 
 	// Initialize biome noise settings with defaults (frequency, octaves, persistence)
-	// Frequency is step size per pixel - 0.02 gives good variation at 4096 resolution
-	OceanMeshSettings = FBiomeMeshSettings(EBiomeType::Ocean, TEXT("Ocean"), 0.02f, 3, 0.5f);
+	// Frequency is step size per pixel - 0.5 gives good variation at 4096 resolution
+	OceanMeshSettings = FBiomeMeshSettings(EBiomeType::Ocean, TEXT("Ocean"), 0.5f, 4, 0.3f);
 	ForestMeshSettings = FBiomeMeshSettings(EBiomeType::Forest, TEXT("Forest"), 0.5f, 4, 0.3f);
 	MountainMeshSettings = FBiomeMeshSettings(EBiomeType::Mountain, TEXT("Mountain"), 1.5f, 5, 0.55f);
 	DesertMeshSettings = FBiomeMeshSettings(EBiomeType::Desert, TEXT("Desert"), 0.8f, 3, 0.25f);
@@ -903,7 +903,20 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 					// Sample from pre-generated heightmaps (FAST - uses cached GenUniformGrid2D data)
 					// Uses HeightMapResolution (up to 8K) for high-detail noise
 					// BiomeTextureRes is used for biome assignment lookup
-					float Height = 10.f;
+					float NoiseValue = FBiomeHeightMapGenerator::SampleBlendedHeight(
+						GlobalNormX, GlobalNormY,
+						HeightMapResolution,    // High-res noise map resolution
+						BiomeTextureRes,        // Biome assignment resolution
+						CachedBiomeHeightMaps,
+						BiomeMap,
+						LandMask,
+						BiomeSettings.LandBiomes,
+						0.02f  // Blend radius
+					);
+					
+					// Convert normalized noise (0-1) to world height
+					// NoiseValue 0.5 = sea level (0), 0 = lowest, 1 = highest
+					float Height = (NoiseValue - 0.5f) * 2.0f * MaxHeightVariation;
 					
 					// Get smoothly blended vertex color (uses biome texture resolution)
 					FColor VertColor = GetBlendedBiomeColor(GlobalNormX, GlobalNormY, BiomeTextureRes, BiomeMap, LandMask);

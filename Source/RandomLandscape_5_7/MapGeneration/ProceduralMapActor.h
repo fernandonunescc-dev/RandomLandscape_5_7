@@ -167,6 +167,14 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Mesh", meta = (ClampMin = "1", ClampMax = "100", UIMin = "1", UIMax = "100"))
 	int32 MeshDetailLevel = 50;
 
+	/**
+	 * Maximum height variation in Unreal Units (cm).
+	 * Noise range 0-1 maps to -MaxHeightVariation to +MaxHeightVariation.
+	 * Example: 10000 = terrain can vary ±100 meters from sea level.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Mesh", meta = (ClampMin = "100", ClampMax = "100000", UIMin = "100", UIMax = "100000"))
+	float MaxHeightVariation = 10000.0f;
+
 
 	/**
 	 * Use tileable noise generation (GenTileable2D) instead of regular grid (GenUniformGrid2D).
