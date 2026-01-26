@@ -6,9 +6,11 @@
 #include "CoreMinimal.h"
 #include "MapGeneratorBase.h"
 #include "BiomeTypes.h"
+#include "LandmassGenerator.h"
 #include "ContinentMapGenerator.generated.h"
 
 class UTexture2D;
+class ULandmassGenerator;
 
 /** Represents a seed point for Voronoi-based biome distribution */
 struct FBiomeSeedPoint
@@ -76,13 +78,17 @@ public:
 	/** Get the biome map (index per pixel, -1 = ocean) */
 	const TArray<int32>& GetBiomeMap() const { return BiomeMap; }
 
-	/** Get the land mask (true = land, false = ocean) */
-	const TArray<bool>& GetLandMask() const { return LandMask; }
+	/** Get the land mask (1 = land, 0 = ocean) */
+	const TArray<uint8>& GetLandMask() const { return LandMask; }
 
 	/** Get the texture resolution */
 	int32 GetTextureResolution() const { return TextureResolution; }
 
 protected:
+	/** Landmass generator - handles land/ocean mask generation */
+	UPROPERTY()
+	TObjectPtr<ULandmassGenerator> LandmassGenerator;
+
 	/** Random seed for landmass generation */
 	int32 Seed = 0;
 
@@ -108,14 +114,6 @@ protected:
 	/** Pass 3: Generate the final preview texture with biome colors */
 	void GeneratePreviewTexture();
 
-	/** Simple noise function for organic shapes */
-	float Noise2D(float X, float Y) const;
-	
-	/** Fractal Brownian Motion for more natural terrain */
-	float FBM(float X, float Y, int32 Octaves, float Persistence) const;
-
-	/** Get continent mask value (0 = ocean, 1 = land) with organic edges */
-	float GetContinentMask(float NormX, float NormY) const;
 
 	/** Biome configuration for this continent */
 	UPROPERTY()
@@ -129,8 +127,8 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UTexture2D> PreviewTexture;
 
-	/** Land mask - true = land, false = ocean */
-	TArray<bool> LandMask;
+	/** Land mask - 1 = land, 0 = ocean (uint8 for consistency with LandmassGenerator) */
+	TArray<uint8> LandMask;
 
 	/** Biome index for each pixel (-1 = ocean) */
 	TArray<int32> BiomeMap;

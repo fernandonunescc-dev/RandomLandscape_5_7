@@ -354,7 +354,7 @@ void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
 	}
 
 	const TArray<int32>& BiomeMap = ContinentGenerator->GetBiomeMap();
-	const TArray<bool>& LandMask = ContinentGenerator->GetLandMask();
+	const TArray<uint8>& LandMask = ContinentGenerator->GetLandMask();
 	int32 BiomeTextureRes = ContinentGenerator->GetTextureResolution(); // Biome assignment resolution (e.g., 512)
 
 	if (BiomeMap.Num() == 0 || LandMask.Num() == 0)
@@ -440,14 +440,14 @@ void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
 			if (BiomeType == EBiomeType::Ocean)
 			{
 				// Ocean is where it's not land
-				bIsThisBiome = (MapIndex < LandMask.Num()) && !LandMask[MapIndex];
+				bIsThisBiome = (MapIndex < LandMask.Num()) && (LandMask[MapIndex] == 0);
 			}
 			else
 			{
 				// Land biome - check if this pixel matches the target biome index
 				if (MapIndex < BiomeMap.Num() && MapIndex < LandMask.Num())
 				{
-					bIsThisBiome = LandMask[MapIndex] && (BiomeMap[MapIndex] == TargetBiomeIndex);
+					bIsThisBiome = (LandMask[MapIndex] != 0) && (BiomeMap[MapIndex] == TargetBiomeIndex);
 				}
 			}
 
@@ -578,7 +578,7 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 	}
 	
 	const TArray<int32>& BiomeMap = ContinentGenerator->GetBiomeMap();
-	const TArray<bool>& LandMask = ContinentGenerator->GetLandMask();
+	const TArray<uint8>& LandMask = ContinentGenerator->GetLandMask();
 	int32 BiomeTextureRes = ContinentGenerator->GetTextureResolution(); // Biome assignment resolution
 	
 	if (BiomeMap.Num() == 0 || LandMask.Num() == 0)
@@ -737,7 +737,7 @@ const FBiomeMeshSettings* AProceduralMapActor::GetMeshSettingsForBiome(EBiomeTyp
 
 
 FColor AProceduralMapActor::GetBlendedBiomeColor(float NormX, float NormY, int32 TextureRes,
-	const TArray<int32>& BiomeMap, const TArray<bool>& LandMask) const
+	const TArray<int32>& BiomeMap, const TArray<uint8>& LandMask) const
 {
 	// Clamp coordinates to valid range
 	NormX = FMath::Clamp(NormX, 0.0f, 1.0f);
@@ -769,7 +769,7 @@ FColor AProceduralMapActor::GetBlendedBiomeColor(float NormX, float NormY, int32
 			return BiomeSettings.OceanColor;
 		}
 		
-		bool bIsLand = LandMask[Index];
+		bool bIsLand = (LandMask[Index] != 0);
 		int32 BiomeIndex = (Index < BiomeMap.Num()) ? BiomeMap[Index] : -1;
 		
 		if (bIsLand && BiomeIndex >= 0 && BiomeIndex < BiomeSettings.LandBiomes.Num())
@@ -830,7 +830,7 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 	TerrainRandomStream.Initialize(Seed != 0 ? Seed : FMath::Rand());
 	
 	const TArray<int32>& BiomeMap = Generator->GetBiomeMap();
-	const TArray<bool>& LandMask = Generator->GetLandMask();
+	const TArray<uint8>& LandMask = Generator->GetLandMask();
 	int32 BiomeTextureRes = Generator->GetTextureResolution(); // Resolution of biome assignment map
 	
 	if (BiomeMap.Num() == 0 || LandMask.Num() == 0)

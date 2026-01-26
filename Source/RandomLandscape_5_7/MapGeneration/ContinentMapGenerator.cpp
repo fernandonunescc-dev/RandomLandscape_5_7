@@ -2,11 +2,13 @@
 // Implementation of the Continent map generator
 
 #include "ContinentMapGenerator.h"
+#include "LandmassGenerator.h"
 #include "Engine/Texture2D.h"
 
 UContinentMapGenerator::UContinentMapGenerator()
 {
 	PreviewTexture = nullptr;
+	LandmassGenerator = nullptr;
 	Seed = 0;
 	BiomeSeed = 0;
 }
@@ -117,71 +119,32 @@ bool UContinentMapGenerator::GenerateBiomesOnly()
 // Pass 1: Generate the land mask
 void UContinentMapGenerator::GenerateLandMask()
 {
-	const int32 Width = TextureResolution;
-	const int32 Height = TextureResolution;
-	const int32 TotalPixels = Width * Height;
-	
-	// Clear previous data
-	LandMask.Empty();
-	LandMask.SetNum(TotalPixels);
-	LandPixels.Empty();
-	
-	// First pass: collect all continent mask values
-	TArray<float> MaskValues;
-	MaskValues.SetNum(TotalPixels);
-	
-	for (int32 Y = 0; Y < Height; ++Y)
+	// Create and initialize the landmass generator
+	if (!LandmassGenerator)
 	{
-		for (int32 X = 0; X < Width; ++X)
-		{
-			float NormX = static_cast<float>(X) / static_cast<float>(Width);
-			float NormY = static_cast<float>(Y) / static_cast<float>(Height);
-			
-			int32 Index = Y * Width + X;
-			MaskValues[Index] = GetContinentMask(NormX, NormY);
-		}
-	}
-	
-	// Calculate the threshold to achieve desired land coverage
-	// Sort a copy of mask values to find the percentile threshold
-	TArray<float> SortedValues = MaskValues;
-	SortedValues.Sort([](float A, float B) { return A > B; }); // Sort descending (highest first)
-	
-	// Calculate how many pixels should be land (clamped to 5-75% to prevent edge case issues)
-	float TargetLandPercent = FMath::Clamp(BiomeSettings.LandCoveragePercent, 5.0f, 75.0f) / 100.0f;
-	int32 TargetLandPixels = FMath::RoundToInt(TotalPixels * TargetLandPercent);
-	TargetLandPixels = FMath::Clamp(TargetLandPixels, 1, TotalPixels - 1);
-	
-	// The threshold is the value at the target land pixel count index
-	// All pixels with values >= this threshold will be land
-	float LandThreshold = SortedValues[TargetLandPixels - 1];
-	
-	UE_LOG(LogTemp, Log, TEXT("Land coverage target: %.1f%% (%d pixels), threshold: %.3f"),
-		BiomeSettings.LandCoveragePercent, TargetLandPixels, LandThreshold);
-	
-	// Second pass: apply threshold to create land mask
-	for (int32 Y = 0; Y < Height; ++Y)
-	{
-		for (int32 X = 0; X < Width; ++X)
-		{
-			int32 Index = Y * Width + X;
-			bool bIsLand = MaskValues[Index] >= LandThreshold;
-			
-			LandMask[Index] = bIsLand;
-			
-			if (bIsLand)
-			{
-				LandPixels.Add(FIntPoint(X, Y));
-			}
-		}
+		LandmassGenerator = NewObject<ULandmassGenerator>(this);
 	}
 
-	// Note: Edge padding is now handled organically in GetContinentMask() 
-	// using noise-modulated falloff for natural-looking irregular coastlines
+	FLandmassSettings LandmassSettings;
+	LandmassSettings.Seed = Seed;
+	LandmassSettings.TextureResolution = TextureResolution;
+	LandmassSettings.LandCoveragePercent = BiomeSettings.LandCoveragePercent;
 
-	UE_LOG(LogTemp, Log, TEXT("Land mask generated: %d land pixels out of %d total (%.1f%%)"),
-		LandPixels.Num(), TotalPixels, 
-		(float)LandPixels.Num() / (float)TotalPixels * 100.0f);
+	LandmassGenerator->Initialize(LandmassSettings);
+
+	if (LandmassGenerator->Generate())
+	{
+		// Copy results from LandmassGenerator
+		LandMask = LandmassGenerator->GetLandMask();
+		LandPixels = LandmassGenerator->GetLandPixels();
+
+		UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator: Landmass generated via LandmassGenerator - %d land pixels"),
+			LandPixels.Num());
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("ContinentMapGenerator::GenerateLandMask - LandmassGenerator failed"));
+	}
 }
 
 // Pass 2: Assign biomes to land pixels - start from edges, grow organically
@@ -230,7 +193,7 @@ void UContinentMapGenerator::AssignBiomesToLand()
 			}
 
 			int32 NeighborIndex = Neighbor.Y * Width + Neighbor.X;
-			if (!LandMask[NeighborIndex])
+			if (LandMask[NeighborIndex] == 0)
 			{
 				bIsEdge = true;
 				break;
@@ -475,116 +438,6 @@ void UContinentMapGenerator::AssignBiomesToLand()
 	UE_LOG(LogTemp, Log, TEXT("Applied %d smoothing passes to biome boundaries"), SmoothingPasses);
 }
 
-// Simple hash-based noise function
-float UContinentMapGenerator::Noise2D(float X, float Y) const
-{
-	// Use seed to offset the noise - larger multiplier for more variation
-	X += (Seed % 10000) * 0.37f;
-	Y += (Seed % 10000) * 0.53f;
-	
-	int32 Xi = FMath::FloorToInt(X);
-	int32 Yi = FMath::FloorToInt(Y);
-	float Xf = X - Xi;
-	float Yf = Y - Yi;
-	
-	// Smooth interpolation
-	float U = Xf * Xf * (3.0f - 2.0f * Xf);
-	float V = Yf * Yf * (3.0f - 2.0f * Yf);
-	
-	// Hash function for pseudo-random values at grid points - include seed
-	int32 SeedHash = Seed;
-	auto Hash = [SeedHash](int32 X, int32 Y) -> float
-	{
-		int32 N = X + Y * 57 + SeedHash;
-		N = (N << 13) ^ N;
-		return (1.0f - ((N * (N * N * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0f);
-	};
-	
-	// Bilinear interpolation of corner values
-	float A = Hash(Xi, Yi);
-	float B = Hash(Xi + 1, Yi);
-	float C = Hash(Xi, Yi + 1);
-	float D = Hash(Xi + 1, Yi + 1);
-	
-	float AB = FMath::Lerp(A, B, U);
-	float CD = FMath::Lerp(C, D, U);
-	
-	return FMath::Lerp(AB, CD, V);
-}
-
-// Fractal Brownian Motion - layered noise for natural-looking terrain
-float UContinentMapGenerator::FBM(float X, float Y, int32 Octaves, float Persistence) const
-{
-	float Total = 0.0f;
-	float Amplitude = 1.0f;
-	float Frequency = 1.0f;
-	float MaxValue = 0.0f;
-	
-	for (int32 i = 0; i < Octaves; ++i)
-	{
-		Total += Noise2D(X * Frequency, Y * Frequency) * Amplitude;
-		MaxValue += Amplitude;
-		Amplitude *= Persistence;
-		Frequency *= 2.0f;
-	}
-	
-	return Total / MaxValue;
-}
-
-// Get continent mask with organic, irregular edges
-float UContinentMapGenerator::GetContinentMask(float NormX, float NormY) const
-{
-	// Center the coordinates (-0.5 to 0.5)
-	float CX = NormX - 0.5f;
-	float CY = NormY - 0.5f;
-	
-	// Base distance from center (creates general continent shape)
-	float DistFromCenter = FMath::Sqrt(CX * CX + CY * CY) * 2.0f;
-	
-	// Add noise to create irregular coastline
-	float NoiseScale = 3.0f;
-	float CoastNoise = FBM(NormX * NoiseScale, NormY * NoiseScale, 4, 0.5f) * 0.4f;
-	
-	// Add larger-scale noise for continent shape variation
-	float ShapeNoise = FBM(NormX * 1.5f + 100.0f, NormY * 1.5f + 100.0f, 3, 0.6f) * 0.3f;
-	
-	// Combine distance with noise
-	float ContinentValue = 1.0f - DistFromCenter + CoastNoise + ShapeNoise;
-	
-	// Add some bumps and indentations for more interesting coastline
-	float DetailNoise = FBM(NormX * 8.0f + 50.0f, NormY * 8.0f + 50.0f, 2, 0.5f) * 0.15f;
-	ContinentValue += DetailNoise;
-	
-	// ========== Organic edge falloff ==========
-	// Create natural-looking edges near texture borders using noise-modulated falloff
-	// Calculate distance from each edge (0 at edge, increases toward center)
-	float DistFromLeft = NormX;
-	float DistFromRight = 1.0f - NormX;
-	float DistFromTop = NormY;
-	float DistFromBottom = 1.0f - NormY;
-	
-	// Find minimum distance to any edge
-	float MinEdgeDist = FMath::Min(FMath::Min(DistFromLeft, DistFromRight), FMath::Min(DistFromTop, DistFromBottom));
-	
-	// Add noise to the edge distance for irregular coastlines near borders
-	float EdgeNoise = FBM(NormX * 6.0f + 200.0f, NormY * 6.0f + 200.0f, 3, 0.5f) * 0.5f + 0.5f; // 0 to 1 range
-	
-	// Base padding of ~5% of texture, modulated by noise (varies between 2.5% and 7.5%)
-	float NoisyPadding = 0.05f * (0.5f + EdgeNoise);
-	
-	// Create smooth falloff: 0 at edge, 1 when past the noisy padding zone
-	float EdgeFalloff = FMath::Clamp(MinEdgeDist / FMath::Max(NoisyPadding, 0.001f), 0.0f, 1.0f);
-	
-	// Apply smooth falloff curve (smoothstep for gradual transition)
-	EdgeFalloff = EdgeFalloff * EdgeFalloff * (3.0f - 2.0f * EdgeFalloff);
-	
-	// Reduce continent value near edges
-	ContinentValue *= EdgeFalloff;
-	
-	// Threshold to create land/water distinction
-	// Values > 0.5 are land, < 0.5 are water
-	return FMath::Clamp(ContinentValue, 0.0f, 1.0f);
-}
 
 void UContinentMapGenerator::GeneratePreviewTexture()
 {
@@ -622,7 +475,7 @@ void UContinentMapGenerator::GeneratePreviewTexture()
 			bool bIsLand = false;
 			if (MapIndex < LandMask.Num())
 			{
-				bIsLand = LandMask[MapIndex];
+				bIsLand = (LandMask[MapIndex] != 0);
 			}
 			
 			FLinearColor PixelColor;
@@ -710,7 +563,7 @@ void UContinentMapGenerator::GenerateBiomeMaskTextures()
 					const int32 PixelIndex = (Y * Width + X) * 4;
 					const int32 MapIndex = Y * Width + X;
 					
-					bool bIsLand = (MapIndex < LandMask.Num()) ? LandMask[MapIndex] : false;
+					bool bIsLand = (MapIndex < LandMask.Num()) ? (LandMask[MapIndex] != 0) : false;
 					
 					if (!bIsLand)
 					{

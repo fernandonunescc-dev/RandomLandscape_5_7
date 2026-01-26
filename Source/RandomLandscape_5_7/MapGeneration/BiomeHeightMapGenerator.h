@@ -66,7 +66,7 @@ public:
 		int32 BiomeTextureResolution,
 		const TMap<EBiomeType, TArray<float>>& BiomeHeightMaps,
 		const TArray<int32>& BiomeMap,
-		const TArray<bool>& LandMask,
+		const TArray<uint8>& LandMask,
 		const TArray<FBiomeConfig>& BiomeConfigs,
 		float BlendRadius = 0.02f);
 };

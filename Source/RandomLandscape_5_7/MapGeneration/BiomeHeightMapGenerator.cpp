@@ -71,7 +71,7 @@ float FBiomeHeightMapGenerator::SampleBlendedHeight(
 	int32 BiomeTextureResolution,
 	const TMap<EBiomeType, TArray<float>>& BiomeHeightMaps,
 	const TArray<int32>& BiomeMap,
-	const TArray<bool>& LandMask,
+	const TArray<uint8>& LandMask,
 	const TArray<FBiomeConfig>& BiomeConfigs,
 	float BlendRadius)
 {
@@ -121,7 +121,7 @@ float FBiomeHeightMapGenerator::SampleBlendedHeight(
 			return EBiomeType::Ocean;
 		}
 
-		if (LandMask[Index] && Index < BiomeMap.Num())
+		if ((LandMask[Index] != 0) && Index < BiomeMap.Num())
 		{
 			int32 BiomeIndex = BiomeMap[Index];
 			if (BiomeIndex >= 0 && BiomeIndex < BiomeConfigs.Num())

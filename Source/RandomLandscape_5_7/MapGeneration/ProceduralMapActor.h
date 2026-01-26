@@ -242,7 +242,7 @@ protected:
 	 * Get biome-blended color at a position with smooth transitions.
 	 */
 	FColor GetBlendedBiomeColor(float NormX, float NormY, int32 TextureRes,
-		const TArray<int32>& BiomeMap, const TArray<bool>& LandMask) const;
+		const TArray<int32>& BiomeMap, const TArray<uint8>& LandMask) const;
 
 private:
 	/** Create generator settings from current properties */
