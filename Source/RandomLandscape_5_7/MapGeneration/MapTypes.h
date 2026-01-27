@@ -25,7 +25,7 @@ enum class EMapType : uint8
 
 /**
  * Configuration settings for map generation
- * Note: MapSizeInMeters is exposed to the user, MapSizeInUnrealUnits is used internally
+ * Note: MapSizeInMeters is the length/width of the square map. Height is determined per-biome.
  */
 USTRUCT(BlueprintType)
 struct FMapGenerationSettings
@@ -36,9 +36,9 @@ struct FMapGenerationSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation")
 	EMapType MapType = EMapType::Continent;
 
-	/** The size of the map in meters (X, Y, Z for width, depth, height) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation", meta = (ClampMin = "1.0"))
-	FVector MapSizeInMeters = FVector(100.0f, 100.0f, 10.0f);
+	/** The length and width of the map in meters (square map) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation", meta = (ClampMin = "10", ClampMax = "10000"))
+	int32 MapSizeInMeters = 100;
 
 	/** 
 	 * Resolution scale (1-100) where 100 is maximum vertices/triangles per chunk.
@@ -47,15 +47,15 @@ struct FMapGenerationSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Map Generation", meta = (ClampMin = "1", ClampMax = "100", UIMin = "1", UIMax = "100"))
 	int32 MapResolution = 50;
 
-	/** Get the map size converted to Unreal Units (centimeters) */
-	FVector GetMapSizeInUnrealUnits() const
+	/** Get the map size converted to Unreal Units (centimeters) - returns X and Y dimensions */
+	float GetMapSizeInUnrealUnits() const
 	{
-		return MapSizeInMeters * MetersToUnrealUnits;
+		return static_cast<float>(MapSizeInMeters) * MetersToUnrealUnits;
 	}
 
 	/** Set the map size from Unreal Units (centimeters) */
-	void SetMapSizeFromUnrealUnits(const FVector& SizeInUnrealUnits)
+	void SetMapSizeFromUnrealUnits(float SizeInUnrealUnits)
 	{
-		MapSizeInMeters = SizeInUnrealUnits * UnrealUnitsToMeters;
+		MapSizeInMeters = FMath::RoundToInt(SizeInUnrealUnits * UnrealUnitsToMeters);
 	}
 };

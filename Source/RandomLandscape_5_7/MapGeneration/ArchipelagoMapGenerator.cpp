@@ -11,9 +11,9 @@ void UArchipelagoMapGenerator::Initialize(const FMapGenerationSettings& InSettin
 {
 	Super::Initialize(InSettings);
 	
-	UE_LOG(LogTemp, Log, TEXT("ArchipelagoMapGenerator initialized - Size: %s meters (%s UU), Resolution: %d"),
-		*Settings.MapSizeInMeters.ToString(), 
-		*Settings.GetMapSizeInUnrealUnits().ToString(),
+	UE_LOG(LogTemp, Log, TEXT("ArchipelagoMapGenerator initialized - Size: %d meters (%.0f UU), Resolution: %d"),
+		Settings.MapSizeInMeters, 
+		Settings.GetMapSizeInUnrealUnits(),
 		Settings.MapResolution);
 }
 
