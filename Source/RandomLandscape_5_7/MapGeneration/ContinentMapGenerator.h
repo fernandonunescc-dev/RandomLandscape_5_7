@@ -6,9 +6,11 @@
 #include "CoreMinimal.h"
 #include "MapGeneratorBase.h"
 #include "BiomeTypes.h"
+#include "LandmassGenerator.h"
 #include "ContinentMapGenerator.generated.h"
 
 class UTexture2D;
+class ULandmassGenerator;
 
 /** Represents a seed point for Voronoi-based biome distribution */
 struct FBiomeSeedPoint
@@ -45,17 +47,64 @@ public:
 	/** Set the biome configuration */
 	void SetBiomeSettings(const FContinentBiomeSettings& InBiomeSettings);
 
+	/** Set the mesh generation settings */
+	void SetMeshSettings(const FMeshGenerationSettings& InMeshSettings);
+
 	/** Get the biome settings */
 	const FContinentBiomeSettings& GetBiomeSettings() const { return BiomeSettings; }
+
+	/** Get the mesh settings (includes generated mask textures) */
+	const FMeshGenerationSettings& GetMeshSettings() const { return MeshSettings; }
 
 	/** Get the generated preview texture (nullptr if not yet generated) */
 	UFUNCTION(BlueprintPure, Category = "Map Generation")
 	UTexture2D* GetPreviewTexture() const { return PreviewTexture; }
 
-	/** Set the random seed for generation */
+	/** Set the random seed for landmass generation */
 	void SetSeed(int32 InSeed) { Seed = InSeed; }
 
+	/** Set the random seed for biome distribution */
+	void SetBiomeSeed(int32 InSeed) { BiomeSeed = InSeed; }
+
+	/** Generate only the landmass (land/water mask) */
+	bool GenerateLandmassOnly();
+
+	/** Generate biomes on existing landmass (must call GenerateLandmassOnly first) */
+	bool GenerateBiomesOnly();
+
+	/** Generate individual mask textures for each biome (biome color on its area, black elsewhere) */
+	void GenerateBiomeMaskTextures();
+
+	/** Get the biome map (index per pixel, -1 = ocean) */
+	const TArray<int32>& GetBiomeMap() const { return BiomeMap; }
+
+	/** Get the land mask (1 = land, 0 = ocean) */
+	const TArray<uint8>& GetLandMask() const { return LandMask; }
+
+	/** Get the texture resolution */
+	int32 GetTextureResolution() const { return TextureResolution; }
+
 protected:
+	/** Landmass generator - handles land/ocean mask generation */
+	UPROPERTY()
+	TObjectPtr<ULandmassGenerator> LandmassGenerator;
+
+	/** Random seed for landmass generation */
+	int32 Seed = 0;
+
+	/** Random seed for biome distribution (separate from landmass) */
+	int32 BiomeSeed = 0;
+
+	/** Random stream for landmass generation */
+	FRandomStream RandomStream;
+
+	/** Random stream for biome distribution */
+	FRandomStream BiomeRandomStream;
+
+	/** Texture resolution (based on MapResolution setting) */
+	int32 TextureResolution = 256;
+
+
 	/** Pass 1: Generate the land mask (which pixels are land vs ocean) */
 	void GenerateLandMask();
 
@@ -65,25 +114,21 @@ protected:
 	/** Pass 3: Generate the final preview texture with biome colors */
 	void GeneratePreviewTexture();
 
-	/** Simple noise function for organic shapes */
-	float Noise2D(float X, float Y) const;
-	
-	/** Fractal Brownian Motion for more natural terrain */
-	float FBM(float X, float Y, int32 Octaves, float Persistence) const;
-
-	/** Get continent mask value (0 = ocean, 1 = land) with organic edges */
-	float GetContinentMask(float NormX, float NormY) const;
 
 	/** Biome configuration for this continent */
 	UPROPERTY()
 	FContinentBiomeSettings BiomeSettings;
 
+	/** Mesh generation settings (stores generated mask textures) */
+	UPROPERTY()
+	FMeshGenerationSettings MeshSettings;
+
 	/** Preview texture showing biome distribution */
 	UPROPERTY()
 	TObjectPtr<UTexture2D> PreviewTexture;
 
-	/** Land mask - true = land, false = ocean */
-	TArray<bool> LandMask;
+	/** Land mask - 1 = land, 0 = ocean (uint8 for consistency with LandmassGenerator) */
+	TArray<uint8> LandMask;
 
 	/** Biome index for each pixel (-1 = ocean) */
 	TArray<int32> BiomeMap;
@@ -93,13 +138,4 @@ protected:
 
 	/** Voronoi seed points for biome regions */
 	TArray<FBiomeSeedPoint> BiomeSeedPoints;
-
-	/** Texture resolution (based on MapResolution setting) */
-	int32 TextureResolution = 256;
-
-	/** Random seed for generation */
-	int32 Seed = 0;
-
-	/** Random stream for deterministic generation */
-	FRandomStream RandomStream;
 };
