@@ -1,6 +1,6 @@
 // LandmassGenerator.h
 // Generates the initial land/ocean mask texture for procedural maps
-// Version: 01.26.2026.21.45
+// Version: 01.26.2026.23.36
 
 #pragma once
 
@@ -41,6 +41,64 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "5.0", ClampMax = "75.0"))
 	float LandCoveragePercent = 50.0f;
+
+	// === Domain Warp Settings ===
+	// Domain warping offsets sampling coordinates before noise evaluation,
+	// creating large-scale bends, peninsulas, and bays for more realistic coastlines.
+
+	/** Enable domain warping for more organic coastline shapes */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Domain Warp")
+	bool bEnableDomainWarp = false;
+
+	/** 
+	 * Frequency of the warp noise field (in normalized coordinate space).
+	 * Lower values = larger, smoother bends; higher values = more chaotic warping.
+	 * Typical range: 0.5 to 3.0
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Domain Warp", meta = (ClampMin = "0.1", ClampMax = "10.0", EditCondition = "bEnableDomainWarp"))
+	float WarpFrequency = 1.5f;
+
+	/** 
+	 * Maximum displacement in normalized coordinate units.
+	 * Controls how far coordinates can be pushed by the warp field.
+	 * Typical range: 0.02 to 0.15 (2% to 15% of texture size)
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Domain Warp", meta = (ClampMin = "0.0", ClampMax = "0.5", EditCondition = "bEnableDomainWarp"))
+	float WarpAmplitude = 0.08f;
+
+	/** 
+	 * Number of noise octaves for warp field.
+	 * More octaves = finer detail in the warping pattern.
+	 * Typical range: 2 to 4
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Domain Warp", meta = (ClampMin = "1", ClampMax = "8", EditCondition = "bEnableDomainWarp"))
+	int32 WarpOctaves = 2;
+
+	/** 
+	 * Persistence for warp noise octaves.
+	 * Controls how much each successive octave contributes.
+	 * Typical range: 0.5 to 0.7
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Domain Warp", meta = (ClampMin = "0.1", ClampMax = "1.0", EditCondition = "bEnableDomainWarp"))
+	float WarpPersistence = 0.5f;
+
+	// === Post-Processing Settings ===
+
+	/** 
+	 * If true, only the largest connected land component is kept.
+	 * All other land components (islands) are converted to ocean.
+	 * Ensures a single contiguous continent in the final mask.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Post-Processing")
+	bool bKeepOnlyLargestLandmass = true;
+
+	/** 
+	 * If true, fills enclosed ocean areas (holes/lakes) inside the continent.
+	 * Works by flood-filling ocean from borders and converting unreachable ocean to land.
+	 * Applied after bKeepOnlyLargestLandmass if both are enabled.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Post-Processing")
+	bool bFillEnclosedHoles = true;
 };
 
 /**
@@ -187,6 +245,15 @@ protected:
 	
 	/** Offset for edge falloff noise layer (irregular border padding) */
 	FVector2D EdgeNoiseOffset;
+
+	// === Domain Warp Offsets (generated in Initialize) ===
+	// Two separate 2D offsets for X and Y warp components to ensure decorrelation.
+	
+	/** Offset for warp X-component noise sampling */
+	FVector2D WarpOffsetX;
+	
+	/** Offset for warp Y-component noise sampling */
+	FVector2D WarpOffsetY;
 
 	/** Land mask - 1 = land, 0 = ocean (uint8 for thread-safe parallel writes) */
 	TArray<uint8> LandMask;

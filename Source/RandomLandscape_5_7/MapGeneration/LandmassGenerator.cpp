@@ -1,9 +1,10 @@
 // LandmassGenerator.cpp
 // Implementation of landmass texture generation using FBM noise
-// Version: 01.26.2026.21.45
+// Version: 01.26.2026.23.36
 
 #include "LandmassGenerator.h"
 #include "Engine/Texture2D.h"
+#include "Async/ParallelFor.h"  // ParallelFor for multi-threaded pixel processing
 #include <algorithm> // std::nth_element
 
 ULandmassGenerator::ULandmassGenerator()
@@ -50,8 +51,23 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 		RandomStream.FRandRange(-500.0f, 500.0f)
 	);
 
-	UE_LOG(LogTemp, Log, TEXT("LandmassGenerator initialized - Resolution: %d, Seed: %d, LandCoverage: %.1f%%"),
-		Settings.TextureResolution, Settings.Seed, Settings.LandCoveragePercent);
+	// === Generate domain warp offsets ===
+	// Two separate 2D offsets ensure X and Y warp components are decorrelated.
+	// This prevents the warp field from producing diagonal-biased distortions.
+	
+	WarpOffsetX = FVector2D(
+		RandomStream.FRandRange(-500.0f, 500.0f),
+		RandomStream.FRandRange(-500.0f, 500.0f)
+	);
+	
+	WarpOffsetY = FVector2D(
+		RandomStream.FRandRange(-500.0f, 500.0f),
+		RandomStream.FRandRange(-500.0f, 500.0f)
+	);
+
+	UE_LOG(LogTemp, Log, TEXT("LandmassGenerator initialized - Resolution: %d, Seed: %d, LandCoverage: %.1f%%, DomainWarp: %s"),
+		Settings.TextureResolution, Settings.Seed, Settings.LandCoveragePercent,
+		Settings.bEnableDomainWarp ? TEXT("ON") : TEXT("OFF"));
 }
 
 //------------------------------------------------------------------------------
@@ -95,22 +111,24 @@ void ULandmassGenerator::GenerateLandMask()
 
 	// ===== PASS 1: Compute continent mask value for every pixel =====
 	// These are continuous values from 0.0 (definitely ocean) to 1.0 (definitely land)
+	// PARALLELIZED: Each pixel is independent; MaskValues[Index] written by one thread only.
 	TArray<float> MaskValues;
 	MaskValues.SetNum(TotalPixels);
 
-	for (int32 Y = 0; Y < Height; ++Y)
+	// Use ParallelFor for large resolutions (>=1024²) to distribute work across cores.
+	// GetContinentMask() is the expensive call (multiple FBM evaluations per pixel).
+	ParallelFor(TotalPixels, [&](int32 Index)
 	{
-		for (int32 X = 0; X < Width; ++X)
-		{
-			// Normalize pixel coordinates to 0-1 range for noise sampling
-			// Using (Width-1) so edges are symmetric: X=0 -> 0.0, X=Width-1 -> 1.0
-			float NormX = (Width > 1) ? static_cast<float>(X) / static_cast<float>(Width - 1) : 0.5f;
-			float NormY = (Height > 1) ? static_cast<float>(Y) / static_cast<float>(Height - 1) : 0.5f;
+		int32 X = Index % Width;
+		int32 Y = Index / Width;
+		
+		// Normalize pixel coordinates to 0-1 range for noise sampling
+		// Using (Width-1) so edges are symmetric: X=0 -> 0.0, X=Width-1 -> 1.0
+		float NormX = (Width > 1) ? static_cast<float>(X) / static_cast<float>(Width - 1) : 0.5f;
+		float NormY = (Height > 1) ? static_cast<float>(Y) / static_cast<float>(Height - 1) : 0.5f;
 
-			int32 Index = Y * Width + X;
-			MaskValues[Index] = GetContinentMask(NormX, NormY);
-		}
-	}
+		MaskValues[Index] = GetContinentMask(NormX, NormY);
+	});
 
 	// ===== Calculate adaptive threshold for exact land coverage =====
 	// Using std::nth_element (introselect) for O(n) average complexity instead of O(n log n) sort.
@@ -137,34 +155,50 @@ void ULandmassGenerator::GenerateLandMask()
 	// ===== PASS 2: Apply threshold to create EXACT land coverage =====
 	// Problem: using >= threshold may overshoot if many pixels equal threshold.
 	// Solution: 
-	//   1. First mark all pixels strictly GREATER than threshold as land.
-	//   2. Collect pixels exactly EQUAL to threshold.
-	//   3. Add only as many equal-pixels as needed to reach TargetLandPixels (deterministic order).
+	//   1. First mark all pixels strictly GREATER than threshold as land (parallelized).
+	//   2. Collect pixels exactly EQUAL to threshold (sequential for determinism).
+	//   3. Add only as many equal-pixels as needed to reach TargetLandPixels.
+	//   4. Build LandPixels by scanning LandMask (sequential, avoids thread-local merge).
 	
-	TArray<int32> EqualThresholdIndices; // Indices of pixels exactly at threshold
-	int32 StrictlyGreaterCount = 0;
-	
-	// Pass 2a: Mark strictly greater, collect equal
-	for (int32 Index = 0; Index < TotalPixels; ++Index)
+	// Pass 2a: PARALLELIZED classification into LandMask
+	// Each thread writes to a unique LandMask[Index], no data race.
+	// We use a simple encoding: 0=ocean, 1=land(>threshold), 2=equal(==threshold)
+	ParallelFor(TotalPixels, [&](int32 Index)
 	{
 		float Value = MaskValues[Index];
 		if (Value > LandThreshold)
 		{
-			LandMask[Index] = 1;
-			++StrictlyGreaterCount;
+			LandMask[Index] = 1; // Definitely land
 		}
 		else if (Value == LandThreshold)
 		{
-			LandMask[Index] = 0; // Tentatively ocean; may promote below
-			EqualThresholdIndices.Add(Index);
+			LandMask[Index] = 2; // Equal to threshold (tentative, may become land or ocean)
 		}
 		else
 		{
-			LandMask[Index] = 0;
+			LandMask[Index] = 0; // Definitely ocean
+		}
+	});
+	
+	// Pass 2b: SEQUENTIAL scan to count and collect equal-threshold pixels
+	// This must be sequential to ensure deterministic index order for tie-breaking.
+	TArray<int32> EqualThresholdIndices;
+	int32 StrictlyGreaterCount = 0;
+	
+	for (int32 Index = 0; Index < TotalPixels; ++Index)
+	{
+		if (LandMask[Index] == 1)
+		{
+			++StrictlyGreaterCount;
+		}
+		else if (LandMask[Index] == 2)
+		{
+			EqualThresholdIndices.Add(Index);
+			LandMask[Index] = 0; // Tentatively ocean; may promote below
 		}
 	}
 	
-	// Pass 2b: Promote exactly as many equal-threshold pixels as needed
+	// Pass 2c: Promote exactly as many equal-threshold pixels as needed
 	int32 NeededFromEqual = TargetLandPixels - StrictlyGreaterCount;
 	NeededFromEqual = FMath::Clamp(NeededFromEqual, 0, EqualThresholdIndices.Num());
 	
@@ -174,7 +208,8 @@ void ULandmassGenerator::GenerateLandMask()
 		LandMask[EqualThresholdIndices[i]] = 1;
 	}
 	
-	// Pass 2c: Build LandPixels array from final mask
+	// Pass 2d: Build LandPixels array by SEQUENTIAL scan of final LandMask
+	// This avoids thread-local buffers and merge complexity while being fast (simple scan).
 	for (int32 Y = 0; Y < Height; ++Y)
 	{
 		for (int32 X = 0; X < Width; ++X)
@@ -184,6 +219,270 @@ void ULandmassGenerator::GenerateLandMask()
 			{
 				LandPixels.Add(FIntPoint(X, Y));
 			}
+		}
+	}
+
+	// ===== PASS 3 (Optional): Keep only the largest connected landmass =====
+	// Uses 4-way adjacency (up/down/left/right) for connectivity.
+	// 4-way chosen over 8-way for stricter continent separation (diagonal pixels are not connected).
+	// Tie-break rule: if two components have equal size, keep the one with the lowest starting index.
+	
+	if (Settings.bKeepOnlyLargestLandmass && LandPixels.Num() > 0)
+	{
+		// Visited array: 0 = unvisited, 1 = visited
+		TArray<uint8> Visited;
+		Visited.SetNumZeroed(TotalPixels);
+		
+		// Track largest component
+		int32 LargestComponentStartIndex = -1;
+		int32 LargestComponentSize = 0;
+		
+		// BFS queue for flood-fill
+		TArray<int32> Queue;
+		Queue.Reserve(TotalPixels / 4); // Reasonable pre-allocation
+		
+		// 4-way adjacency offsets: right, left, down, up
+		const int32 DX[4] = { 1, -1, 0, 0 };
+		const int32 DY[4] = { 0, 0, 1, -1 };
+		
+		// Scan all pixels in index order (ensures deterministic tie-break: lowest index wins)
+		for (int32 StartIndex = 0; StartIndex < TotalPixels; ++StartIndex)
+		{
+			// Skip if not land or already visited
+			if (LandMask[StartIndex] == 0 || Visited[StartIndex] != 0)
+			{
+				continue;
+			}
+			
+			// BFS flood-fill to find this connected component
+			Queue.Reset();
+			Queue.Add(StartIndex);
+			Visited[StartIndex] = 1;
+			int32 ComponentSize = 0;
+			
+			while (Queue.Num() > 0)
+			{
+				int32 CurrentIndex = Queue.Pop(EAllowShrinking::No); // Pop from end (LIFO for cache locality)
+				++ComponentSize;
+				
+				int32 CX = CurrentIndex % Width;
+				int32 CY = CurrentIndex / Width;
+				
+				// Check 4-way neighbors
+				for (int32 Dir = 0; Dir < 4; ++Dir)
+				{
+					int32 NX = CX + DX[Dir];
+					int32 NY = CY + DY[Dir];
+					
+					// Bounds check
+					if (NX < 0 || NX >= Width || NY < 0 || NY >= Height)
+					{
+						continue;
+					}
+					
+					int32 NeighborIndex = NY * Width + NX;
+					
+					// Skip if not land or already visited
+					if (LandMask[NeighborIndex] == 0 || Visited[NeighborIndex] != 0)
+					{
+						continue;
+					}
+					
+					Visited[NeighborIndex] = 1;
+					Queue.Add(NeighborIndex);
+				}
+			}
+			
+			// Update largest component (tie-break: first encountered wins due to index order scan)
+			if (ComponentSize > LargestComponentSize)
+			{
+				LargestComponentSize = ComponentSize;
+				LargestComponentStartIndex = StartIndex;
+			}
+		}
+		
+		// If we found a largest component, re-flood to mark it and clear everything else
+		if (LargestComponentStartIndex >= 0)
+		{
+			// Reset visited for second pass
+			FMemory::Memzero(Visited.GetData(), TotalPixels);
+			
+			// Flood-fill again from the largest component's start
+			Queue.Reset();
+			Queue.Add(LargestComponentStartIndex);
+			Visited[LargestComponentStartIndex] = 1;
+			
+			while (Queue.Num() > 0)
+			{
+				int32 CurrentIndex = Queue.Pop(EAllowShrinking::No);
+				
+				int32 CX = CurrentIndex % Width;
+				int32 CY = CurrentIndex / Width;
+				
+				for (int32 Dir = 0; Dir < 4; ++Dir)
+				{
+					int32 NX = CX + DX[Dir];
+					int32 NY = CY + DY[Dir];
+					
+					if (NX < 0 || NX >= Width || NY < 0 || NY >= Height)
+					{
+						continue;
+					}
+					
+					int32 NeighborIndex = NY * Width + NX;
+					
+					if (LandMask[NeighborIndex] == 0 || Visited[NeighborIndex] != 0)
+					{
+						continue;
+					}
+					
+					Visited[NeighborIndex] = 1;
+					Queue.Add(NeighborIndex);
+				}
+			}
+			
+			// Now Visited marks the largest component. Update LandMask and rebuild LandPixels.
+			LandPixels.Reset();
+			
+			for (int32 Y = 0; Y < Height; ++Y)
+			{
+				for (int32 X = 0; X < Width; ++X)
+				{
+					int32 Index = Y * Width + X;
+					if (LandMask[Index] != 0)
+					{
+						if (Visited[Index] != 0)
+						{
+							// Keep as land (part of largest component)
+							LandPixels.Add(FIntPoint(X, Y));
+						}
+						else
+						{
+							// Remove (island not part of largest component)
+							LandMask[Index] = 0;
+						}
+					}
+				}
+			}
+			
+			UE_LOG(LogTemp, Log, TEXT("Kept largest landmass: %d pixels (removed %d island pixels)"),
+				LargestComponentSize, TargetLandPixels - LargestComponentSize);
+		}
+	}
+
+	// ===== PASS 4 (Optional): Fill enclosed ocean holes (lakes) =====
+	// Flood-fill ocean from all border pixels using 4-way adjacency.
+	// Any ocean pixel NOT reached is an enclosed hole and gets converted to land.
+	// This ensures the final continent has no interior lakes/holes.
+	
+	if (Settings.bFillEnclosedHoles)
+	{
+		// VisitedOcean: tracks ocean pixels reachable from border
+		TArray<uint8> VisitedOcean;
+		VisitedOcean.SetNumZeroed(TotalPixels);
+		
+		// BFS queue for flood-fill
+		TArray<int32> Queue;
+		Queue.Reserve(TotalPixels / 4);
+		
+		// 4-way adjacency offsets
+		const int32 DX[4] = { 1, -1, 0, 0 };
+		const int32 DY[4] = { 0, 0, 1, -1 };
+		
+		// Seed BFS from all border ocean pixels (top, bottom, left, right edges)
+		// Top and bottom rows
+		for (int32 X = 0; X < Width; ++X)
+		{
+			int32 TopIndex = X; // Y=0
+			int32 BottomIndex = (Height - 1) * Width + X; // Y=Height-1
+			
+			if (LandMask[TopIndex] == 0 && VisitedOcean[TopIndex] == 0)
+			{
+				VisitedOcean[TopIndex] = 1;
+				Queue.Add(TopIndex);
+			}
+			if (LandMask[BottomIndex] == 0 && VisitedOcean[BottomIndex] == 0)
+			{
+				VisitedOcean[BottomIndex] = 1;
+				Queue.Add(BottomIndex);
+			}
+		}
+		
+		// Left and right columns (excluding corners already processed)
+		for (int32 Y = 1; Y < Height - 1; ++Y)
+		{
+			int32 LeftIndex = Y * Width; // X=0
+			int32 RightIndex = Y * Width + (Width - 1); // X=Width-1
+			
+			if (LandMask[LeftIndex] == 0 && VisitedOcean[LeftIndex] == 0)
+			{
+				VisitedOcean[LeftIndex] = 1;
+				Queue.Add(LeftIndex);
+			}
+			if (LandMask[RightIndex] == 0 && VisitedOcean[RightIndex] == 0)
+			{
+				VisitedOcean[RightIndex] = 1;
+				Queue.Add(RightIndex);
+			}
+		}
+		
+		// BFS flood-fill from all border ocean pixels
+		while (Queue.Num() > 0)
+		{
+			int32 CurrentIndex = Queue.Pop(EAllowShrinking::No);
+			
+			int32 CX = CurrentIndex % Width;
+			int32 CY = CurrentIndex / Width;
+			
+			for (int32 Dir = 0; Dir < 4; ++Dir)
+			{
+				int32 NX = CX + DX[Dir];
+				int32 NY = CY + DY[Dir];
+				
+				if (NX < 0 || NX >= Width || NY < 0 || NY >= Height)
+				{
+					continue;
+				}
+				
+				int32 NeighborIndex = NY * Width + NX;
+				
+				// Only visit unvisited ocean pixels
+				if (LandMask[NeighborIndex] == 0 && VisitedOcean[NeighborIndex] == 0)
+				{
+					VisitedOcean[NeighborIndex] = 1;
+					Queue.Add(NeighborIndex);
+				}
+			}
+		}
+		
+		// Convert any ocean pixel NOT visited (enclosed hole) to land
+		int32 HolePixelsFilled = 0;
+		for (int32 Index = 0; Index < TotalPixels; ++Index)
+		{
+			if (LandMask[Index] == 0 && VisitedOcean[Index] == 0)
+			{
+				LandMask[Index] = 1;
+				++HolePixelsFilled;
+			}
+		}
+		
+		// Rebuild LandPixels if we filled any holes
+		if (HolePixelsFilled > 0)
+		{
+			LandPixels.Reset();
+			for (int32 Y = 0; Y < Height; ++Y)
+			{
+				for (int32 X = 0; X < Width; ++X)
+				{
+					int32 Index = Y * Width + X;
+					if (LandMask[Index] != 0)
+					{
+						LandPixels.Add(FIntPoint(X, Y));
+					}
+				}
+			}
+			
+			UE_LOG(LogTemp, Log, TEXT("Filled %d enclosed hole pixels (lakes)"), HolePixelsFilled);
 		}
 	}
 
@@ -355,14 +654,54 @@ float ULandmassGenerator::FBM(float X, float Y, int32 Octaves, float Persistence
 //   4. Detail noise: fine bumps and indentations (high frequency)
 //   5. Edge falloff: ensures land doesn't touch texture borders
 // 
+// If domain warping is enabled, coordinates are displaced before noise sampling
+// to create large-scale bends, peninsulas, and bays for more realistic coastlines.
+// 
 // Returns 0.0 (definitely ocean) to 1.0 (definitely land).
 // The actual land/ocean threshold is determined by GenerateLandMask()
 // based on target land coverage percentage.
 //------------------------------------------------------------------------------
 float ULandmassGenerator::GetContinentMask(float NormX, float NormY) const
 {
+	// ===== Domain Warping (optional) =====
+	// Displaces sampling coordinates using a low-frequency noise field.
+	// This creates large-scale bends and irregular coastline features.
+	// The warp is applied before all other noise sampling to affect the entire shape.
+	
+	float SampleX = NormX;
+	float SampleY = NormY;
+	
+	if (Settings.bEnableDomainWarp)
+	{
+		// Compute warp displacement using FBM noise.
+		// X and Y components use different offsets to decorrelate and avoid diagonal bias.
+		float WarpX = FBM(
+			NormX * Settings.WarpFrequency + WarpOffsetX.X,
+			NormY * Settings.WarpFrequency + WarpOffsetX.Y,
+			Settings.WarpOctaves,
+			Settings.WarpPersistence
+		);
+		
+		float WarpY = FBM(
+			NormX * Settings.WarpFrequency + WarpOffsetY.X,
+			NormY * Settings.WarpFrequency + WarpOffsetY.Y,
+			Settings.WarpOctaves,
+			Settings.WarpPersistence
+		);
+		
+		// Apply warp: displace coordinates by noise * amplitude
+		// FBM returns ~[-1,1], so displacement range is [-Amplitude, +Amplitude]
+		SampleX = NormX + WarpX * Settings.WarpAmplitude;
+		SampleY = NormY + WarpY * Settings.WarpAmplitude;
+		
+		// Note: We intentionally do NOT clamp SampleX/SampleY to [0,1].
+		// Allowing slight out-of-bounds sampling creates natural edge variation.
+		// The edge falloff logic below still uses original NormX/NormY for border enforcement.
+	}
+
 	// ===== Center-based base shape =====
 	// Transform to centered coordinates: (0,0) at center, ±0.5 at edges
+	// Use ORIGINAL coordinates for center distance to maintain continent centering
 	float CX = NormX - 0.5f;
 	float CY = NormY - 0.5f;
 
@@ -371,17 +710,17 @@ float ULandmassGenerator::GetContinentMask(float NormX, float NormY) const
 	float DistFromCenter = FMath::Sqrt(CX * CX + CY * CY) * 2.0f;
 
 	// ===== Layered noise for organic coastlines =====
+	// All FBM calls use warped coordinates (SampleX, SampleY) for consistent deformation
 	
 	// Medium-frequency noise for irregular coastline shape
-	// (No offset needed—coast noise uses base coordinates directly)
 	float NoiseScale = 3.0f;
-	float CoastNoise = FBM(NormX * NoiseScale, NormY * NoiseScale, 4, 0.5f) * 0.4f;
+	float CoastNoise = FBM(SampleX * NoiseScale, SampleY * NoiseScale, 4, 0.5f) * 0.4f;
 
 	// Low-frequency noise for overall continent shape variation
 	// Uses seed-derived ShapeNoiseOffset to decorrelate from coast noise
 	float ShapeNoise = FBM(
-		NormX * 1.5f + ShapeNoiseOffset.X, 
-		NormY * 1.5f + ShapeNoiseOffset.Y, 
+		SampleX * 1.5f + ShapeNoiseOffset.X, 
+		SampleY * 1.5f + ShapeNoiseOffset.Y, 
 		3, 0.6f) * 0.3f;
 
 	// Combine: start with inverted distance (1 at center, 0 at corners) + noise
@@ -390,13 +729,14 @@ float ULandmassGenerator::GetContinentMask(float NormX, float NormY) const
 	// High-frequency noise for fine coastal details (bays, peninsulas)
 	// Uses seed-derived DetailNoiseOffset to decorrelate from other layers
 	float DetailNoise = FBM(
-		NormX * 8.0f + DetailNoiseOffset.X, 
-		NormY * 8.0f + DetailNoiseOffset.Y, 
+		SampleX * 8.0f + DetailNoiseOffset.X, 
+		SampleY * 8.0f + DetailNoiseOffset.Y, 
 		2, 0.5f) * 0.15f;
 	ContinentValue += DetailNoise;
 
 	// ===== Edge falloff: prevent land from touching texture borders =====
-	// This is important for tiling or to ensure clean edges
+	// Uses ORIGINAL coordinates (NormX, NormY) to enforce border padding
+	// regardless of warp displacement—land must not touch texture edges.
 	
 	// Calculate distance from each edge (0 at edge, 0.5 at center)
 	float DistFromLeft = NormX;
@@ -409,10 +749,10 @@ float ULandmassGenerator::GetContinentMask(float NormX, float NormY) const
 	                              FMath::Min(DistFromTop, DistFromBottom));
 
 	// Add noise to the falloff zone for irregular (non-rectangular) borders
-	// Uses seed-derived EdgeNoiseOffset to decorrelate from shape/detail layers
+	// Edge noise uses WARPED coordinates for consistency with other noise layers
 	float EdgeNoise = FBM(
-		NormX * 6.0f + EdgeNoiseOffset.X, 
-		NormY * 6.0f + EdgeNoiseOffset.Y, 
+		SampleX * 6.0f + EdgeNoiseOffset.X, 
+		SampleY * 6.0f + EdgeNoiseOffset.Y, 
 		3, 0.5f) * 0.5f + 0.5f;
 
 	// Noisy padding zone: varies between 2.5% and 7.5% of texture width
