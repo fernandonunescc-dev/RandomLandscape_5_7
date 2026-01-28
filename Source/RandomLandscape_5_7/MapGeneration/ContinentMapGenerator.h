@@ -1,5 +1,6 @@
 // ContinentMapGenerator.h
 // Generator for Continent-type maps
+// Version: 01.27.2026.22.10
 
 #pragma once
 
@@ -7,28 +8,18 @@
 #include "MapGeneratorBase.h"
 #include "BiomeTypes.h"
 #include "LandmassGenerator.h"
+#include "BiomeMapGenerator.h"
 #include "ContinentMapGenerator.generated.h"
 
 class UTexture2D;
 class ULandmassGenerator;
-
-/** Represents a seed point for Voronoi-based biome distribution */
-struct FBiomeSeedPoint
-{
-	FVector2D Position;
-	int32 BiomeIndex;
-	float Weight; // Used to adjust region size
-	
-	FBiomeSeedPoint() : Position(FVector2D::ZeroVector), BiomeIndex(0), Weight(1.0f) {}
-	FBiomeSeedPoint(const FVector2D& InPos, int32 InBiome, float InWeight) 
-		: Position(InPos), BiomeIndex(InBiome), Weight(InWeight) {}
-};
+class UBiomeMapGenerator;
 
 /**
  * Map generator for Continent-type maps.
  * Uses a two-pass approach:
- * 1. Generate continent shape (land mask)
- * 2. Distribute biomes based on actual land pixel count
+ * 1. Generate continent shape (land mask) via LandmassGenerator
+ * 2. Distribute biomes via BiomeMapGenerator
  */
 UCLASS(Blueprintable)
 class RANDOMLANDSCAPE_5_7_API UContinentMapGenerator : public UMapGeneratorBase
@@ -89,6 +80,10 @@ protected:
 	UPROPERTY()
 	TObjectPtr<ULandmassGenerator> LandmassGenerator;
 
+	/** Biome map generator - handles biome distribution */
+	UPROPERTY()
+	TObjectPtr<UBiomeMapGenerator> BiomeGenerator;
+
 	/** Random seed for landmass generation */
 	int32 Seed = 0;
 
@@ -135,7 +130,4 @@ protected:
 
 	/** List of all land pixel coordinates (for seed point placement) */
 	TArray<FIntPoint> LandPixels;
-
-	/** Voronoi seed points for biome regions */
-	TArray<FBiomeSeedPoint> BiomeSeedPoints;
 };
