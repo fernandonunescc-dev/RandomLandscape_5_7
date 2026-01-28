@@ -1,7 +1,7 @@
 // BiomeMapGenerator.cpp
 // Deterministic biome layout generator - single blob per biome, exact target matching
 // BiomeSeed controls biome placement independently from landmass seed
-// Version: 01.27.2026.23.51
+// Version: 01.28.2026.20.04
 
 #include "BiomeMapGenerator.h"
 #include <queue>
@@ -24,13 +24,21 @@ static FORCEINLINE uint32 Hash32(uint32 x)
 // ------------------------------------------------------------
 UBiomeMapGenerator::UBiomeMapGenerator()
 {
-	Settings.ConnectorBiomeType = EBiomeType::Forest;
+	// LayoutSettings has default constructor that sets up default biomes
+}
+
+void UBiomeMapGenerator::Initialize()
+{
+	// Use the LayoutSettings from the UPROPERTY
+	Settings = LayoutSettings;
+	RandomStream.Initialize(Settings.BiomeSeed);
 }
 
 void UBiomeMapGenerator::Initialize(const FBiomeLayoutSettings& InSettings)
 {
 	Settings = InSettings;
-	// Initialize RandomStream with BiomeSeed (NOT landmass seed)
+	// Also update LayoutSettings so they stay in sync
+	LayoutSettings = InSettings;
 	RandomStream.Initialize(Settings.BiomeSeed);
 }
 
@@ -51,11 +59,9 @@ bool UBiomeMapGenerator::Generate(const TArray<uint8>& LandMask)
 
 	BiomeMap.SetNumUninitialized(Expected);
 	
-	// Pre-allocate component ID buffer to avoid reallocation per biome
-	CompIdPerPixelBuffer.SetNumUninitialized(Expected);
-	
 	BuildLandIndexList(LandMask);
 	FillConnector();
+	NormalizeLayerPercentages();
 
 	if (LandIndices.Num() == 0)
 	{
@@ -67,6 +73,9 @@ bool UBiomeMapGenerator::Generate(const TArray<uint8>& LandMask)
 		Settings.BiomeSeed, Res, LandIndices.Num(), Settings.Layers.Num());
 
 	CarveBiomesSequentially(LandMask);
+
+	// Log final counts by scanning BiomeMap (no post-processing)
+	LogFinalBiomeCounts(LandMask);
 
 	UE_LOG(LogTemp, Log, TEXT("BiomeMapGenerator::Generate - Done."));
 
@@ -91,230 +100,89 @@ void UBiomeMapGenerator::BuildLandIndexList(const TArray<uint8>& LandMask)
 }
 
 // ------------------------------------------------------------
-// Fill entire map with connector biome
+// Fill entire map with connector biome (Forest) on land, UnassignedId elsewhere
 // ------------------------------------------------------------
 void UBiomeMapGenerator::FillConnector()
 {
-	const int32 ConnectorId = static_cast<int32>(Settings.ConnectorBiomeType);
+	// Ocean pixels stay as UnassignedId (will be colored OceanColor)
+	// Land pixels filled with Forest (connector)
 	for (int32 i = 0; i < BiomeMap.Num(); ++i)
 	{
-		BiomeMap[i] = ConnectorId;
+		BiomeMap[i] = UnassignedId;
+	}
+	for (int32 idx : LandIndices)
+	{
+		BiomeMap[idx] = ConnectorBiomeId;
 	}
 }
 
 // ------------------------------------------------------------
-// Compute connected components of remaining connector land (BFS)
-// Uses bUseEightWayAdjacency setting to match biome growth adjacency
-// Also computes random representative via reservoir sampling during BFS
+// Normalize layer percentages to sum to 100
+// If empty, add default Forest 100%
 // ------------------------------------------------------------
-void UBiomeMapGenerator::ComputeConnectorComponents(
-	const TArray<uint8>& LandMask,
-	int32 ConnectorId,
-	TArray<int32>& OutCompIdPerPixel,
-	TArray<FConnectorComponent>& OutComponents) const
+void UBiomeMapGenerator::NormalizeLayerPercentages()
 {
-	const int32 Res = Settings.TextureResolution;
-	const int32 Total = Res * Res;
-
-	// Reset component ID buffer (reusing pre-allocated buffer)
-	OutCompIdPerPixel.SetNumUninitialized(Total);
-	for (int32 i = 0; i < Total; ++i)
+	if (Settings.Layers.Num() == 0)
 	{
-		OutCompIdPerPixel[i] = -1;
+		// Default: single Forest covering all land
+		Settings.Layers.Add(FBiomeLayerSettings(EBiomeType::Forest, TEXT("Forest"), 100.0f, FLinearColor(0.2f, 0.6f, 0.2f, 1.0f)));
+		return;
 	}
-	OutComponents.Reset();
 
-	TArray<int32> Queue;
-	Queue.Reserve(1024);
-
-	int32 NextCompId = 0;
-
-	for (int32 StartIdx = 0; StartIdx < Total; ++StartIdx)
+	float TotalPercent = 0.0f;
+	for (const FBiomeLayerSettings& L : Settings.Layers)
 	{
-		// Skip if not connector land or already visited
-		if (LandMask[StartIdx] == 0) continue;
-		if (BiomeMap[StartIdx] != ConnectorId) continue;
-		if (OutCompIdPerPixel[StartIdx] >= 0) continue;
+		TotalPercent += FMath::Max(0.0f, L.TargetPercentOfLand);
+	}
 
-		// BFS from this pixel
-		FConnectorComponent Comp;
-		Comp.ComponentId = NextCompId;
-		Comp.Size = 0;
-		Comp.RepresentativeIndexMin = StartIdx;
-		Comp.RepresentativeIndexRandom = StartIdx; // First pixel is initial random rep
-
-		Queue.Reset();
-		Queue.Add(StartIdx);
-		OutCompIdPerPixel[StartIdx] = NextCompId;
-
-		int32 Head = 0;
-		while (Head < Queue.Num())
+	if (TotalPercent <= 0.0f)
+	{
+		// All zeros - distribute evenly
+		const float EvenShare = 100.0f / (float)Settings.Layers.Num();
+		for (FBiomeLayerSettings& L : Settings.Layers)
 		{
-			const int32 Cur = Queue[Head++];
-			Comp.Size++;
-
-			// Track minimum index for deterministic tiebreak
-			if (Cur < Comp.RepresentativeIndexMin)
-			{
-				Comp.RepresentativeIndexMin = Cur;
-			}
-
-			// Reservoir sampling: with probability 1/Size, replace random rep
-			// This gives uniform random selection over all pixels in component
-			if (RandomStream.RandRange(1, Comp.Size) == 1)
-			{
-				Comp.RepresentativeIndexRandom = Cur;
-			}
-
-			int32 X, Y;
-			XY(Cur, Res, X, Y);
-
-			// Neighbor helper - adds valid connector land neighbors to queue
-			auto TryNeighbor = [&](int32 nx, int32 ny)
-			{
-				if ((uint32)nx >= (uint32)Res || (uint32)ny >= (uint32)Res) return;
-				const int32 nIdx = Idx(nx, ny, Res);
-				if (LandMask[nIdx] == 0) return;
-				if (BiomeMap[nIdx] != ConnectorId) return;
-				if (OutCompIdPerPixel[nIdx] >= 0) return;
-
-				OutCompIdPerPixel[nIdx] = NextCompId;
-				Queue.Add(nIdx);
-			};
-
-			// 4-way neighbors in fixed order (deterministic traversal): left, right, up, down
-			TryNeighbor(X - 1, Y);
-			TryNeighbor(X + 1, Y);
-			TryNeighbor(X, Y - 1);
-			TryNeighbor(X, Y + 1);
-
-			// 8-way: add diagonals in fixed order if enabled
-			if (Settings.bUseEightWayAdjacency)
-			{
-				TryNeighbor(X - 1, Y - 1); // up-left
-				TryNeighbor(X + 1, Y - 1); // up-right
-				TryNeighbor(X - 1, Y + 1); // down-left
-				TryNeighbor(X + 1, Y + 1); // down-right
-			}
+			L.TargetPercentOfLand = EvenShare;
 		}
-
-		OutComponents.Add(Comp);
-		NextCompId++;
+	}
+	else if (!FMath::IsNearlyEqual(TotalPercent, 100.0f, 0.01f))
+	{
+		// Normalize to 100%
+		const float Scale = 100.0f / TotalPercent;
+		for (FBiomeLayerSettings& L : Settings.Layers)
+		{
+			L.TargetPercentOfLand = FMath::Max(0.0f, L.TargetPercentOfLand) * Scale;
+		}
 	}
 }
 
 // ------------------------------------------------------------
-// Choose component for a biome with given TargetCount
-// If multiple components fit, can choose randomly (deterministic from BiomeSeed)
+// Pick a deterministic random seed index from connector (Forest) land
+// Uses BiomeSeed + BiomeId for deterministic selection
 // ------------------------------------------------------------
-int32 UBiomeMapGenerator::ChooseComponentForBiome(
-	const TArray<FConnectorComponent>& Components,
-	int32 TargetCount,
-	int32 BiomeId,
-	int32 CarveOrder) const
+int32 UBiomeMapGenerator::PickRandomConnectorIndex(const TArray<uint8>& LandMask, int32 BiomeId) const
 {
-	if (Components.Num() == 0)
+	// Build list of connector (Forest) land pixels
+	TArray<int32> ConnectorIndices;
+	ConnectorIndices.Reserve(LandIndices.Num());
+
+	for (int32 idx : LandIndices)
+	{
+		if (BiomeMap[idx] == ConnectorBiomeId)
+		{
+			ConnectorIndices.Add(idx);
+		}
+	}
+
+	if (ConnectorIndices.Num() == 0)
 	{
 		return -1;
 	}
 
-	// Build list of candidate components that can fit TargetCount
-	TArray<int32> CandidateIndices;
-	CandidateIndices.Reserve(Components.Num());
-
-	// Also track largest overall (for fallback if none fit)
-	int32 LargestIdx = -1;
-	int32 LargestSize = 0;
-	int32 LargestRep = INT32_MAX;
-
-	for (int32 i = 0; i < Components.Num(); ++i)
-	{
-		const FConnectorComponent& C = Components[i];
-
-		// Track largest overall (tiebreak by min representative index)
-		if (C.Size > LargestSize || (C.Size == LargestSize && C.RepresentativeIndexMin < LargestRep))
-		{
-			LargestIdx = i;
-			LargestSize = C.Size;
-			LargestRep = C.RepresentativeIndexMin;
-		}
-
-		// Add to candidates if it can fit TargetCount
-		if (C.Size >= TargetCount)
-		{
-			CandidateIndices.Add(i);
-		}
-	}
-
-	// If no candidates fit, return largest (will cause underflow)
-	if (CandidateIndices.Num() == 0)
-	{
-		return LargestIdx;
-	}
-
-	// If only one candidate, return it
-	if (CandidateIndices.Num() == 1)
-	{
-		return CandidateIndices[0];
-	}
-
-	// Multiple candidates - choose based on settings
-	if (!Settings.bRandomizeComponentChoice)
-	{
-		// Deterministic: pick largest fitting component (old behavior)
-		int32 BestFitIdx = -1;
-		int32 BestFitSize = 0;
-		int32 BestFitRep = INT32_MAX;
-
-		for (int32 CandIdx : CandidateIndices)
-		{
-			const FConnectorComponent& C = Components[CandIdx];
-			if (C.Size > BestFitSize || (C.Size == BestFitSize && C.RepresentativeIndexMin < BestFitRep))
-			{
-				BestFitIdx = CandIdx;
-				BestFitSize = C.Size;
-				BestFitRep = C.RepresentativeIndexMin;
-			}
-		}
-		return BestFitIdx;
-	}
-
-	// Random choice among candidates (deterministic from BiomeSeed + BiomeId + CarveOrder)
-	FRandomStream ChoiceRng;
-	ChoiceRng.Initialize(Hash32((uint32)Settings.BiomeSeed ^ ((uint32)BiomeId * 2654435761u) ^ ((uint32)CarveOrder * 1013904223u)));
-
-	if (Settings.bWeightComponentChoiceBySize)
-	{
-		// Weighted random by size (roulette wheel selection)
-		int64 TotalSize = 0;
-		for (int32 CandIdx : CandidateIndices)
-		{
-			TotalSize += Components[CandIdx].Size;
-		}
-
-		if (TotalSize > 0)
-		{
-			int64 Pick = ChoiceRng.RandRange(0, (int32)(TotalSize - 1));
-			int64 Cumulative = 0;
-			for (int32 CandIdx : CandidateIndices)
-			{
-				Cumulative += Components[CandIdx].Size;
-				if (Pick < Cumulative)
-				{
-					return CandIdx;
-				}
-			}
-		}
-
-		// Fallback (shouldn't reach here)
-		return CandidateIndices[0];
-	}
-	else
-	{
-		// Uniform random among candidates
-		int32 Pick = ChoiceRng.RandRange(0, CandidateIndices.Num() - 1);
-		return CandidateIndices[Pick];
-	}
+	// Deterministic random selection based on BiomeSeed + BiomeId
+	FRandomStream SeedRng;
+	SeedRng.Initialize(Hash32((uint32)Settings.BiomeSeed ^ ((uint32)BiomeId * 2654435761u)));
+	const int32 Pick = SeedRng.RandRange(0, ConnectorIndices.Num() - 1);
+	return ConnectorIndices[Pick];
 }
 
 
@@ -361,21 +229,21 @@ float UBiomeMapGenerator::SmoothNoise2D(float X, float Y, float Frequency, uint3
 }
 
 // ------------------------------------------------------------
-// Sequential carve: process biomes one at a time
+// Sequential carve: process non-Forest biomes one at a time
+// Forest is the connector biome and gets remainder after carving
 // All randomness derives from BiomeSeed
 // ------------------------------------------------------------
 void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 {
-	const int32 ConnectorId = static_cast<int32>(Settings.ConnectorBiomeType);
 	const int32 LandCount = LandIndices.Num();
 
 	if (Settings.Layers.Num() == 0)
 	{
-		UE_LOG(LogTemp, Log, TEXT("BiomeMapGenerator - No layers to carve; all land stays connector."));
+		UE_LOG(LogTemp, Log, TEXT("BiomeMapGenerator - No layers to carve; all land stays Forest."));
 		return;
 	}
 
-	// ---------- Largest-remainder allocation ----------
+	// ---------- Largest-remainder allocation for non-Forest biomes ----------
 	struct FLayerAlloc
 	{
 		int32 LayerIndex;
@@ -383,48 +251,49 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 		float Percentage;
 		int32 TargetCount;
 		float Remainder;
-		float NoiseFreq;
-		float NoiseAmp;
 		uint32 NoiseSeed; // derived from BiomeSeed
 	};
 
 	TArray<FLayerAlloc> Allocs;
 	Allocs.Reserve(Settings.Layers.Num());
 
-	float TotalPercent = 0.0f;
-	for (int32 i = 0; i < Settings.Layers.Num(); ++i)
-	{
-		const FBiomeLayerSettings& L = Settings.Layers[i];
-		TotalPercent += FMath::Clamp(L.TargetPercentOfLand, 0.0f, 100.0f);
-	}
-
-	// Normalize if > 100%
-	const float NormScale = (TotalPercent > 100.0f) ? (100.0f / TotalPercent) : 1.0f;
-
+	// Percentages are already normalized by NormalizeLayerPercentages()
 	int32 SumFloor = 0;
 	for (int32 i = 0; i < Settings.Layers.Num(); ++i)
 	{
 		const FBiomeLayerSettings& L = Settings.Layers[i];
+		
+		// Skip Forest - it's the connector and gets remainder
+		if (L.BiomeType == EBiomeType::Forest)
+		{
+			continue;
+		}
+
 		FLayerAlloc A;
 		A.LayerIndex = i;
 		A.BiomeId = static_cast<int32>(L.BiomeType);
-		A.Percentage = FMath::Clamp(L.TargetPercentOfLand, 0.0f, 100.0f) * NormScale;
+		A.Percentage = FMath::Clamp(L.TargetPercentOfLand, 0.0f, 100.0f);
 		
 		const float Exact = (A.Percentage / 100.0f) * (float)LandCount;
 		A.TargetCount = FMath::FloorToInt(Exact);
 		A.Remainder = Exact - (float)A.TargetCount;
-		A.NoiseFreq = L.SpreadNoiseFrequency;
-		A.NoiseAmp = L.SpreadNoiseAmplitude;
 		
 		// Derive noise seed from BiomeSeed (NOT landmass seed)
 		A.NoiseSeed = Hash32((uint32)Settings.BiomeSeed ^ (uint32)A.BiomeId * 2654435761u ^ (uint32)i * 1013904223u);
+
 
 		SumFloor += A.TargetCount;
 		Allocs.Add(A);
 	}
 
-	// Distribute remainder pixels to layers with largest fractional part
-	int32 Remainder = LandCount - SumFloor;
+	// Distribute remainder pixels to non-Forest biomes with largest fractional part
+	// Remainder = floor(total exact) - sum of floors
+	float TotalExact = 0.0f;
+	for (const FLayerAlloc& A : Allocs)
+	{
+		TotalExact += (A.Percentage / 100.0f) * (float)LandCount;
+	}
+	int32 Remainder = FMath::FloorToInt(TotalExact) - SumFloor;
 	if (Remainder < 0) Remainder = 0; // safety
 
 	// Sort by remainder descending (deterministic tiebreak by BiomeId)
@@ -448,7 +317,7 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 		return A.BiomeId < B.BiomeId; // deterministic tiebreak
 	});
 
-	// ---------- Carve each biome sequentially ----------
+	// ---------- Carve each non-Forest biome sequentially from connector (Forest) ----------
 	int32 CarveOrder = 0;
 	for (const FLayerAlloc& A : Allocs)
 	{
@@ -459,43 +328,12 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 			continue;
 		}
 
-		// Compute connected components of remaining connector land
-		TArray<int32> CompIdPerPixel;
-		TArray<FConnectorComponent> Components;
-		ComputeConnectorComponents(LandMask, ConnectorId, CompIdPerPixel, Components);
+		// Pick a random seed from connector (Forest) land
+		const int32 SeedIdx = PickRandomConnectorIndex(LandMask, A.BiomeId);
 
-		if (Components.Num() == 0)
-		{
-			UE_LOG(LogTemp, Warning, TEXT("  Biome %d: No connector land left. TargetCount=%d, Achieved=0"),
-				A.BiomeId, A.TargetCount);
-			CarveOrder++;
-			continue;
-		}
-
-		// Choose best component for this biome (may randomize among fitting components)
-		const int32 ChosenCompIdx = ChooseComponentForBiome(Components, A.TargetCount, A.BiomeId, CarveOrder);
-		if (ChosenCompIdx < 0)
-		{
-			UE_LOG(LogTemp, Warning, TEXT("  Biome %d: Failed to choose component. TargetCount=%d, Achieved=0"),
-				A.BiomeId, A.TargetCount);
-			CarveOrder++;
-			continue;
-		}
-
-		const FConnectorComponent& ChosenComp = Components[ChosenCompIdx];
-
-		// Warn if component is too small
-		if (ChosenComp.Size < A.TargetCount)
-		{
-			UE_LOG(LogTemp, Warning, TEXT("  Biome %d: Component size %d < TargetCount %d (underflow expected)"),
-				A.BiomeId, ChosenComp.Size, A.TargetCount);
-		}
-
-		// Use pre-computed random seed index from reservoir sampling (O(1) lookup)
-		const int32 SeedIdx = ChosenComp.RepresentativeIndexRandom;
 		if (SeedIdx < 0)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("  Biome %d: Invalid random seed in component. TargetCount=%d, Achieved=0"),
+			UE_LOG(LogTemp, Warning, TEXT("  Biome %d: No connector land left. TargetCount=%d, Achieved=0"),
 				A.BiomeId, A.TargetCount);
 			CarveOrder++;
 			continue;
@@ -506,10 +344,8 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 			SeedIdx,
 			A.BiomeId,
 			A.TargetCount,
-			ConnectorId,
-			A.NoiseFreq,
-			A.NoiseAmp,
 			A.NoiseSeed);
+
 
 		const float AchievedPct = (LandCount > 0) ? (100.0f * (float)Painted / (float)LandCount) : 0.0f;
 
@@ -530,6 +366,8 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 
 // ------------------------------------------------------------
 // Grow a single biome from one seed using Dijkstra with noise cost
+// Only paints on connector (Forest) cells
+// Uses domain warp + two signed noise layers for organic, non-circular borders
 // ------------------------------------------------------------
 struct FGrowNode
 {
@@ -548,11 +386,16 @@ int32 UBiomeMapGenerator::GrowSingleBiome(
 	int32 SeedIndex,
 	int32 BiomeId,
 	int32 TargetCount,
-	int32 ConnectorId,
-	float NoiseFreq,
-	float NoiseAmp,
 	uint32 NoiseSeed)
 {
+	// Hardcoded noise constants for organic, non-circular borders
+	constexpr float LargeFreq = 2.0f;
+	constexpr float LargeAmp  = 0.9f;   // signed
+	constexpr float SmallFreq = 12.0f;
+	constexpr float SmallAmp  = 0.6f;   // signed
+	constexpr float WarpFreq  = 4.0f;
+	constexpr float WarpAmp   = 0.03f;
+
 	const int32 Res = Settings.TextureResolution;
 	int32 Painted = 0;
 
@@ -585,7 +428,7 @@ int32 UBiomeMapGenerator::GrowSingleBiome(
 		PushIfValid(X, Y - 1);
 		PushIfValid(X, Y + 1);
 
-		if (Settings.bUseEightWayAdjacency)
+		if (bUseEightWayAdjacency)
 		{
 			PushIfValid(X - 1, Y - 1);
 			PushIfValid(X + 1, Y - 1);
@@ -604,9 +447,9 @@ int32 UBiomeMapGenerator::GrowSingleBiome(
 
 		const int32 idx = Cur.Index;
 
-		// Must be land and still connector
+		// Must be land and still connector (Forest)
 		if (LandMask[idx] == 0) continue;
-		if (BiomeMap[idx] != ConnectorId) continue;
+		if (BiomeMap[idx] != ConnectorBiomeId) continue;
 
 		// Paint it
 		BiomeMap[idx] = BiomeId;
@@ -618,13 +461,10 @@ int32 UBiomeMapGenerator::GrowSingleBiome(
 		// Expand frontier
 		GetNeighbors(idx, Neigh);
 
-		int32 X, Y;
-		XY(idx, Res, X, Y);
-
 		for (int32 nIdx : Neigh)
 		{
 			if (LandMask[nIdx] == 0) continue;
-			if (BiomeMap[nIdx] != ConnectorId) continue;
+			if (BiomeMap[nIdx] != ConnectorBiomeId) continue;
 
 			int32 nX, nY;
 			XY(nIdx, Res, nX, nY);
@@ -632,13 +472,26 @@ int32 UBiomeMapGenerator::GrowSingleBiome(
 			const float nnx = (Res > 1) ? (float)nX / (float)(Res - 1) : 0.0f;
 			const float nny = (Res > 1) ? (float)nY / (float)(Res - 1) : 0.0f;
 
-			const float noise = SmoothNoise2D(nnx, nny, NoiseFreq, NoiseSeed);
-			const float noise01 = (noise * 0.5f) + 0.5f;
+			// Domain warp for more irregular shapes
+			const float wx = SmoothNoise2D(nnx, nny, WarpFreq, NoiseSeed ^ 0xA341316Cu) * WarpAmp;
+			const float wy = SmoothNoise2D(nnx, nny, WarpFreq, NoiseSeed ^ 0xC8013EA4u) * WarpAmp;
+			const float u = nnx + wx;
+			const float v = nny + wy;
 
-			const bool bDiagonal = (FMath::Abs(nX - X) == 1 && FMath::Abs(nY - Y) == 1);
+			// Two signed noise layers: large for bulges, small for detail
+			const float large = SmoothNoise2D(u, v, LargeFreq, NoiseSeed);
+			const float small = SmoothNoise2D(u, v, SmallFreq, NoiseSeed ^ 0x9E3779B9u);
+
+			const float perturb = (large * LargeAmp) + (small * SmallAmp);
+			const float mult = FMath::Clamp(1.0f + perturb, 0.25f, 2.5f);
+
+			// Diagonal step cost
+			int32 curX, curY;
+			XY(idx, Res, curX, curY);
+			const bool bDiagonal = (FMath::Abs(nX - curX) == 1 && FMath::Abs(nY - curY) == 1);
 			const float step = bDiagonal ? 1.41421356f : 1.0f;
 
-			const float cost = ((float)Cur.CostQ / 1000.0f) + step + (noise01 * NoiseAmp);
+			const float cost = ((float)Cur.CostQ / 1000.0f) + step * mult;
 
 			FGrowNode Next;
 			Next.Index = nIdx;
@@ -650,3 +503,32 @@ int32 UBiomeMapGenerator::GrowSingleBiome(
 
 	return Painted;
 }
+
+// ------------------------------------------------------------
+// Log final biome counts by scanning BiomeMap
+// ------------------------------------------------------------
+void UBiomeMapGenerator::LogFinalBiomeCounts(const TArray<uint8>& LandMask) const
+{
+	const int32 LandCount = LandIndices.Num();
+	
+	// Count pixels per biome type
+	TMap<int32, int32> BiomeCounts;
+	for (int32 idx : LandIndices)
+	{
+		const int32 BiomeId = BiomeMap[idx];
+		BiomeCounts.FindOrAdd(BiomeId)++;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("BiomeMapGenerator - Final biome counts (scanned from BiomeMap):"));
+	
+	for (const FBiomeLayerSettings& Layer : Settings.Layers)
+	{
+		const int32 BiomeId = static_cast<int32>(Layer.BiomeType);
+		const int32 Count = BiomeCounts.FindRef(BiomeId);
+		const float Pct = (LandCount > 0) ? (100.0f * (float)Count / (float)LandCount) : 0.0f;
+		
+		UE_LOG(LogTemp, Log, TEXT("  %s (id=%d): %d pixels (%.2f%%), target was %.1f%%"),
+			*Layer.DisplayName, BiomeId, Count, Pct, Layer.TargetPercentOfLand);
+	}
+}
+

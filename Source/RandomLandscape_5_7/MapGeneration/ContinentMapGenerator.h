@@ -1,6 +1,6 @@
 // ContinentMapGenerator.h
 // Generator for Continent-type maps
-// Version: 01.27.2026.22.10
+// Version: 01.28.2026.01.00
 
 #pragma once
 
@@ -35,13 +35,16 @@ public:
 	virtual bool Generate() override;
 	//~ End UMapGeneratorBase Interface
 
-	/** Set the biome configuration */
+	/** Set external BiomeGenerator (source of truth for biome settings) */
+	void SetBiomeGenerator(UBiomeMapGenerator* InGenerator) { ExternalBiomeGenerator = InGenerator; }
+
+	/** Set the biome configuration (DEPRECATED - use SetBiomeGenerator instead) */
 	void SetBiomeSettings(const FContinentBiomeSettings& InBiomeSettings);
 
 	/** Set the mesh generation settings */
 	void SetMeshSettings(const FMeshGenerationSettings& InMeshSettings);
 
-	/** Get the biome settings */
+	/** Get the biome settings (DEPRECATED - use BiomeGenerator->LayoutSettings) */
 	const FContinentBiomeSettings& GetBiomeSettings() const { return BiomeSettings; }
 
 	/** Get the mesh settings (includes generated mask textures) */
@@ -54,7 +57,7 @@ public:
 	/** Set the random seed for landmass generation */
 	void SetSeed(int32 InSeed) { Seed = InSeed; }
 
-	/** Set the random seed for biome distribution */
+	/** Set the random seed for biome distribution (DEPRECATED - use BiomeGenerator->LayoutSettings.BiomeSeed) */
 	void SetBiomeSeed(int32 InSeed) { BiomeSeed = InSeed; }
 
 	/** Generate only the landmass (land/water mask) */
@@ -75,19 +78,26 @@ public:
 	/** Get the texture resolution */
 	int32 GetTextureResolution() const { return TextureResolution; }
 
+	/** Get the active BiomeGenerator (external or internal) */
+	UBiomeMapGenerator* GetActiveBiomeGenerator() const;
+
 protected:
+	/** External BiomeGenerator (set via SetBiomeGenerator, source of truth) */
+	UPROPERTY()
+	TObjectPtr<UBiomeMapGenerator> ExternalBiomeGenerator;
+
 	/** Landmass generator - handles land/ocean mask generation */
 	UPROPERTY()
 	TObjectPtr<ULandmassGenerator> LandmassGenerator;
 
-	/** Biome map generator - handles biome distribution */
+	/** Internal Biome map generator - used if no external generator set */
 	UPROPERTY()
 	TObjectPtr<UBiomeMapGenerator> BiomeGenerator;
 
 	/** Random seed for landmass generation */
 	int32 Seed = 0;
 
-	/** Random seed for biome distribution (separate from landmass) */
+	/** Random seed for biome distribution (DEPRECATED - use BiomeGenerator->LayoutSettings.BiomeSeed) */
 	int32 BiomeSeed = 0;
 
 	/** Random stream for landmass generation */
@@ -110,7 +120,7 @@ protected:
 	void GeneratePreviewTexture();
 
 
-	/** Biome configuration for this continent */
+	/** Biome configuration for this continent (DEPRECATED - use ExternalBiomeGenerator->LayoutSettings) */
 	UPROPERTY()
 	FContinentBiomeSettings BiomeSettings;
 

@@ -72,7 +72,6 @@ float FBiomeHeightMapGenerator::SampleBlendedHeight(
 	const TMap<EBiomeType, TArray<float>>& BiomeHeightMaps,
 	const TArray<int32>& BiomeMap,
 	const TArray<uint8>& LandMask,
-	const TArray<FBiomeConfig>& BiomeConfigs,
 	float BlendRadius)
 {
 	// Clamp to valid range
@@ -113,6 +112,7 @@ float FBiomeHeightMapGenerator::SampleBlendedHeight(
 	HeightFracY = HeightFracY * HeightFracY * (3.0f - 2.0f * HeightFracY);
 
 	// Lambda to get biome type at a biome grid position
+	// BiomeMap now stores EBiomeType values directly (not indices)
 	auto GetBiomeAtPos = [&](int32 BX, int32 BY) -> EBiomeType
 	{
 		int32 Index = BY * BiomeTextureResolution + BX;
@@ -123,11 +123,9 @@ float FBiomeHeightMapGenerator::SampleBlendedHeight(
 
 		if ((LandMask[Index] != 0) && Index < BiomeMap.Num())
 		{
-			int32 BiomeIndex = BiomeMap[Index];
-			if (BiomeIndex >= 0 && BiomeIndex < BiomeConfigs.Num())
-			{
-				return BiomeConfigs[BiomeIndex].BiomeType;
-			}
+			// BiomeMap stores EBiomeType directly
+			int32 BiomeTypeInt = BiomeMap[Index];
+			return static_cast<EBiomeType>(BiomeTypeInt);
 		}
 
 		return EBiomeType::Ocean;

@@ -1,6 +1,6 @@
 // ContinentMapGenerator.cpp
 // Implementation of the Continent map generator
-// Version: 01.27.2026.22.10
+// Version: 01.28.2026.01.00
 
 #include "ContinentMapGenerator.h"
 #include "LandmassGenerator.h"
@@ -12,6 +12,7 @@ UContinentMapGenerator::UContinentMapGenerator()
 	PreviewTexture = nullptr;
 	LandmassGenerator = nullptr;
 	BiomeGenerator = nullptr;
+	ExternalBiomeGenerator = nullptr;
 	Seed = 0;
 	BiomeSeed = 0;
 }
@@ -37,6 +38,11 @@ void UContinentMapGenerator::SetBiomeSettings(const FContinentBiomeSettings& InB
 void UContinentMapGenerator::SetMeshSettings(const FMeshGenerationSettings& InMeshSettings)
 {
 	MeshSettings = InMeshSettings;
+}
+
+UBiomeMapGenerator* UContinentMapGenerator::GetActiveBiomeGenerator() const
+{
+	return ExternalBiomeGenerator ? ExternalBiomeGenerator : BiomeGenerator;
 }
 
 bool UContinentMapGenerator::Generate()
@@ -71,8 +77,6 @@ bool UContinentMapGenerator::GenerateBiomesOnly()
 		UE_LOG(LogTemp, Error, TEXT("ContinentMapGenerator::GenerateBiomesOnly - No landmass data. Call GenerateLandmassOnly first."));
 		return false;
 	}
-
-	UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator::GenerateBiomesOnly - Using biome seed: %d"), BiomeSeed);
 
 	// Use the new BiomeMapGenerator
 	AssignBiomesToLand();
@@ -112,43 +116,54 @@ void UContinentMapGenerator::GenerateLandMask()
 
 void UContinentMapGenerator::AssignBiomesToLand()
 {
-	// Create and configure the BiomeMapGenerator
-	if (!BiomeGenerator)
+	// Use external BiomeGenerator if provided, otherwise create internal one
+	UBiomeMapGenerator* ActiveGenerator = ExternalBiomeGenerator;
+	
+	if (!ActiveGenerator)
 	{
-		BiomeGenerator = NewObject<UBiomeMapGenerator>(this);
-	}
-
-	// Build layout settings from BiomeSettings
-	FBiomeLayoutSettings LayoutSettings;
-	LayoutSettings.BiomeSeed = BiomeSeed; // Use BiomeSeed for biome placement (independent from landmass seed)
-	LayoutSettings.TextureResolution = TextureResolution;
-	LayoutSettings.ConnectorBiomeType = EBiomeType::Forest; // Forest is the connector
-	LayoutSettings.bUseEightWayAdjacency = true;
-
-	// Convert FBiomeConfig to FBiomeLayerSettings
-	LayoutSettings.Layers.Reset();
-	for (const FBiomeConfig& Config : BiomeSettings.LandBiomes)
-	{
-		// Skip Forest - it's the connector biome
-		if (Config.BiomeType == EBiomeType::Forest)
+		// Fallback to internal generator with settings from BiomeSettings
+		if (!BiomeGenerator)
 		{
-			continue;
+			BiomeGenerator = NewObject<UBiomeMapGenerator>(this);
+		}
+		ActiveGenerator = BiomeGenerator;
+
+		// Build layout settings from legacy BiomeSettings
+		FBiomeLayoutSettings LayoutSettings;
+		LayoutSettings.BiomeSeed = BiomeSeed;
+		LayoutSettings.TextureResolution = TextureResolution;
+
+		// Convert FBiomeConfig to FBiomeLayerSettings (all biomes including Forest)
+		LayoutSettings.Layers.Reset();
+		for (const FBiomeConfig& Config : BiomeSettings.LandBiomes)
+		{
+
+			FBiomeLayerSettings Layer;
+			Layer.BiomeType = Config.BiomeType;
+			Layer.DisplayName = Config.DisplayName;
+			Layer.TargetPercentOfLand = Config.Percentage;
+			Layer.Color = Config.Color;
+			Layer.SpreadNoiseFrequency = 6.0f;
+			Layer.SpreadNoiseAmplitude = 1.25f;
+
+			LayoutSettings.Layers.Add(Layer);
 		}
 
-		FBiomeLayerSettings Layer;
-		Layer.BiomeType = Config.BiomeType;
-		Layer.TargetPercentOfLand = Config.Percentage;
-		Layer.SpreadNoiseFrequency = 6.0f;
-		Layer.SpreadNoiseAmplitude = 1.25f;
-
-		LayoutSettings.Layers.Add(Layer);
+		ActiveGenerator->Initialize(LayoutSettings);
+	}
+	else
+	{
+		// Use external generator - update texture resolution and initialize
+		ActiveGenerator->LayoutSettings.TextureResolution = TextureResolution;
+		ActiveGenerator->Initialize();
+		
+		UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator::AssignBiomesToLand - Using external BiomeGenerator with seed %d"),
+			ActiveGenerator->LayoutSettings.BiomeSeed);
 	}
 
-	BiomeGenerator->Initialize(LayoutSettings);
-
-	if (BiomeGenerator->Generate(LandMask))
+	if (ActiveGenerator->Generate(LandMask))
 	{
-		BiomeMap = BiomeGenerator->GetBiomeMap();
+		BiomeMap = ActiveGenerator->GetBiomeMap();
 		UE_LOG(LogTemp, Log, TEXT("ContinentMapGenerator::AssignBiomesToLand - BiomeMapGenerator succeeded"));
 	}
 	else
@@ -193,7 +208,11 @@ void UContinentMapGenerator::GeneratePreviewTexture()
 	void* TextureData = Mip.BulkData.Lock(LOCK_READ_WRITE);
 	uint8* Pixels = static_cast<uint8*>(TextureData);
 
-	const bool bHasBiomes = BiomeMap.Num() == ExpectedSize && BiomeSettings.LandBiomes.Num() > 0;
+	const bool bHasBiomes = BiomeMap.Num() == ExpectedSize;
+	
+	// Get colors from the active BiomeGenerator if available, else from legacy BiomeSettings
+	UBiomeMapGenerator* ActiveGenerator = GetActiveBiomeGenerator();
+	const FBiomeLayoutSettings* LayoutSettings = ActiveGenerator ? &ActiveGenerator->GetSettings() : nullptr;
 
 	for (int32 Y = 0; Y < Height; ++Y)
 	{
@@ -207,21 +226,24 @@ void UContinentMapGenerator::GeneratePreviewTexture()
 
 			if (!bIsLand)
 			{
-				PixelColor = BiomeSettings.OceanColor;
+				// Ocean color
+				PixelColor = LayoutSettings ? LayoutSettings->OceanColor : BiomeSettings.OceanColor;
 			}
 			else if (bHasBiomes)
 			{
 				const int32 BiomeTypeInt = BiomeMap[MapIndex];
 				const EBiomeType BiomeType = static_cast<EBiomeType>(BiomeTypeInt);
-				const FBiomeConfig* BiomeConfig = BiomeSettings.FindBiomeConfig(BiomeType);
-
-				if (BiomeConfig)
+				
+				// Try to get color from BiomeGenerator first
+				if (LayoutSettings)
 				{
-					PixelColor = BiomeConfig->Color;
+					PixelColor = LayoutSettings->GetBiomeColor(BiomeType);
 				}
 				else
 				{
-					PixelColor = FLinearColor(0.2f, 0.6f, 0.2f, 1.0f); // Fallback green
+					// Fallback to legacy BiomeSettings
+					const FBiomeConfig* BiomeConfig = BiomeSettings.FindBiomeConfig(BiomeType);
+					PixelColor = BiomeConfig ? BiomeConfig->Color : FLinearColor(0.2f, 0.6f, 0.2f, 1.0f);
 				}
 			}
 			else
