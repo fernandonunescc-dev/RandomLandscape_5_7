@@ -59,6 +59,7 @@ public:
 	/**
 	 * Sample a blended height from pre-generated biome heightmaps.
 	 * Performs bilinear interpolation and biome blending at boundaries.
+	 * BiomeMap stores EBiomeType values directly (not indices).
 	 */
 	static float SampleBlendedHeight(
 		float NormX, float NormY,
@@ -67,6 +68,5 @@ public:
 		const TMap<EBiomeType, TArray<float>>& BiomeHeightMaps,
 		const TArray<int32>& BiomeMap,
 		const TArray<uint8>& LandMask,
-		const TArray<FBiomeConfig>& BiomeConfigs,
 		float BlendRadius = 0.02f);
 };
