@@ -1,7 +1,7 @@
 // BiomeMapGenerator.cpp
 // Deterministic biome layout generator - single blob per biome, exact target matching
 // BiomeSeed controls biome placement independently from landmass seed
-// Version: 01.28.2026.20.04
+// Version: 01.28.2026.20.42
 
 #include "BiomeMapGenerator.h"
 #include <queue>

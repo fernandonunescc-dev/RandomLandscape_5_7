@@ -1,6 +1,6 @@
 // BiomeMapGenerator.h
 // Deterministic biome layout generator - single blob per biome, exact target matching
-// Version: 01.28.2026.20.04
+// Version: 01.28.2026.20.42
 
 #pragma once
 
