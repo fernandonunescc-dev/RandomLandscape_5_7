@@ -188,6 +188,19 @@ struct FContinentBiomeSettings
 			}
 		}
 	}
+
+	/** Find biome config by type (returns nullptr if not found) */
+	const FBiomeConfig* FindBiomeConfig(EBiomeType BiomeType) const
+	{
+		for (const FBiomeConfig& Config : LandBiomes)
+		{
+			if (Config.BiomeType == BiomeType)
+			{
+				return &Config;
+			}
+		}
+		return nullptr;
+	}
 };
 
 /**

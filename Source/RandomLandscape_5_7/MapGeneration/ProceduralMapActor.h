@@ -13,6 +13,7 @@
 class UMapGeneratorBase;
 class UTexture2D;
 class UContinentMapGenerator;
+class UBiomeMapGenerator;
 
 /**
  * Actor that manages procedural map generation.
@@ -119,10 +120,6 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Biomes")
 	void GenerateBiomes();
 
-	/** Seed for biome distribution. 0 = random. Separate from landmass seed so you can keep the same island shape with different biome layouts. */
-	UPROPERTY(EditAnywhere, Category = "Biomes")
-	int32 BiomeSeed = 0;
-
 	/** 
 	 * Biome distribution texture showing each biome's position (512x512).
 	 * Each biome is colored based on its FBiomeConfig::Color.
@@ -134,9 +131,12 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "Biomes")
 	float BiomeDuration = 0.0f;
 
-	/** Biome configuration settings */
-	UPROPERTY(EditAnywhere, Category = "Biomes")
-	FContinentBiomeSettings BiomeSettings;
+	/** 
+	 * Biome map generator - SOURCE OF TRUTH for all biome settings.
+	 * Expand to configure biome seed, layers, quality settings, etc.
+	 */
+	UPROPERTY(EditAnywhere, Instanced, Category = "Biomes")
+	TObjectPtr<UBiomeMapGenerator> BiomeGenerator;
 
 	// ================ Mesh Settings ================
 	
@@ -288,4 +288,10 @@ private:
 
 	// Utility functions
 	void NormalizeBiomePercentages();
+	
+	/** Get color for a biome type from BiomeGenerator settings */
+	FLinearColor GetBiomeColor(EBiomeType BiomeType) const;
+
+	/** Get ocean color from BiomeGenerator settings */
+	FLinearColor GetOceanColor() const;
 };

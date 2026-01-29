@@ -5,6 +5,7 @@
 #include "MapGeneratorBase.h"
 #include "MapGeneratorFactory.h"
 #include "ContinentMapGenerator.h"
+#include "BiomeMapGenerator.h"
 #include "Engine/Texture2D.h"
 #include "BiomeTerrainGenerators/BiomeTerrainGeneratorFactory.h"
 #include "BiomeHeightMapGenerator.h"
@@ -22,6 +23,9 @@ AProceduralMapActor::AProceduralMapActor()
 	TerrainMesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("TerrainMesh"));
 	TerrainMesh->SetupAttachment(SceneRoot);
 	TerrainMesh->bUseAsyncCooking = true;
+
+	// Create the biome generator (source of truth for biome settings)
+	BiomeGenerator = CreateDefaultSubobject<UBiomeMapGenerator>(TEXT("BiomeGenerator"));
 
 	// Initialize biome noise settings with defaults (frequency, octaves, persistence)
 	// Frequency is step size per pixel - 0.5 gives good variation at 4096 resolution
@@ -96,19 +100,22 @@ void AProceduralMapActor::PostEditChangeProperty(FPropertyChangedEvent& Property
 		PropertyName == GET_MEMBER_NAME_CHECKED(AProceduralMapActor, LandmassPercentage))
 	{
 		// Store current biome seed (preserve it across landmass regeneration)
-		int32 CurrentBiomeSeed = BiomeSeed;
+		int32 CurrentBiomeSeed = BiomeGenerator ? BiomeGenerator->LayoutSettings.BiomeSeed : 0;
 		
 		GenerateLandmass();
 		
 		// Restore biome seed and regenerate biomes
-		BiomeSeed = CurrentBiomeSeed;
+		if (BiomeGenerator)
+		{
+			BiomeGenerator->LayoutSettings.BiomeSeed = CurrentBiomeSeed;
+		}
 		if (CurrentGenerator)
 		{
 			GenerateBiomes();
 		}
 	}
-	// When biome seed changes, regenerate only biomes (keep same landmass)
-	else if (PropertyName == GET_MEMBER_NAME_CHECKED(AProceduralMapActor, BiomeSeed))
+	// When BiomeGenerator settings change, regenerate biomes
+	else if (PropertyChangedEvent.GetMemberPropertyName() == GET_MEMBER_NAME_CHECKED(AProceduralMapActor, BiomeGenerator))
 	{
 		if (CurrentGenerator)
 		{
@@ -199,10 +206,10 @@ void AProceduralMapActor::GenerateLandmass()
 				UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateLandmass - Generated random landmass seed: %d"), SeedToUse);
 			}
 
-			// Copy biome settings, but override land coverage with the user-visible LandmassPercentage
-			FContinentBiomeSettings SettingsToUse = BiomeSettings;
-			SettingsToUse.LandCoveragePercent = LandmassPercentage;
-			ContinentGenerator->SetBiomeSettings(SettingsToUse);
+			// Create minimal biome settings for landmass generation (only needs LandCoveragePercent)
+			FContinentBiomeSettings LandmassSettings;
+			LandmassSettings.LandCoveragePercent = LandmassPercentage;
+			ContinentGenerator->SetBiomeSettings(LandmassSettings);
 			ContinentGenerator->SetSeed(SeedToUse);
 		}
 	}
@@ -268,20 +275,23 @@ void AProceduralMapActor::GenerateBiomes()
 		return;
 	}
 
-	// If BiomeSeed is 0, generate a random seed and store it so subsequent calls use the same seed
-	int32 SeedToUse = BiomeSeed;
+	// Ensure BiomeGenerator exists
+	if (!BiomeGenerator)
+	{
+		BiomeGenerator = NewObject<UBiomeMapGenerator>(this);
+	}
+
+	// If BiomeSeed is 0, generate a random seed and store it
+	int32 SeedToUse = BiomeGenerator->LayoutSettings.BiomeSeed;
 	if (SeedToUse == 0)
 	{
 		SeedToUse = FMath::RandRange(1, TNumericLimits<int32>::Max());
-		BiomeSeed = SeedToUse; // Store it back so regenerating uses the same seed
+		BiomeGenerator->LayoutSettings.BiomeSeed = SeedToUse;
 		UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::GenerateBiomes - Generated random biome seed: %d"), SeedToUse);
 	}
 
-	// Update biome settings and seed
-	FContinentBiomeSettings SettingsToUse = BiomeSettings;
-	SettingsToUse.LandCoveragePercent = LandmassPercentage;
-	ContinentGenerator->SetBiomeSettings(SettingsToUse);
-	ContinentGenerator->SetBiomeSeed(SeedToUse);
+	// Pass the BiomeGenerator to the ContinentMapGenerator
+	ContinentGenerator->SetBiomeGenerator(BiomeGenerator);
 
 	// Generate biomes on the existing landmass
 	if (ContinentGenerator->GenerateBiomesOnly())
@@ -396,37 +406,10 @@ void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
 	uint8* Pixels = static_cast<uint8*>(TextureData);
 
 	// Get the color for this biome
-	FColor BiomeColor = FColor::White;
-	if (BiomeType == EBiomeType::Ocean)
-	{
-		BiomeColor = BiomeSettings.OceanColor.ToFColor(false);
-	}
-	else
-	{
-		// Find the biome config to get the color
-		for (const FBiomeConfig& Config : BiomeSettings.LandBiomes)
-		{
-			if (Config.BiomeType == BiomeType)
-			{
-				BiomeColor = Config.Color.ToFColor(false);
-				break;
-			}
-		}
-	}
+	FColor BiomeColor = GetBiomeColor(BiomeType).ToFColor(false);
 
-	// Find the biome index for land biomes
-	int32 TargetBiomeIndex = -1;
-	if (BiomeType != EBiomeType::Ocean)
-	{
-		for (int32 i = 0; i < BiomeSettings.LandBiomes.Num(); ++i)
-		{
-			if (BiomeSettings.LandBiomes[i].BiomeType == BiomeType)
-			{
-				TargetBiomeIndex = i;
-				break;
-			}
-		}
-	}
+	// BiomeMap stores EBiomeType values directly, not indices
+	const int32 TargetBiomeTypeInt = static_cast<int32>(BiomeType);
 
 	for (int32 Y = 0; Y < BiomeTextureRes; ++Y)
 	{
@@ -444,10 +427,10 @@ void AProceduralMapActor::GenerateBiomeMaskTexture(EBiomeType BiomeType)
 			}
 			else
 			{
-				// Land biome - check if this pixel matches the target biome index
+				// Land biome - check if this pixel matches the target biome type
 				if (MapIndex < BiomeMap.Num() && MapIndex < LandMask.Num())
 				{
-					bIsThisBiome = (LandMask[MapIndex] != 0) && (BiomeMap[MapIndex] == TargetBiomeIndex);
+					bIsThisBiome = (LandMask[MapIndex] != 0) && (BiomeMap[MapIndex] == TargetBiomeTypeInt);
 				}
 			}
 
@@ -633,7 +616,6 @@ void AProceduralMapActor::GenerateCombinedHeightMapTexture()
 				CachedBiomeHeightMaps,
 				BiomeMap,
 				LandMask,
-				BiomeSettings.LandBiomes,
 				0.02f  // Blend radius
 			);
 			
@@ -693,8 +675,36 @@ UTexture2D* AProceduralMapActor::GetPreviewTexture() const
 
 void AProceduralMapActor::NormalizeBiomePercentages()
 {
-	BiomeSettings.NormalizePercentages();
-	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::NormalizeBiomePercentages - Percentages normalized to 100%%"));
+	// No longer needed - BiomeGenerator handles its own settings
+	UE_LOG(LogTemp, Log, TEXT("ProceduralMapActor::NormalizeBiomePercentages - Using BiomeGenerator settings"));
+}
+
+FLinearColor AProceduralMapActor::GetBiomeColor(EBiomeType BiomeType) const
+{
+	if (BiomeGenerator)
+	{
+		return BiomeGenerator->LayoutSettings.GetBiomeColor(BiomeType);
+	}
+	// Fallback colors
+	switch (BiomeType)
+	{
+		case EBiomeType::Ocean: return FLinearColor(0.4f, 0.7f, 0.9f, 1.0f);
+		case EBiomeType::Forest: return FLinearColor(0.2f, 0.6f, 0.2f, 1.0f);
+		case EBiomeType::Mountain: return FLinearColor(0.5f, 0.5f, 0.5f, 1.0f);
+		case EBiomeType::Desert: return FLinearColor(0.95f, 0.85f, 0.3f, 1.0f);
+		case EBiomeType::Snow: return FLinearColor(0.9f, 0.95f, 1.0f, 1.0f);
+		case EBiomeType::Volcanic: return FLinearColor(0.9f, 0.4f, 0.1f, 1.0f);
+		default: return FLinearColor::White;
+	}
+}
+
+FLinearColor AProceduralMapActor::GetOceanColor() const
+{
+	if (BiomeGenerator)
+	{
+		return BiomeGenerator->LayoutSettings.OceanColor;
+	}
+	return FLinearColor(0.4f, 0.7f, 0.9f, 1.0f);
 }
 
 FMapGenerationSettings AProceduralMapActor::CreateSettings() const
@@ -766,16 +776,16 @@ FColor AProceduralMapActor::GetBlendedBiomeColor(float NormX, float NormY, int32
 		int32 Index = PY * TextureRes + PX;
 		if (Index < 0 || Index >= LandMask.Num())
 		{
-			return BiomeSettings.OceanColor;
+			return GetOceanColor();
 		}
 		
 		bool bIsLand = (LandMask[Index] != 0);
-		int32 BiomeIndex = (Index < BiomeMap.Num()) ? BiomeMap[Index] : -1;
+		int32 BiomeTypeInt = (Index < BiomeMap.Num()) ? BiomeMap[Index] : -1;
 		
-		if (bIsLand && BiomeIndex >= 0 && BiomeIndex < BiomeSettings.LandBiomes.Num())
+		if (bIsLand && BiomeTypeInt >= 0)
 		{
-			const FBiomeConfig& BiomeConfig = BiomeSettings.LandBiomes[BiomeIndex];
-			return BiomeConfig.Color;
+			EBiomeType BiomeType = static_cast<EBiomeType>(BiomeTypeInt);
+			return GetBiomeColor(BiomeType);
 		}
 		else if (bIsLand)
 		{
@@ -783,7 +793,7 @@ FColor AProceduralMapActor::GetBlendedBiomeColor(float NormX, float NormY, int32
 		}
 		else
 		{
-			return BiomeSettings.OceanColor;
+			return GetOceanColor();
 		}
 	};
 	
@@ -910,7 +920,6 @@ void AProceduralMapActor::GenerateTerrainMesh(UContinentMapGenerator* Generator)
 						CachedBiomeHeightMaps,
 						BiomeMap,
 						LandMask,
-						BiomeSettings.LandBiomes,
 						0.02f  // Blend radius
 					);
 					
