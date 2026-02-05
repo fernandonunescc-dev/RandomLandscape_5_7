@@ -1,6 +1,6 @@
 // BiomeDataGenerationActorCustomization.cpp
 // IDetailCustomization implementation for ABiomeDataGenerationActor
-// Version: 02.04.2026.23.55
+// Version: 02.05.2026.00.15
 
 #include "BiomeDataGenerationActorCustomization.h"
 #include "DetailLayoutBuilder.h"
@@ -12,6 +12,8 @@
 #include "Widgets/Layout/SBox.h"
 #include "Engine/Texture2D.h"
 #include "MapGeneration/BiomeDataGenerationActor.h"
+#include "MapGeneration/LandmassGenerator.h"
+#include "MapGeneration/BiomeMapGenerator.h"
 
 // ==================== Factory Method ====================
 
@@ -132,7 +134,15 @@ void FBiomeDataGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuild
 		true   // bShowHeader
 	);
 	
-	// Add LandmassSettings property
+	// Add Seed property prominently at the top (extracted from struct for visibility)
+	TSharedPtr<IPropertyHandle> LandmassSeedInputHandle = LandmassSettingsHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FLandmassSettings, Seed));
+	if (LandmassSeedInputHandle.IsValid() && LandmassSeedInputHandle->IsValidHandle())
+	{
+		LandmassGroup.AddPropertyRow(LandmassSeedInputHandle.ToSharedRef())
+			.DisplayName(FText::FromString("Seed (0 = Random)"));
+	}
+	
+	// Add LandmassSettings property (full struct for other settings)
 	LandmassGroup.AddPropertyRow(LandmassSettingsHandle)
 		.DisplayName(FText::FromString("Settings"));
 	
@@ -182,7 +192,15 @@ void FBiomeDataGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuild
 		true   // bShowHeader
 	);
 	
-	// Add BiomeLayoutSettings property
+	// Add BiomeSeed property prominently at the top (extracted from struct for visibility)
+	TSharedPtr<IPropertyHandle> BiomeSeedInputHandle = BiomeSettingsHandle->GetChildHandle(GET_MEMBER_NAME_CHECKED(FBiomeLayoutSettings, BiomeSeed));
+	if (BiomeSeedInputHandle.IsValid() && BiomeSeedInputHandle->IsValidHandle())
+	{
+		BiomesGroup.AddPropertyRow(BiomeSeedInputHandle.ToSharedRef())
+			.DisplayName(FText::FromString("Biome Seed"));
+	}
+	
+	// Add BiomeLayoutSettings property (full struct for other settings)
 	BiomesGroup.AddPropertyRow(BiomeSettingsHandle)
 		.DisplayName(FText::FromString("Settings"));
 	
