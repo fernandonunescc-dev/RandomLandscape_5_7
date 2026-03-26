@@ -28,7 +28,14 @@ bool ALandscapeMeshActor::ReadHeightmapTexture(UTexture2D* Texture, int32 Resolu
 	const int32 TotalPixels = Resolution * Resolution;
 	OutHeights.SetNumZeroed(TotalPixels);
 
-	FTexture2DMipMap& Mip = Texture->GetPlatformData()->Mips[0];
+	FTexturePlatformData* PlatformData = Texture->GetPlatformData();
+	if (!PlatformData || PlatformData->Mips.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("LandscapeMeshActor: Texture has no platform data or mips"));
+		return false;
+	}
+
+	FTexture2DMipMap& Mip = PlatformData->Mips[0];
 	const void* Data = Mip.BulkData.LockReadOnly();
 	if (!Data)
 	{
