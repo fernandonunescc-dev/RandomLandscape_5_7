@@ -1,6 +1,5 @@
 // BiomeDataGenerationActor.cpp
-// Manual editor-only actor for Landmass + Biome preview generation
-// Version: 02.04.2026.15.30
+// Manual editor-only actor for Landmass + Biome + Heightmap preview generation
 
 #include "BiomeDataGenerationActor.h"
 #include "Engine/Texture2D.h"
@@ -41,8 +40,9 @@ void ABiomeDataGenerationActor::GenerateLandmass()
 	// Get preview texture from generator
 	LandmassPreviewTexture = Generator->GetPreviewTexture();
 
-	UE_LOG(LogTemp, Log, TEXT("ABiomeDataGenerationActor: Landmass generated - Seed: %d, Resolution: %d, LandPixels: %d"),
-		ActualLandmassSeedUsed, TextureResolutionUsed, CachedLandMask.Num());
+	UE_LOG(LogTemp, Log, TEXT("ABiomeDataGenerationActor: Landmass generated - Seed: %d, Resolution: %d, LandPixels: %d, MapType: %d, MapSize: %d"),
+		ActualLandmassSeedUsed, TextureResolutionUsed, CachedLandMask.Num(),
+		static_cast<int32>(LandmassSettings.MapType), static_cast<int32>(LandmassSettings.MapSize));
 }
 
 void ABiomeDataGenerationActor::GenerateBiomes()
@@ -85,6 +85,43 @@ void ABiomeDataGenerationActor::GenerateBiomes()
 	UE_LOG(LogTemp, Log, TEXT("ABiomeDataGenerationActor: Biomes generated - Seed: %d"), ActualBiomeSeedUsed);
 }
 
+void ABiomeDataGenerationActor::GenerateHeightmaps()
+{
+	// Check prerequisites
+	if (CachedLandMask.Num() == 0 || CachedBiomeMap.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ABiomeDataGenerationActor: Generate Landmass and Biomes first"));
+		return;
+	}
+
+	// Sync resolution from landmass settings
+	HeightmapSettings.TextureResolution = LandmassSettings.TextureResolution;
+
+	// Create generator instance
+	UHeightmapGenerator* Generator = NewObject<UHeightmapGenerator>(this);
+	if (!Generator)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ABiomeDataGenerationActor: Failed to create UHeightmapGenerator"));
+		return;
+	}
+
+	// Initialize and generate
+	Generator->Initialize(HeightmapSettings);
+
+	if (!Generator->Generate(CachedBiomeMap, CachedLandMask, BiomeLayoutSettings.Layers))
+	{
+		UE_LOG(LogTemp, Error, TEXT("ABiomeDataGenerationActor: Heightmap generation failed"));
+		return;
+	}
+
+	// Store results
+	HeightmapResults = Generator->GetResults();
+	ActualHeightmapSeedUsed = Generator->GetSeed();
+
+	UE_LOG(LogTemp, Log, TEXT("ABiomeDataGenerationActor: Heightmaps generated - Seed: %d, Biomes: %d"),
+		ActualHeightmapSeedUsed, HeightmapResults.Num());
+}
+
 void ABiomeDataGenerationActor::GenerateAll()
 {
 	GenerateLandmass();
@@ -93,6 +130,12 @@ void ABiomeDataGenerationActor::GenerateAll()
 	if (CachedLandMask.Num() > 0)
 	{
 		GenerateBiomes();
+
+		// Only continue if biomes were generated successfully
+		if (CachedBiomeMap.Num() > 0)
+		{
+			GenerateHeightmaps();
+		}
 	}
 }
 
@@ -100,10 +143,12 @@ void ABiomeDataGenerationActor::ClearGeneratedData()
 {
 	LandmassPreviewTexture = nullptr;
 	BiomePreviewTexture = nullptr;
+	HeightmapResults.Empty();
 	CachedLandMask.Empty();
 	CachedBiomeMap.Empty();
 	ActualLandmassSeedUsed = 0;
 	ActualBiomeSeedUsed = 0;
+	ActualHeightmapSeedUsed = 0;
 	TextureResolutionUsed = 0;
 
 	UE_LOG(LogTemp, Log, TEXT("ABiomeDataGenerationActor: All generated data cleared"));

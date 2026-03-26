@@ -28,6 +28,25 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 		if (Settings.Seed == 0) Settings.Seed = 1; // Ensure non-zero after auto-seed
 	}
 
+	// Adjust land coverage based on MapType if user hasn't customized it significantly
+	// These are the recommended defaults for each map type
+	switch (Settings.MapType)
+	{
+	case EMapType::Continent:
+		// Large landmass, small ocean - keep user setting (default ~50%)
+		Settings.bKeepOnlyLargestLandmass = true;
+		break;
+	case EMapType::Island:
+		// Small landmass, large ocean - clamp coverage lower
+		Settings.LandCoveragePercent = FMath::Clamp(Settings.LandCoveragePercent, 5.0f, 30.0f);
+		Settings.bKeepOnlyLargestLandmass = true;
+		break;
+	case EMapType::Archipelago:
+		// Multiple islands - don't keep only largest, let all islands through
+		Settings.bKeepOnlyLargestLandmass = false;
+		break;
+	}
+
 	// Initialize random stream with seed for deterministic noise generation
 	RandomStream.Initialize(Settings.Seed);
 
@@ -65,8 +84,31 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 		RandomStream.FRandRange(-500.0f, 500.0f)
 	);
 
-	UE_LOG(LogTemp, Log, TEXT("LandmassGenerator initialized - Resolution: %d, Seed: %d, LandCoverage: %.1f%%, DomainWarp: %s"),
+	// === Generate island centers for Archipelago mode ===
+	if (Settings.MapType == EMapType::Archipelago)
+	{
+		IslandCenters.Reset();
+		IslandRadii.Reset();
+		const int32 NumIslands = FMath::Max(2, Settings.IslandCount);
+
+		for (int32 i = 0; i < NumIslands; ++i)
+		{
+			// Place islands within the inner 70% of the map to avoid edge clipping
+			FVector2D Center(
+				RandomStream.FRandRange(0.15f, 0.85f),
+				RandomStream.FRandRange(0.15f, 0.85f)
+			);
+			IslandCenters.Add(Center);
+
+			// Random radius for each island (larger = bigger island)
+			float Radius = RandomStream.FRandRange(0.06f, 0.18f);
+			IslandRadii.Add(Radius);
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("LandmassGenerator initialized - Resolution: %d, Seed: %d, LandCoverage: %.1f%%, MapType: %d, MapSize: %d, MaxHeight: %.0f, DomainWarp: %s"),
 		Settings.TextureResolution, Settings.Seed, Settings.LandCoveragePercent,
+		static_cast<int32>(Settings.MapType), static_cast<int32>(Settings.MapSize), Settings.MaxMapHeight,
 		Settings.bEnableDomainWarp ? TEXT("ON") : TEXT("OFF"));
 }
 
@@ -127,7 +169,15 @@ void ULandmassGenerator::GenerateLandMask()
 		float NormX = (Width > 1) ? static_cast<float>(X) / static_cast<float>(Width - 1) : 0.5f;
 		float NormY = (Height > 1) ? static_cast<float>(Y) / static_cast<float>(Height - 1) : 0.5f;
 
-		MaskValues[Index] = GetContinentMask(NormX, NormY);
+		// Use the appropriate mask function based on MapType
+		if (Settings.MapType == EMapType::Archipelago)
+		{
+			MaskValues[Index] = GetArchipelagoMask(NormX, NormY);
+		}
+		else
+		{
+			MaskValues[Index] = GetContinentMask(NormX, NormY);
+		}
 	});
 
 	// ===== Calculate adaptive threshold for exact land coverage =====
@@ -769,4 +819,88 @@ float ULandmassGenerator::GetContinentMask(float NormX, float NormY) const
 
 	// Clamp to valid range
 	return FMath::Clamp(ContinentValue, 0.0f, 1.0f);
+}
+
+//------------------------------------------------------------------------------
+// GetArchipelagoMask: Generates multiple island shapes for Archipelago mode.
+//
+// Each island has its own center and radius (generated in Initialize).
+// Uses the same noise techniques as GetContinentMask but applied per-island
+// with a smooth maximum combination to create natural multi-island layouts.
+//------------------------------------------------------------------------------
+float ULandmassGenerator::GetArchipelagoMask(float NormX, float NormY) const
+{
+	float MaxIslandValue = 0.0f;
+
+	for (int32 i = 0; i < IslandCenters.Num(); ++i)
+	{
+		const FVector2D& Center = IslandCenters[i];
+		const float Radius = IslandRadii[i];
+
+		// Distance from this island's center
+		float DX = NormX - Center.X;
+		float DY = NormY - Center.Y;
+		float Dist = FMath::Sqrt(DX * DX + DY * DY);
+
+		// Normalize distance by island radius
+		float NormDist = Dist / FMath::Max(Radius, 0.01f);
+
+		if (NormDist > 2.0f)
+		{
+			continue; // Too far from this island, skip for performance
+		}
+
+		// Base island shape: smooth falloff from center
+		float IslandValue = FMath::Max(0.0f, 1.0f - NormDist);
+
+		// Apply domain warping for organic coastlines
+		float SampleX = NormX;
+		float SampleY = NormY;
+
+		if (Settings.bEnableDomainWarp)
+		{
+			float WarpX = FBM(
+				NormX * Settings.WarpFrequency + WarpOffsetX.X + (float)i * 37.0f,
+				NormY * Settings.WarpFrequency + WarpOffsetX.Y,
+				Settings.WarpOctaves, Settings.WarpPersistence);
+			float WarpY = FBM(
+				NormX * Settings.WarpFrequency + WarpOffsetY.X,
+				NormY * Settings.WarpFrequency + WarpOffsetY.Y + (float)i * 53.0f,
+				Settings.WarpOctaves, Settings.WarpPersistence);
+
+			SampleX = NormX + WarpX * Settings.WarpAmplitude;
+			SampleY = NormY + WarpY * Settings.WarpAmplitude;
+		}
+
+		// Add noise for irregular coastlines (each island gets a unique offset)
+		float CoastNoise = FBM(
+			SampleX * 4.0f + ShapeNoiseOffset.X + (float)i * 100.0f,
+			SampleY * 4.0f + ShapeNoiseOffset.Y,
+			3, 0.5f) * 0.35f;
+
+		float DetailNoise = FBM(
+			SampleX * 10.0f + DetailNoiseOffset.X + (float)i * 200.0f,
+			SampleY * 10.0f + DetailNoiseOffset.Y,
+			2, 0.5f) * 0.1f;
+
+		IslandValue += CoastNoise + DetailNoise;
+		IslandValue = FMath::Max(0.0f, IslandValue);
+
+		// Take the maximum across all islands (smooth union)
+		MaxIslandValue = FMath::Max(MaxIslandValue, IslandValue);
+	}
+
+	// Edge falloff to prevent islands from touching texture borders
+	float DistFromLeft = NormX;
+	float DistFromRight = 1.0f - NormX;
+	float DistFromTop = NormY;
+	float DistFromBottom = 1.0f - NormY;
+	float MinEdgeDist = FMath::Min(FMath::Min(DistFromLeft, DistFromRight),
+	                              FMath::Min(DistFromTop, DistFromBottom));
+	float EdgeFalloff = FMath::Clamp(MinEdgeDist / 0.05f, 0.0f, 1.0f);
+	EdgeFalloff = EdgeFalloff * EdgeFalloff * (3.0f - 2.0f * EdgeFalloff);
+
+	MaxIslandValue *= EdgeFalloff;
+
+	return FMath::Clamp(MaxIslandValue, 0.0f, 1.0f);
 }
