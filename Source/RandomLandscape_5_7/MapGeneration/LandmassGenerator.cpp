@@ -93,7 +93,7 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 
 		for (int32 i = 0; i < NumIslands; ++i)
 		{
-			// Place islands within the inner 80% of the map to avoid edge clipping
+			// Place islands within the inner 70% of the map to avoid edge clipping
 			FVector2D Center(
 				RandomStream.FRandRange(0.15f, 0.85f),
 				RandomStream.FRandRange(0.15f, 0.85f)

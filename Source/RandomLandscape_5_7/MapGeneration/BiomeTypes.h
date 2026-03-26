@@ -39,7 +39,8 @@ UENUM(BlueprintType)
 enum class ESpreadType : uint8
 {
 	Single UMETA(DisplayName = "Single"),                          // Single contiguous area
-	Multi UMETA(DisplayName = "Multi (Disabled)", Hidden)          // Multiple blobs (disabled for now)
+	// Multi is reserved for future implementation (split percentage between several blobs)
+	Multi UMETA(DisplayName = "Multi (Disabled)", Hidden)          // Multiple blobs (not yet implemented)
 };
 
 /**
