@@ -102,8 +102,7 @@ bool UHeightmapGenerator::Generate(
 
 			if (PixelBiome == BiomeId)
 			{
-				// Inside the biome - full height everywhere for proper shape
-				// No interior attenuation to avoid dark borders between biomes
+				// Inside the biome - retain full height for proper shape without attenuation
 			}
 			else
 			{
