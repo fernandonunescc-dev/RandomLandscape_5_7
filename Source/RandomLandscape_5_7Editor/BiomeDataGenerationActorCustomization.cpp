@@ -14,6 +14,7 @@
 #include "MapGeneration/BiomeDataGenerationActor.h"
 #include "MapGeneration/LandmassGenerator.h"
 #include "MapGeneration/BiomeMapGenerator.h"
+#include "MapGeneration/HeightmapGenerator.h"
 
 // ==================== Factory Method ====================
 
@@ -78,6 +79,18 @@ void FBiomeDataGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuild
 	TSharedRef<IPropertyHandle> ResolutionHandle = DetailBuilder.GetProperty(
 		GET_MEMBER_NAME_CHECKED(ABiomeDataGenerationActor, TextureResolutionUsed)
 	);
+
+	TSharedRef<IPropertyHandle> HeightmapSettingsHandle = DetailBuilder.GetProperty(
+		GET_MEMBER_NAME_CHECKED(ABiomeDataGenerationActor, HeightmapSettings)
+	);
+
+	TSharedRef<IPropertyHandle> HeightmapResultsHandle = DetailBuilder.GetProperty(
+		GET_MEMBER_NAME_CHECKED(ABiomeDataGenerationActor, HeightmapResults)
+	);
+
+	TSharedRef<IPropertyHandle> HeightmapSeedHandle = DetailBuilder.GetProperty(
+		GET_MEMBER_NAME_CHECKED(ABiomeDataGenerationActor, ActualHeightmapSeedUsed)
+	);
 	
 	// -------------------- Safety Check --------------------
 	// If critical property handles are invalid, log error and use fallback layout
@@ -102,6 +115,8 @@ void FBiomeDataGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuild
 			[](ABiomeDataGenerationActor* Actor) { Actor->GenerateLandmass(); });
 		AddButtonRow(FallbackCategory, "Generate Biomes",
 			[](ABiomeDataGenerationActor* Actor) { Actor->GenerateBiomes(); });
+		AddButtonRow(FallbackCategory, "Generate Heightmaps",
+			[](ABiomeDataGenerationActor* Actor) { Actor->GenerateHeightmaps(); });
 		AddButtonRow(FallbackCategory, "Generate All",
 			[](ABiomeDataGenerationActor* Actor) { Actor->GenerateAll(); });
 		AddButtonRow(FallbackCategory, "Clear Generated Data",
@@ -115,6 +130,7 @@ void FBiomeDataGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuild
 	
 	DetailBuilder.HideCategory("Generation|Landmass");
 	DetailBuilder.HideCategory("Generation|Biomes");
+	DetailBuilder.HideCategory("Generation|Heightmaps");
 	DetailBuilder.HideCategory("Generation|Actions");
 	
 	// -------------------- Create Main "Generation" Category --------------------
@@ -235,6 +251,53 @@ void FBiomeDataGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuild
 			.DisplayName(FText::FromString("Actual Seed Used"));
 	}
 	
+	// ==================== HEIGHTMAPS GROUP ====================
+	
+	IDetailGroup& HeightmapsGroup = GenerationCategory.AddGroup(
+		"HeightmapsGroup",
+		FText::FromString("Heightmaps"),
+		true,  // bStartExpanded
+		true   // bShowHeader
+	);
+
+	// Add HeightmapSettings property
+	if (HeightmapSettingsHandle->IsValidHandle())
+	{
+		HeightmapsGroup.AddPropertyRow(HeightmapSettingsHandle)
+			.DisplayName(FText::FromString("Settings"));
+	}
+
+	// Add Generate Heightmaps button
+	HeightmapsGroup.AddWidgetRow()
+		.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(FText::FromString("Action"))
+			.Font(IDetailLayoutBuilder::GetDetailFont())
+		]
+		.ValueContent()
+		.MinDesiredWidth(200.0f)
+		[
+			MakeButtonWidget(
+				FText::FromString("Generate Heightmaps"),
+				[](ABiomeDataGenerationActor* Actor) { Actor->GenerateHeightmaps(); },
+				SelectedActors
+			)
+		];
+
+	// Add output properties
+	if (HeightmapResultsHandle->IsValidHandle())
+	{
+		HeightmapsGroup.AddPropertyRow(HeightmapResultsHandle)
+			.DisplayName(FText::FromString("Generated Heightmaps"));
+	}
+
+	if (HeightmapSeedHandle->IsValidHandle())
+	{
+		HeightmapsGroup.AddPropertyRow(HeightmapSeedHandle)
+			.DisplayName(FText::FromString("Actual Seed Used"));
+	}
+
 	// ==================== BATCH ACTIONS GROUP ====================
 	
 	IDetailGroup& ActionsGroup = GenerationCategory.AddGroup(
@@ -256,7 +319,7 @@ void FBiomeDataGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuild
 		.MinDesiredWidth(200.0f)
 		[
 			MakeButtonWidget(
-				FText::FromString("Generate Landmass + Biomes"),
+				FText::FromString("Generate Landmass + Biomes + Heightmaps"),
 				[](ABiomeDataGenerationActor* Actor) { Actor->GenerateAll(); },
 				SelectedActors
 			)

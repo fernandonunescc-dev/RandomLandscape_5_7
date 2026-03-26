@@ -1,6 +1,5 @@
 // BiomeDataGenerationActor.h
-// Manual editor-only actor for Landmass + Biome preview generation
-// Version: 02.04.2026.23.55
+// Manual editor-only actor for Landmass + Biome + Heightmap preview generation
 
 #pragma once
 
@@ -8,11 +7,17 @@
 #include "GameFramework/Actor.h"
 #include "LandmassGenerator.h"
 #include "BiomeMapGenerator.h"
+#include "HeightmapGenerator.h"
 #include "BiomeDataGenerationActor.generated.h"
 
 /**
- * Editor-placeable actor that exposes landmass and biome generation settings.
+ * Editor-placeable actor that exposes landmass, biome, and heightmap generation settings.
  * Provides manual buttons to generate preview textures - nothing runs automatically.
+ *
+ * Three generation layers:
+ *   Layer 1 - Landmass: Black/white texture (white=land, black=ocean)
+ *   Layer 2 - Biomes: Color-coded biome distribution texture
+ *   Layer 3 - Heightmaps: Per-biome grayscale height textures (white=tallest, black=lowest)
  */
 UCLASS(Blueprintable)
 class RANDOMLANDSCAPE_5_7_API ABiomeDataGenerationActor : public AActor
@@ -24,13 +29,17 @@ public:
 
 	// ==================== Input Settings ====================
 
-	/** Landmass generation settings (seed, resolution, coverage, domain warp, post-processing) */
+	/** Landmass generation settings (map type, size, seed, resolution, coverage, domain warp, post-processing) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Generation|Landmass")
 	FLandmassSettings LandmassSettings;
 
-	/** Biome layout settings (seed, layers, colors) */
+	/** Biome layout settings (seed, layers with colors, terrain settings, spread type) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Generation|Biomes")
 	FBiomeLayoutSettings BiomeLayoutSettings;
+
+	/** Heightmap generation settings (seed, resolution, blend radius) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Generation|Heightmaps")
+	FHeightmapSettings HeightmapSettings;
 
 	// ==================== Output (Read-Only) ====================
 
@@ -42,6 +51,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generation|Biomes")
 	TObjectPtr<UTexture2D> BiomePreviewTexture;
 
+	/** Generated per-biome heightmap textures */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generation|Heightmaps")
+	TArray<FBiomeHeightmapResult> HeightmapResults;
+
 	/** Actual seed used for landmass generation (may differ from input if input was 0) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generation|Landmass")
 	int32 ActualLandmassSeedUsed = 0;
@@ -49,6 +62,10 @@ public:
 	/** Actual seed used for biome generation */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generation|Biomes")
 	int32 ActualBiomeSeedUsed = 0;
+
+	/** Actual seed used for heightmap generation */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generation|Heightmaps")
+	int32 ActualHeightmapSeedUsed = 0;
 
 	/** Texture resolution used for generation */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generation|Landmass")
@@ -64,7 +81,11 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Generation|Actions")
 	void GenerateBiomes();
 
-	/** Generate both landmass and biomes in sequence */
+	/** Generate per-biome heightmap textures from existing biome data */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Generation|Actions")
+	void GenerateHeightmaps();
+
+	/** Generate all three layers in sequence: landmass -> biomes -> heightmaps */
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Generation|Actions")
 	void GenerateAll();
 
