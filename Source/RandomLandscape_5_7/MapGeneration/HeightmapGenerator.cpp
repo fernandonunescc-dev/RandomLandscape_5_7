@@ -100,18 +100,14 @@ bool UHeightmapGenerator::Generate(
 			float Height = ComputeBiomeHeight(NormX, NormY, Layer.BiomeType,
 				Layer.TerrainSettings, Centroid, BiomeRadius);
 
-			// Apply boundary blending: fade to 0 at biome edges
 			if (PixelBiome == BiomeId)
 			{
-				// Inside the biome - fade near boundary
-				float BlendFactor = FMath::Clamp(Dist / BlendDist, 0.0f, 1.0f);
-				// Smoothstep for gradual transition
-				BlendFactor = BlendFactor * BlendFactor * (3.0f - 2.0f * BlendFactor);
-				Height *= BlendFactor;
+				// Inside the biome - full height everywhere for proper shape
+				// No interior attenuation to avoid dark borders between biomes
 			}
 			else
 			{
-				// Outside the biome but within blend radius - contribute declining height
+				// Outside the biome but within blend radius - declining contribution for smooth merge
 				float BlendFactor = FMath::Clamp(1.0f - (Dist / BlendDist), 0.0f, 1.0f);
 				BlendFactor = BlendFactor * BlendFactor * (3.0f - 2.0f * BlendFactor);
 				Height *= BlendFactor * 0.3f; // Reduced contribution outside own biome

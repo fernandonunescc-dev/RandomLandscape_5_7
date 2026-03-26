@@ -10,7 +10,7 @@
 
 /**
  * Settings for a single biome layer.
- * Non-Land biomes are carved from Land (connector).
+ * Each biome is carved as a single contiguous blob.
  */
 USTRUCT(BlueprintType)
 struct RANDOMLANDSCAPE_5_7_API FBiomeLayerSettings
@@ -25,7 +25,7 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeLayerSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Biome")
 	FString DisplayName = TEXT("Biome");
 
-	/** Target share of LAND pixels (0..100). Non-Land biomes are carved; Land gets remainder. */
+	/** Target share of LAND pixels (0..100). All biomes are carved as single blobs. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Biome", meta=(ClampMin="0.0", ClampMax="100.0"))
 	float TargetPercentOfLand = 10.0f;
 
@@ -74,7 +74,8 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeLayerSettings
 
 /**
  * Overall settings for biome layout generation.
- * Land is the connector biome (remainder after carving non-Land biomes).
+ * All biomes (including Land) are carved as single contiguous blobs.
+ * Remaining pixels after carving are assigned to the nearest biome.
  */
 USTRUCT(BlueprintType)
 struct RANDOMLANDSCAPE_5_7_API FBiomeLayoutSettings
@@ -98,21 +99,23 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeLayoutSettings
 
 	/** 
 	 * List of biomes to place on land.
-	 * Land is the connector (remainder). Non-Land biomes are carved into it.
+	 * Each biome is carved as a single contiguous blob.
+	 * Remaining pixels after carving are assigned to the nearest biome.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Biome Generation")
 	TArray<FBiomeLayerSettings> Layers;
 
 	FBiomeLayoutSettings()
 	{
-		// Default biomes with required colors - Land is connector (gets remainder)
-		Layers.Add(FBiomeLayerSettings(EBiomeType::Land, TEXT("Land"), 25.0f, FLinearColor(0.6f, 0.8f, 0.3f, 1.0f)));          // Light Green
-		Layers.Add(FBiomeLayerSettings(EBiomeType::Forest, TEXT("Forest"), 20.0f, FLinearColor(0.1f, 0.4f, 0.1f, 1.0f)));      // Dark Green
-		Layers.Add(FBiomeLayerSettings(EBiomeType::Desert, TEXT("Desert"), 15.0f, FLinearColor(0.95f, 0.85f, 0.3f, 1.0f)));    // Yellow
-		Layers.Add(FBiomeLayerSettings(EBiomeType::Snow, TEXT("Snow"), 10.0f, FLinearColor(0.95f, 0.95f, 1.0f, 1.0f)));        // White
-		Layers.Add(FBiomeLayerSettings(EBiomeType::Ice, TEXT("Ice"), 5.0f, FLinearColor(0.7f, 0.85f, 1.0f, 1.0f)));            // Light Blue
-		Layers.Add(FBiomeLayerSettings(EBiomeType::Mountain, TEXT("Mountain"), 15.0f, FLinearColor(0.7f, 0.7f, 0.7f, 1.0f)));  // Light Gray
-		Layers.Add(FBiomeLayerSettings(EBiomeType::Volcanic, TEXT("Volcanic"), 10.0f, FLinearColor(0.9f, 0.4f, 0.3f, 1.0f)));  // Light Red
+		// Default biomes with required colors - even distribution (~14.29% each)
+		const float EvenPercent = 100.0f / 7.0f;
+		Layers.Add(FBiomeLayerSettings(EBiomeType::Land, TEXT("Land"), EvenPercent, FLinearColor(0.6f, 0.8f, 0.3f, 1.0f)));          // Light Green
+		Layers.Add(FBiomeLayerSettings(EBiomeType::Forest, TEXT("Forest"), EvenPercent, FLinearColor(0.1f, 0.4f, 0.1f, 1.0f)));      // Dark Green
+		Layers.Add(FBiomeLayerSettings(EBiomeType::Desert, TEXT("Desert"), EvenPercent, FLinearColor(0.95f, 0.85f, 0.3f, 1.0f)));    // Yellow
+		Layers.Add(FBiomeLayerSettings(EBiomeType::Snow, TEXT("Snow"), EvenPercent, FLinearColor(0.95f, 0.95f, 1.0f, 1.0f)));        // White
+		Layers.Add(FBiomeLayerSettings(EBiomeType::Ice, TEXT("Ice"), EvenPercent, FLinearColor(0.7f, 0.85f, 1.0f, 1.0f)));            // Light Blue
+		Layers.Add(FBiomeLayerSettings(EBiomeType::Mountain, TEXT("Mountain"), EvenPercent, FLinearColor(0.7f, 0.7f, 0.7f, 1.0f)));  // Light Gray
+		Layers.Add(FBiomeLayerSettings(EBiomeType::Volcanic, TEXT("Volcanic"), EvenPercent, FLinearColor(0.9f, 0.4f, 0.3f, 1.0f)));  // Light Red
 	}
 
 	/** Find layer settings by biome type (returns nullptr if not found) */
@@ -138,15 +141,14 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeLayoutSettings
 
 /**
  * Generates a biome ID map ensuring:
- * - Each non-Land biome forms exactly ONE contiguous blob
- * - Each non-Land biome gets exactly TargetCount pixels (largest-remainder allocation)
- * - Land is the connector and gets the remainder
+ * - Each biome (including Land) forms exactly ONE contiguous blob
+ * - Each biome gets exactly TargetCount pixels (largest-remainder allocation)
  * - Deterministic: same (LandMask + BiomeSeed + settings) => same output
  * 
- * Simple algorithm:
- * 1) Fill all land with Land (connector)
- * 2) For each non-Land biome: pick ONE seed, grow until TargetCount
- * 3) Stop. No post-processing.
+ * Algorithm:
+ * 1) Fill all land with UncarvedLandId (placeholder)
+ * 2) For each biome (including Land): pick ONE seed, grow until TargetCount
+ * 3) Assign any remaining uncarved land pixels to the nearest biome via BFS
  */
 UCLASS(BlueprintType, EditInlineNew, DefaultToInstanced)
 class RANDOMLANDSCAPE_5_7_API UBiomeMapGenerator : public UObject
@@ -187,6 +189,9 @@ public:
 	/** Land is the connector biome */
 	static constexpr int32 ConnectorBiomeId = static_cast<int32>(EBiomeType::Land);
 
+	/** Placeholder value for land pixels that haven't been assigned a biome yet */
+	static constexpr int32 UncarvedLandId = -2;
+
 private:
 	FBiomeLayoutSettings Settings;
 	mutable FRandomStream RandomStream; // initialized with BiomeSeed
@@ -209,14 +214,14 @@ private:
 	static float ValueNoise2D(float X, float Y, uint32 Seed);
 	static float SmoothNoise2D(float X, float Y, float Frequency, uint32 Seed);
 
-	// Pick a deterministic random seed from connector land
+	// Pick a deterministic random seed from uncarved land
 	int32 PickRandomConnectorIndex(const TArray<uint8>& LandMask, int32 BiomeId) const;
 
-	// Sequential carve: grow one biome at a time from connector land
+	// Sequential carve: grow each biome from uncarved land
 	void CarveBiomesSequentially(const TArray<uint8>& LandMask);
 
 	// Grow a single biome from one seed, stopping at TargetCount
-	// Only paints on connector (Forest) cells
+	// Only paints on uncarved land cells
 	// Uses hardcoded noise constants for organic borders
 	int32 GrowSingleBiome(
 		const TArray<uint8>& LandMask,
@@ -224,6 +229,9 @@ private:
 		int32 BiomeId,
 		int32 TargetCount,
 		uint32 NoiseSeed);
+
+	// Assign remaining uncarved land pixels to the nearest carved biome via BFS
+	void AssignUncarvedPixels();
 
 	// Log final biome counts by scanning BiomeMap
 	void LogFinalBiomeCounts(const TArray<uint8>& LandMask) const;

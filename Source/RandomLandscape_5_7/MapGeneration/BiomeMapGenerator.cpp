@@ -1,7 +1,7 @@
 // BiomeMapGenerator.cpp
 // Deterministic biome layout generator - single blob per biome, exact target matching
 // BiomeSeed controls biome placement independently from landmass seed
-// Land is the connector biome (gets remainder after carving)
+// All biomes (including Land) are carved as single contiguous blobs
 
 #include "BiomeMapGenerator.h"
 #include <queue>
@@ -74,6 +74,9 @@ bool UBiomeMapGenerator::Generate(const TArray<uint8>& LandMask)
 
 	CarveBiomesSequentially(LandMask);
 
+	// Assign any remaining uncarved land pixels to the nearest carved biome
+	AssignUncarvedPixels();
+
 	// Log final counts by scanning BiomeMap (no post-processing)
 	LogFinalBiomeCounts(LandMask);
 
@@ -100,19 +103,19 @@ void UBiomeMapGenerator::BuildLandIndexList(const TArray<uint8>& LandMask)
 }
 
 // ------------------------------------------------------------
-// Fill entire map with connector biome (Land) on land, UnassignedId elsewhere
+// Fill entire map with UncarvedLandId on land, UnassignedId elsewhere
 // ------------------------------------------------------------
 void UBiomeMapGenerator::FillConnector()
 {
 	// Ocean pixels stay as UnassignedId (will be colored OceanColor)
-	// Land pixels filled with Land (connector)
+	// Land pixels filled with UncarvedLandId (waiting to be carved into biomes)
 	for (int32 i = 0; i < BiomeMap.Num(); ++i)
 	{
 		BiomeMap[i] = UnassignedId;
 	}
 	for (int32 idx : LandIndices)
 	{
-		BiomeMap[idx] = ConnectorBiomeId;
+		BiomeMap[idx] = UncarvedLandId;
 	}
 }
 
@@ -156,24 +159,24 @@ void UBiomeMapGenerator::NormalizeLayerPercentages()
 }
 
 // ------------------------------------------------------------
-// Pick a deterministic random seed index from connector (Land) land
+// Pick a deterministic random seed index from uncarved land
 // Uses BiomeSeed + BiomeId for deterministic selection
 // ------------------------------------------------------------
 int32 UBiomeMapGenerator::PickRandomConnectorIndex(const TArray<uint8>& LandMask, int32 BiomeId) const
 {
-	// Build list of connector (Land) land pixels
-	TArray<int32> ConnectorIndices;
-	ConnectorIndices.Reserve(LandIndices.Num());
+	// Build list of uncarved land pixels
+	TArray<int32> UncarvedIndices;
+	UncarvedIndices.Reserve(LandIndices.Num());
 
 	for (int32 idx : LandIndices)
 	{
-		if (BiomeMap[idx] == ConnectorBiomeId)
+		if (BiomeMap[idx] == UncarvedLandId)
 		{
-			ConnectorIndices.Add(idx);
+			UncarvedIndices.Add(idx);
 		}
 	}
 
-	if (ConnectorIndices.Num() == 0)
+	if (UncarvedIndices.Num() == 0)
 	{
 		return -1;
 	}
@@ -181,8 +184,8 @@ int32 UBiomeMapGenerator::PickRandomConnectorIndex(const TArray<uint8>& LandMask
 	// Deterministic random selection based on BiomeSeed + BiomeId
 	FRandomStream SeedRng;
 	SeedRng.Initialize(Hash32((uint32)Settings.BiomeSeed ^ ((uint32)BiomeId * 2654435761u)));
-	const int32 Pick = SeedRng.RandRange(0, ConnectorIndices.Num() - 1);
-	return ConnectorIndices[Pick];
+	const int32 Pick = SeedRng.RandRange(0, UncarvedIndices.Num() - 1);
+	return UncarvedIndices[Pick];
 }
 
 
@@ -229,8 +232,8 @@ float UBiomeMapGenerator::SmoothNoise2D(float X, float Y, float Frequency, uint3
 }
 
 // ------------------------------------------------------------
-// Sequential carve: process non-Land biomes one at a time
-// Land is the connector biome and gets remainder after carving
+// Sequential carve: process ALL biomes one at a time
+// Each biome is grown as a single contiguous blob from a seed point
 // All randomness derives from BiomeSeed
 // ------------------------------------------------------------
 void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
@@ -239,11 +242,11 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 
 	if (Settings.Layers.Num() == 0)
 	{
-		UE_LOG(LogTemp, Log, TEXT("BiomeMapGenerator - No layers to carve; all land stays Land."));
+		UE_LOG(LogTemp, Log, TEXT("BiomeMapGenerator - No layers to carve; all land stays unassigned."));
 		return;
 	}
 
-	// ---------- Largest-remainder allocation for non-Land biomes ----------
+	// ---------- Largest-remainder allocation for ALL biomes ----------
 	struct FLayerAlloc
 	{
 		int32 LayerIndex;
@@ -262,12 +265,6 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 	for (int32 i = 0; i < Settings.Layers.Num(); ++i)
 	{
 		const FBiomeLayerSettings& L = Settings.Layers[i];
-		
-		// Skip Land - it's the connector and gets remainder
-		if (L.BiomeType == EBiomeType::Land)
-		{
-			continue;
-		}
 
 		FLayerAlloc A;
 		A.LayerIndex = i;
@@ -286,15 +283,14 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 		Allocs.Add(A);
 	}
 
-	// Distribute remainder pixels to non-Land biomes with largest fractional part
-	// Remainder = floor(total exact) - sum of floors
+	// Distribute remainder pixels to biomes with largest fractional part
 	float TotalExact = 0.0f;
 	for (const FLayerAlloc& A : Allocs)
 	{
 		TotalExact += (A.Percentage / 100.0f) * (float)LandCount;
 	}
-	int32 Remainder = FMath::FloorToInt(TotalExact) - SumFloor;
-	if (Remainder < 0) Remainder = 0; // safety
+	int32 RemainderPixels = FMath::FloorToInt(TotalExact) - SumFloor;
+	if (RemainderPixels < 0) RemainderPixels = 0; // safety
 
 	// Sort by remainder descending (deterministic tiebreak by BiomeId)
 	Allocs.Sort([](const FLayerAlloc& A, const FLayerAlloc& B)
@@ -304,7 +300,7 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 		return A.BiomeId < B.BiomeId;
 	});
 
-	for (int32 i = 0; i < Remainder && i < Allocs.Num(); ++i)
+	for (int32 i = 0; i < RemainderPixels && i < Allocs.Num(); ++i)
 	{
 		Allocs[i].TargetCount += 1;
 	}
@@ -317,7 +313,7 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 		return A.BiomeId < B.BiomeId; // deterministic tiebreak
 	});
 
-	// ---------- Carve each non-Land biome sequentially from connector (Land) ----------
+	// ---------- Carve each biome sequentially from uncarved land ----------
 	int32 CarveOrder = 0;
 	for (const FLayerAlloc& A : Allocs)
 	{
@@ -328,12 +324,12 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 			continue;
 		}
 
-		// Pick a random seed from connector (Land) land
+		// Pick a random seed from uncarved land
 		const int32 SeedIdx = PickRandomConnectorIndex(LandMask, A.BiomeId);
 
 		if (SeedIdx < 0)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("  Biome %d: No connector land left. TargetCount=%d, Achieved=0"),
+			UE_LOG(LogTemp, Warning, TEXT("  Biome %d: No uncarved land left. TargetCount=%d, Achieved=0"),
 				A.BiomeId, A.TargetCount);
 			CarveOrder++;
 			continue;
@@ -366,7 +362,7 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 
 // ------------------------------------------------------------
 // Grow a single biome from one seed using Dijkstra with noise cost
-// Only paints on connector (Land) cells
+// Only paints on uncarved land cells
 // Uses domain warp + two signed noise layers for organic, non-circular borders
 // ------------------------------------------------------------
 struct FGrowNode
@@ -447,9 +443,9 @@ int32 UBiomeMapGenerator::GrowSingleBiome(
 
 		const int32 idx = Cur.Index;
 
-		// Must be land and still connector (Forest)
+		// Must be land and still uncarved
 		if (LandMask[idx] == 0) continue;
-		if (BiomeMap[idx] != ConnectorBiomeId) continue;
+		if (BiomeMap[idx] != UncarvedLandId) continue;
 
 		// Paint it
 		BiomeMap[idx] = BiomeId;
@@ -464,7 +460,7 @@ int32 UBiomeMapGenerator::GrowSingleBiome(
 		for (int32 nIdx : Neigh)
 		{
 			if (LandMask[nIdx] == 0) continue;
-			if (BiomeMap[nIdx] != ConnectorBiomeId) continue;
+			if (BiomeMap[nIdx] != UncarvedLandId) continue;
 
 			int32 nX, nY;
 			XY(nIdx, Res, nX, nY);
@@ -502,6 +498,83 @@ int32 UBiomeMapGenerator::GrowSingleBiome(
 	}
 
 	return Painted;
+}
+
+// ------------------------------------------------------------
+// Assign remaining uncarved land pixels to the nearest carved biome via BFS
+// Uses multi-source BFS flood-fill from all carved biome pixels outward
+// ------------------------------------------------------------
+void UBiomeMapGenerator::AssignUncarvedPixels()
+{
+	const int32 Res = Settings.TextureResolution;
+	const int32 Total = Res * Res;
+
+	// Multi-source BFS: seed with all carved biome pixels that border uncarved land
+	TArray<int32> Queue;
+	Queue.Reserve(Total / 4);
+
+	const int32 DirX[8] = { 1, -1, 0, 0, 1, -1, 1, -1 };
+	const int32 DirY[8] = { 0, 0, 1, -1, 1, -1, -1, 1 };
+
+	for (int32 i = 0; i < Total; ++i)
+	{
+		// Only consider carved biome pixels (not ocean, not uncarved)
+		if (BiomeMap[i] == UnassignedId || BiomeMap[i] == UncarvedLandId)
+		{
+			continue;
+		}
+
+		const int32 X = i % Res;
+		const int32 Y = i / Res;
+
+		// Check if this pixel borders any uncarved land
+		for (int32 d = 0; d < 8; ++d)
+		{
+			const int32 NX = X + DirX[d];
+			const int32 NY = Y + DirY[d];
+			if (NX >= 0 && NX < Res && NY >= 0 && NY < Res)
+			{
+				const int32 NI = NY * Res + NX;
+				if (BiomeMap[NI] == UncarvedLandId)
+				{
+					Queue.Add(i);
+					break;
+				}
+			}
+		}
+	}
+
+	// BFS flood-fill: assign uncarved pixels to nearest biome
+	int32 Head = 0;
+	int32 AssignedCount = 0;
+	while (Head < Queue.Num())
+	{
+		const int32 Idx = Queue[Head++];
+		const int32 MyBiome = BiomeMap[Idx];
+		const int32 X = Idx % Res;
+		const int32 Y = Idx / Res;
+
+		for (int32 d = 0; d < 8; ++d)
+		{
+			const int32 NX = X + DirX[d];
+			const int32 NY = Y + DirY[d];
+			if (NX >= 0 && NX < Res && NY >= 0 && NY < Res)
+			{
+				const int32 NI = NY * Res + NX;
+				if (BiomeMap[NI] == UncarvedLandId)
+				{
+					BiomeMap[NI] = MyBiome;
+					Queue.Add(NI);
+					AssignedCount++;
+				}
+			}
+		}
+	}
+
+	if (AssignedCount > 0)
+	{
+		UE_LOG(LogTemp, Log, TEXT("BiomeMapGenerator::AssignUncarvedPixels - Assigned %d leftover pixels to nearest biome"), AssignedCount);
+	}
 }
 
 // ------------------------------------------------------------

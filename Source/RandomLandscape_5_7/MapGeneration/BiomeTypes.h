@@ -369,14 +369,15 @@ struct FContinentBiomeSettings
 
 	FContinentBiomeSettings()
 	{
-		// Initialize with default biomes using required colors
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Land, TEXT("Land"), 25.0f, FLinearColor(0.6f, 0.8f, 0.3f, 1.0f)));         // Light Green
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Forest, TEXT("Forest"), 20.0f, FLinearColor(0.1f, 0.4f, 0.1f, 1.0f)));     // Dark Green
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Desert, TEXT("Desert"), 15.0f, FLinearColor(0.95f, 0.85f, 0.3f, 1.0f)));   // Yellow
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Snow, TEXT("Snow"), 10.0f, FLinearColor(0.95f, 0.95f, 1.0f, 1.0f)));       // White
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Ice, TEXT("Ice"), 5.0f, FLinearColor(0.7f, 0.85f, 1.0f, 1.0f)));           // Light Blue
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Mountain, TEXT("Mountain"), 15.0f, FLinearColor(0.7f, 0.7f, 0.7f, 1.0f))); // Light Gray
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Volcanic, TEXT("Volcanic"), 10.0f, FLinearColor(0.9f, 0.4f, 0.3f, 1.0f))); // Light Red
+		// Initialize with default biomes using required colors - even distribution
+		const float EvenPercent = 100.0f / 7.0f;
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Land, TEXT("Land"), EvenPercent, FLinearColor(0.6f, 0.8f, 0.3f, 1.0f)));         // Light Green
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Forest, TEXT("Forest"), EvenPercent, FLinearColor(0.1f, 0.4f, 0.1f, 1.0f)));     // Dark Green
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Desert, TEXT("Desert"), EvenPercent, FLinearColor(0.95f, 0.85f, 0.3f, 1.0f)));   // Yellow
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Snow, TEXT("Snow"), EvenPercent, FLinearColor(0.95f, 0.95f, 1.0f, 1.0f)));       // White
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Ice, TEXT("Ice"), EvenPercent, FLinearColor(0.7f, 0.85f, 1.0f, 1.0f)));           // Light Blue
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Mountain, TEXT("Mountain"), EvenPercent, FLinearColor(0.7f, 0.7f, 0.7f, 1.0f))); // Light Gray
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Volcanic, TEXT("Volcanic"), EvenPercent, FLinearColor(0.9f, 0.4f, 0.3f, 1.0f))); // Light Red
 	}
 
 	/** Get total percentage of all land biomes */
