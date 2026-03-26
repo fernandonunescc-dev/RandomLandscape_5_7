@@ -1,5 +1,5 @@
 // BiomeTypes.h
-// Defines biome types and configuration for map generation
+// Defines biome types, map configuration, and per-biome terrain settings for map generation
 
 #pragma once
 
@@ -9,17 +9,236 @@
 class UTexture2D;
 
 /**
- * Defines the available biome types
+ * Defines the map generation type.
+ * Controls overall land/ocean distribution pattern.
+ */
+UENUM(BlueprintType)
+enum class EMapType : uint8
+{
+	Continent UMETA(DisplayName = "Continent"),     // Large landmass, small ocean
+	Island UMETA(DisplayName = "Island"),            // Small landmass, large ocean
+	Archipelago UMETA(DisplayName = "Archipelago")   // Multiple islands
+};
+
+/**
+ * Defines the map physical size.
+ * Controls the world-space dimensions of the generated mesh.
+ */
+UENUM(BlueprintType)
+enum class EMapSize : uint8
+{
+	Large UMETA(DisplayName = "Large (2x2 km)"),     // 2x2 kilometers
+	Medium UMETA(DisplayName = "Medium (1x1 km)"),   // 1x1 kilometers
+	Small UMETA(DisplayName = "Small (500x500 m)")    // 500x500 meters
+};
+
+/**
+ * Defines how a biome's percentage is distributed across the map.
+ */
+UENUM(BlueprintType)
+enum class ESpreadType : uint8
+{
+	Single UMETA(DisplayName = "Single"),                          // Single contiguous area
+	Multi UMETA(DisplayName = "Multi (Disabled)", Hidden)          // Multiple blobs (disabled for now)
+};
+
+/**
+ * Defines the available biome types.
  */
 UENUM(BlueprintType)
 enum class EBiomeType : uint8
 {
 	Ocean UMETA(DisplayName = "Ocean"),
+	Land UMETA(DisplayName = "Land"),
 	Forest UMETA(DisplayName = "Forest"),
-	Mountain UMETA(DisplayName = "Mountain"),
 	Desert UMETA(DisplayName = "Desert"),
 	Snow UMETA(DisplayName = "Snow"),
+	Ice UMETA(DisplayName = "Ice"),
+	Mountain UMETA(DisplayName = "Mountain"),
 	Volcanic UMETA(DisplayName = "Volcanic")
+};
+
+/**
+ * Per-biome terrain/height generation settings.
+ * Controls how heightmap noise is generated for each biome type.
+ * Fields are organized by biome type; irrelevant fields are ignored by the generator.
+ */
+USTRUCT(BlueprintType)
+struct FBiomeTerrainSettings
+{
+	GENERATED_BODY()
+
+	// === Common Noise Settings (all biomes) ===
+
+	/** Base noise frequency for terrain features */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise", meta = (ClampMin = "0.1", ClampMax = "20.0"))
+	float NoiseFrequency = 1.0f;
+
+	/** Number of noise octaves for fractal detail */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise", meta = (ClampMin = "1", ClampMax = "8"))
+	int32 NoiseOctaves = 4;
+
+	/** Persistence for fractal noise (lower = smoother) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Noise", meta = (ClampMin = "0.1", ClampMax = "1.0"))
+	float NoisePersistence = 0.5f;
+
+	/**
+	 * Maximum height this biome can reach, relative to MaxMapHeight (0.0 - 1.0).
+	 * Mountain/Volcanic = high (can reach map peak). Land/Ice = low (mostly flat).
+	 * This directly controls the brightness range of the heightmap texture.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Height", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float HeightScale = 0.3f;
+
+	// === Flatness Controls (Land, Desert, Ice) ===
+
+	/** How flat the terrain is (0 = very hilly, 1 = perfectly flat). Used by Land, Desert, Ice. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Flatness", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float Flatness = 0.5f;
+
+	// === Hill Controls (Land, Forest, Snow) ===
+
+	/** Maximum hill height as fraction of HeightScale. Used by Land, Forest, Snow. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hills", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float HillHeight = 0.3f;
+
+	/** Frequency of hills. Higher = more frequent hills. Used by Land, Forest, Snow. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hills", meta = (ClampMin = "0.1", ClampMax = "10.0"))
+	float HillFrequency = 2.0f;
+
+	// === Dune Controls (Desert) ===
+
+	/** Height of dunes relative to HeightScale. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dunes", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DuneHeight = 0.4f;
+
+	/** Frequency of dune ridges. Higher = more frequent dunes. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dunes", meta = (ClampMin = "0.5", ClampMax = "15.0"))
+	float DuneFrequency = 6.0f;
+
+	/** Sharpness of dune ridges. Higher = sharper crests. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Dunes", meta = (ClampMin = "1.0", ClampMax = "5.0"))
+	float DuneRidgeSharpness = 2.0f;
+
+	// === Iceberg Controls (Ice) ===
+
+	/** Height of icebergs/ice mountains relative to HeightScale. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Icebergs", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float IcebergHeight = 0.5f;
+
+	/** Frequency of iceberg features. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Icebergs", meta = (ClampMin = "0.1", ClampMax = "5.0"))
+	float IcebergFrequency = 1.5f;
+
+	// === Mountain Controls ===
+
+	/** Maximum number of mountain peaks that may fit in this biome area. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "1", ClampMax = "20"))
+	int32 MountainCount = 3;
+
+	/** Peak height as fraction of HeightScale (1.0 = full height). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "0.1", ClampMax = "1.0"))
+	float MountainPeakHeight = 0.9f;
+
+	/** Sharpness of mountain peaks. Higher = sharper peaks. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "0.5", ClampMax = "5.0"))
+	float PeakSharpness = 2.0f;
+
+	// === Volcanic Controls ===
+
+	/** Volcano cone height as fraction of HeightScale. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volcano", meta = (ClampMin = "0.1", ClampMax = "1.0"))
+	float VolcanoHeight = 0.85f;
+
+	/** Crater radius as fraction of the volcano (0 = no crater, 1 = crater fills volcano). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volcano", meta = (ClampMin = "0.0", ClampMax = "0.8"))
+	float CraterRadius = 0.3f;
+
+	/** Depth of the crater as fraction of VolcanoHeight. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volcano", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float CraterDepth = 0.4f;
+
+	FBiomeTerrainSettings() {}
+
+	/** Create default terrain settings for a given biome type */
+	static FBiomeTerrainSettings DefaultForBiome(EBiomeType BiomeType)
+	{
+		FBiomeTerrainSettings S;
+		switch (BiomeType)
+		{
+		case EBiomeType::Land:
+			S.NoiseFrequency = 1.0f;
+			S.NoiseOctaves = 3;
+			S.NoisePersistence = 0.3f;
+			S.HeightScale = 0.08f;
+			S.Flatness = 0.85f;
+			S.HillHeight = 0.2f;
+			S.HillFrequency = 2.0f;
+			break;
+		case EBiomeType::Forest:
+			S.NoiseFrequency = 1.5f;
+			S.NoiseOctaves = 4;
+			S.NoisePersistence = 0.45f;
+			S.HeightScale = 0.15f;
+			S.Flatness = 0.4f;
+			S.HillHeight = 0.5f;
+			S.HillFrequency = 3.0f;
+			break;
+		case EBiomeType::Desert:
+			S.NoiseFrequency = 1.0f;
+			S.NoiseOctaves = 3;
+			S.NoisePersistence = 0.3f;
+			S.HeightScale = 0.1f;
+			S.Flatness = 0.8f;
+			S.DuneHeight = 0.4f;
+			S.DuneFrequency = 6.0f;
+			S.DuneRidgeSharpness = 2.0f;
+			break;
+		case EBiomeType::Snow:
+			S.NoiseFrequency = 1.5f;
+			S.NoiseOctaves = 4;
+			S.NoisePersistence = 0.45f;
+			S.HeightScale = 0.15f;
+			S.Flatness = 0.4f;
+			S.HillHeight = 0.5f;
+			S.HillFrequency = 3.0f;
+			break;
+		case EBiomeType::Ice:
+			S.NoiseFrequency = 0.8f;
+			S.NoiseOctaves = 2;
+			S.NoisePersistence = 0.25f;
+			S.HeightScale = 0.05f;
+			S.Flatness = 0.95f;
+			S.IcebergHeight = 0.5f;
+			S.IcebergFrequency = 1.5f;
+			break;
+		case EBiomeType::Mountain:
+			S.NoiseFrequency = 2.0f;
+			S.NoiseOctaves = 5;
+			S.NoisePersistence = 0.55f;
+			S.HeightScale = 1.0f;
+			S.MountainCount = 3;
+			S.MountainPeakHeight = 0.9f;
+			S.PeakSharpness = 2.0f;
+			break;
+		case EBiomeType::Volcanic:
+			S.NoiseFrequency = 1.5f;
+			S.NoiseOctaves = 4;
+			S.NoisePersistence = 0.5f;
+			S.HeightScale = 0.9f;
+			S.VolcanoHeight = 0.85f;
+			S.CraterRadius = 0.3f;
+			S.CraterDepth = 0.4f;
+			break;
+		default: // Ocean
+			S.NoiseFrequency = 0.5f;
+			S.NoiseOctaves = 3;
+			S.NoisePersistence = 0.4f;
+			S.HeightScale = 0.0f;
+			break;
+		}
+		return S;
+	}
 };
 
 /**
@@ -36,7 +255,7 @@ struct FBiomeMeshSettings
 
 	/** The biome type this settings belongs to */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "General")
-	EBiomeType BiomeType = EBiomeType::Forest;
+	EBiomeType BiomeType = EBiomeType::Land;
 
 	/** Seed for this biome's noise generation. 0 = random. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
@@ -93,11 +312,11 @@ struct FBiomeConfig
 
 	/** The type of biome */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
-	EBiomeType BiomeType = EBiomeType::Forest;
+	EBiomeType BiomeType = EBiomeType::Land;
 
 	/** Display name for this biome */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "General")
-	FString DisplayName = TEXT("Forest");
+	FString DisplayName = TEXT("Land");
 
 	/** 
 	 * Target percentage of land this biome should cover (0-100).
@@ -109,7 +328,7 @@ struct FBiomeConfig
 
 	/** The color used to represent this biome on the map texture */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Texture")
-	FLinearColor Color = FLinearColor::Green;
+	FLinearColor Color = FLinearColor(0.6f, 0.8f, 0.3f, 1.0f);
 
 	FBiomeConfig() {}
 
@@ -136,9 +355,9 @@ struct FContinentBiomeSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "10.0", ClampMax = "90.0", UIMin = "10.0", UIMax = "90.0"))
 	float LandCoveragePercent = 50.0f;
 
-	/** Ocean color (surrounds the continent) */
+	/** Ocean color (surrounds the continent) - Dark Blue */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FLinearColor OceanColor = FLinearColor(0.4f, 0.7f, 0.9f, 1.0f); // Light blue
+	FLinearColor OceanColor = FLinearColor(0.05f, 0.1f, 0.4f, 1.0f);
 
 	/** 
 	 * Land biome configurations.
@@ -149,12 +368,14 @@ struct FContinentBiomeSettings
 
 	FContinentBiomeSettings()
 	{
-		// Initialize with default biomes (texture settings only)
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Forest, TEXT("Forest"), 35.0f, FLinearColor(0.2f, 0.6f, 0.2f, 1.0f)));
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Mountain, TEXT("Mountain"), 20.0f, FLinearColor(0.5f, 0.5f, 0.5f, 1.0f)));
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Desert, TEXT("Desert"), 20.0f, FLinearColor(0.95f, 0.85f, 0.3f, 1.0f)));
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Snow, TEXT("Snow"), 15.0f, FLinearColor(0.9f, 0.95f, 1.0f, 1.0f)));
-		LandBiomes.Add(FBiomeConfig(EBiomeType::Volcanic, TEXT("Volcanic"), 10.0f, FLinearColor(0.9f, 0.4f, 0.1f, 1.0f)));
+		// Initialize with default biomes using required colors
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Land, TEXT("Land"), 25.0f, FLinearColor(0.6f, 0.8f, 0.3f, 1.0f)));         // Light Green
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Forest, TEXT("Forest"), 20.0f, FLinearColor(0.1f, 0.4f, 0.1f, 1.0f)));     // Dark Green
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Desert, TEXT("Desert"), 15.0f, FLinearColor(0.95f, 0.85f, 0.3f, 1.0f)));   // Yellow
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Snow, TEXT("Snow"), 10.0f, FLinearColor(0.95f, 0.95f, 1.0f, 1.0f)));       // White
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Ice, TEXT("Ice"), 5.0f, FLinearColor(0.7f, 0.85f, 1.0f, 1.0f)));           // Light Blue
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Mountain, TEXT("Mountain"), 15.0f, FLinearColor(0.7f, 0.7f, 0.7f, 1.0f))); // Light Gray
+		LandBiomes.Add(FBiomeConfig(EBiomeType::Volcanic, TEXT("Volcanic"), 10.0f, FLinearColor(0.9f, 0.4f, 0.3f, 1.0f))); // Light Red
 	}
 
 	/** Get total percentage of all land biomes */
@@ -221,14 +442,16 @@ struct FMeshGenerationSettings
 
 	FMeshGenerationSettings()
 	{
-		// Initialize ocean with default noise settings (frequency, octaves, persistence)
+		// Initialize ocean with default noise settings
 		OceanSettings = FBiomeMeshSettings(EBiomeType::Ocean, TEXT("Ocean"), 1.0f, 3, 0.4f);
 
 		// Initialize land biome noise settings with defaults
+		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Land, TEXT("Land"), 0.3f, 3, 0.25f));
 		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Forest, TEXT("Forest"), 0.5f, 4, 0.3f));
-		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Mountain, TEXT("Mountain"), 1.5f, 5, 0.55f));
 		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Desert, TEXT("Desert"), 0.8f, 3, 0.25f));
 		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Snow, TEXT("Snow"), 1.2f, 4, 0.45f));
+		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Ice, TEXT("Ice"), 0.3f, 2, 0.2f));
+		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Mountain, TEXT("Mountain"), 1.5f, 5, 0.55f));
 		BiomeMeshSettings.Add(FBiomeMeshSettings(EBiomeType::Volcanic, TEXT("Volcanic"), 2.0f, 5, 0.6f));
 	}
 

@@ -1,7 +1,7 @@
 // BiomeMapGenerator.cpp
 // Deterministic biome layout generator - single blob per biome, exact target matching
 // BiomeSeed controls biome placement independently from landmass seed
-// Version: 01.28.2026.20.42
+// Land is the connector biome (gets remainder after carving)
 
 #include "BiomeMapGenerator.h"
 #include <queue>
@@ -100,12 +100,12 @@ void UBiomeMapGenerator::BuildLandIndexList(const TArray<uint8>& LandMask)
 }
 
 // ------------------------------------------------------------
-// Fill entire map with connector biome (Forest) on land, UnassignedId elsewhere
+// Fill entire map with connector biome (Land) on land, UnassignedId elsewhere
 // ------------------------------------------------------------
 void UBiomeMapGenerator::FillConnector()
 {
 	// Ocean pixels stay as UnassignedId (will be colored OceanColor)
-	// Land pixels filled with Forest (connector)
+	// Land pixels filled with Land (connector)
 	for (int32 i = 0; i < BiomeMap.Num(); ++i)
 	{
 		BiomeMap[i] = UnassignedId;
@@ -124,8 +124,8 @@ void UBiomeMapGenerator::NormalizeLayerPercentages()
 {
 	if (Settings.Layers.Num() == 0)
 	{
-		// Default: single Forest covering all land
-		Settings.Layers.Add(FBiomeLayerSettings(EBiomeType::Forest, TEXT("Forest"), 100.0f, FLinearColor(0.2f, 0.6f, 0.2f, 1.0f)));
+		// Default: single Land covering all land
+		Settings.Layers.Add(FBiomeLayerSettings(EBiomeType::Land, TEXT("Land"), 100.0f, FLinearColor(0.6f, 0.8f, 0.3f, 1.0f)));
 		return;
 	}
 
@@ -156,12 +156,12 @@ void UBiomeMapGenerator::NormalizeLayerPercentages()
 }
 
 // ------------------------------------------------------------
-// Pick a deterministic random seed index from connector (Forest) land
+// Pick a deterministic random seed index from connector (Land) land
 // Uses BiomeSeed + BiomeId for deterministic selection
 // ------------------------------------------------------------
 int32 UBiomeMapGenerator::PickRandomConnectorIndex(const TArray<uint8>& LandMask, int32 BiomeId) const
 {
-	// Build list of connector (Forest) land pixels
+	// Build list of connector (Land) land pixels
 	TArray<int32> ConnectorIndices;
 	ConnectorIndices.Reserve(LandIndices.Num());
 
@@ -229,8 +229,8 @@ float UBiomeMapGenerator::SmoothNoise2D(float X, float Y, float Frequency, uint3
 }
 
 // ------------------------------------------------------------
-// Sequential carve: process non-Forest biomes one at a time
-// Forest is the connector biome and gets remainder after carving
+// Sequential carve: process non-Land biomes one at a time
+// Land is the connector biome and gets remainder after carving
 // All randomness derives from BiomeSeed
 // ------------------------------------------------------------
 void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
@@ -239,11 +239,11 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 
 	if (Settings.Layers.Num() == 0)
 	{
-		UE_LOG(LogTemp, Log, TEXT("BiomeMapGenerator - No layers to carve; all land stays Forest."));
+		UE_LOG(LogTemp, Log, TEXT("BiomeMapGenerator - No layers to carve; all land stays Land."));
 		return;
 	}
 
-	// ---------- Largest-remainder allocation for non-Forest biomes ----------
+	// ---------- Largest-remainder allocation for non-Land biomes ----------
 	struct FLayerAlloc
 	{
 		int32 LayerIndex;
@@ -263,8 +263,8 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 	{
 		const FBiomeLayerSettings& L = Settings.Layers[i];
 		
-		// Skip Forest - it's the connector and gets remainder
-		if (L.BiomeType == EBiomeType::Forest)
+		// Skip Land - it's the connector and gets remainder
+		if (L.BiomeType == EBiomeType::Land)
 		{
 			continue;
 		}
@@ -286,7 +286,7 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 		Allocs.Add(A);
 	}
 
-	// Distribute remainder pixels to non-Forest biomes with largest fractional part
+	// Distribute remainder pixels to non-Land biomes with largest fractional part
 	// Remainder = floor(total exact) - sum of floors
 	float TotalExact = 0.0f;
 	for (const FLayerAlloc& A : Allocs)
@@ -317,7 +317,7 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 		return A.BiomeId < B.BiomeId; // deterministic tiebreak
 	});
 
-	// ---------- Carve each non-Forest biome sequentially from connector (Forest) ----------
+	// ---------- Carve each non-Land biome sequentially from connector (Land) ----------
 	int32 CarveOrder = 0;
 	for (const FLayerAlloc& A : Allocs)
 	{
@@ -328,7 +328,7 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 			continue;
 		}
 
-		// Pick a random seed from connector (Forest) land
+		// Pick a random seed from connector (Land) land
 		const int32 SeedIdx = PickRandomConnectorIndex(LandMask, A.BiomeId);
 
 		if (SeedIdx < 0)
@@ -366,7 +366,7 @@ void UBiomeMapGenerator::CarveBiomesSequentially(const TArray<uint8>& LandMask)
 
 // ------------------------------------------------------------
 // Grow a single biome from one seed using Dijkstra with noise cost
-// Only paints on connector (Forest) cells
+// Only paints on connector (Land) cells
 // Uses domain warp + two signed noise layers for organic, non-circular borders
 // ------------------------------------------------------------
 struct FGrowNode

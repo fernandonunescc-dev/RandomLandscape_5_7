@@ -5,18 +5,43 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "BiomeTypes.h"
 #include "LandmassGenerator.generated.h"
 
 class UTexture2D;
 
 /**
  * Configuration settings for landmass generation.
- * Controls the random seed, output resolution, and land/ocean ratio.
+ * Controls the random seed, output resolution, map type, size, and land/ocean ratio.
  */
 USTRUCT(BlueprintType)
 struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 {
 	GENERATED_BODY()
+
+	/** 
+	 * Map type controls the overall land/ocean distribution pattern.
+	 * Continent: Large landmass, small ocean.
+	 * Island: Small landmass, large ocean.
+	 * Archipelago: Multiple islands scattered across the map.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass")
+	EMapType MapType = EMapType::Continent;
+
+	/**
+	 * Map physical size in world space.
+	 * Large: 2x2 km, Medium: 1x1 km, Small: 500x500 m.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass")
+	EMapSize MapSize = EMapSize::Medium;
+
+	/**
+	 * Maximum height of the terrain mesh in world units (cm).
+	 * Controls how tall mountains and the highest biome features can be.
+	 * This is the absolute ceiling - individual biome HeightScale is relative to this.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "1000.0", ClampMax = "200000.0", UIMin = "1000.0", UIMax = "200000.0"))
+	float MaxMapHeight = 50000.0f;
 
 	/** 
 	 * Random seed for landmass shape generation.
@@ -38,6 +63,7 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	 * Target percentage of pixels that should be classified as land.
 	 * The algorithm guarantees this exact coverage by computing an adaptive threshold.
 	 * Clamped to 5-75% to ensure meaningful land/ocean distribution.
+	 * Note: For Island/Archipelago map types, lower values are recommended.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "5.0", ClampMax = "75.0"))
 	float LandCoveragePercent = 50.0f;
@@ -99,6 +125,30 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Post-Processing")
 	bool bFillEnclosedHoles = true;
+
+	// === Archipelago Settings ===
+
+	/**
+	 * Number of islands to generate in Archipelago mode.
+	 * Each island is a separate landmass with organic shape.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Archipelago", meta = (ClampMin = "2", ClampMax = "20", EditCondition = "MapType == EMapType::Archipelago"))
+	int32 IslandCount = 5;
+
+	/**
+	 * Get the world-space size in centimeters for the current MapSize.
+	 * Large: 200000 (2km), Medium: 100000 (1km), Small: 50000 (500m).
+	 */
+	float GetWorldSizeCm() const
+	{
+		switch (MapSize)
+		{
+		case EMapSize::Large:  return 200000.0f;
+		case EMapSize::Medium: return 100000.0f;
+		case EMapSize::Small:  return 50000.0f;
+		default:               return 100000.0f;
+		}
+	}
 };
 
 /**
@@ -226,6 +276,15 @@ protected:
 	 */
 	float GetContinentMask(float NormX, float NormY) const;
 
+	/**
+	 * Compute the "island-ness" value for Archipelago mode.
+	 * Generates multiple island centers and computes a combined mask.
+	 * 
+	 * @param NormX, NormY - Normalized coordinates (0.0 to 1.0)
+	 * @return Island mask value (0.0 to 1.0, higher = more land-like)
+	 */
+	float GetArchipelagoMask(float NormX, float NormY) const;
+
 protected:
 	/** Generation settings */
 	FLandmassSettings Settings;
@@ -254,6 +313,12 @@ protected:
 	
 	/** Offset for warp Y-component noise sampling */
 	FVector2D WarpOffsetY;
+
+	/** Island center positions for Archipelago mode (generated in Initialize) */
+	TArray<FVector2D> IslandCenters;
+
+	/** Island radii for Archipelago mode (generated in Initialize) */
+	TArray<float> IslandRadii;
 
 	/** Land mask - 1 = land, 0 = ocean (uint8 for thread-safe parallel writes) */
 	TArray<uint8> LandMask;
