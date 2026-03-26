@@ -3,6 +3,7 @@
 
 #include "BiomeDataGenerationActor.h"
 #include "Engine/Texture2D.h"
+#include "Engine/World.h"
 
 ABiomeDataGenerationActor::ABiomeDataGenerationActor()
 {
@@ -151,7 +152,63 @@ void ABiomeDataGenerationActor::ClearGeneratedData()
 	ActualHeightmapSeedUsed = 0;
 	TextureResolutionUsed = 0;
 
+	// Destroy spawned mesh actor
+	if (SpawnedMeshActor)
+	{
+		SpawnedMeshActor->Destroy();
+		SpawnedMeshActor = nullptr;
+	}
+
 	UE_LOG(LogTemp, Log, TEXT("ABiomeDataGenerationActor: All generated data cleared"));
+}
+
+void ABiomeDataGenerationActor::GenerateMesh()
+{
+	// Check prerequisites
+	if (CachedLandMask.Num() == 0 || CachedBiomeMap.Num() == 0 || HeightmapResults.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ABiomeDataGenerationActor: Generate Landmass, Biomes, and Heightmaps first before generating mesh"));
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ABiomeDataGenerationActor: No world available for mesh generation"));
+		return;
+	}
+
+	// Spawn or reuse the mesh actor
+	if (!SpawnedMeshActor)
+	{
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.Owner = this;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		SpawnedMeshActor = World->SpawnActor<ALandscapeMeshActor>(GetActorLocation(), FRotator::ZeroRotator, SpawnParams);
+	}
+
+	if (!SpawnedMeshActor)
+	{
+		UE_LOG(LogTemp, Error, TEXT("ABiomeDataGenerationActor: Failed to spawn ALandscapeMeshActor"));
+		return;
+	}
+
+	const int32 Resolution = LandmassSettings.TextureResolution;
+	const float WorldSizeCm = LandmassSettings.GetWorldSizeCm();
+	const float MaxMapHeight = LandmassSettings.MaxMapHeight;
+
+	SpawnedMeshActor->BuildMesh(
+		CachedBiomeMap,
+		CachedLandMask,
+		HeightmapResults,
+		BiomeLayoutSettings.Layers,
+		BiomeLayoutSettings.OceanColor,
+		Resolution,
+		WorldSizeCm,
+		MaxMapHeight);
+
+	UE_LOG(LogTemp, Log, TEXT("ABiomeDataGenerationActor: Mesh generated - Resolution: %d, WorldSize: %.0f cm, MaxHeight: %.0f cm"),
+		Resolution, WorldSizeCm, MaxMapHeight);
 }
 
 void ABiomeDataGenerationActor::BuildBiomePreviewTexture()

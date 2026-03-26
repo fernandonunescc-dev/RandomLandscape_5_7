@@ -8,6 +8,7 @@
 #include "LandmassGenerator.h"
 #include "BiomeMapGenerator.h"
 #include "HeightmapGenerator.h"
+#include "LandscapeMeshActor.h"
 #include "BiomeDataGenerationActor.generated.h"
 
 /**
@@ -92,6 +93,16 @@ public:
 	/** Clear all generated data and reset outputs */
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Generation|Actions")
 	void ClearGeneratedData();
+
+	/** Generate procedural terrain mesh from existing heightmap data */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Generation|Actions")
+	void GenerateMesh();
+
+	// ==================== Output (Mesh) ====================
+
+	/** Spawned landscape mesh actor (auto-managed) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generation|Mesh")
+	TObjectPtr<ALandscapeMeshActor> SpawnedMeshActor;
 
 	// ==================== Data Accessors ====================
 
