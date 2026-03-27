@@ -5,20 +5,21 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "ProceduralMeshComponent.h"
 #include "LandmassGenerator.h"
 #include "BiomeMapGenerator.h"
 #include "HeightmapGenerator.h"
-#include "LandscapeMeshActor.h"
 #include "BiomeDataGenerationActor.generated.h"
 
 /**
  * Editor-placeable actor that exposes landmass, biome, and heightmap generation settings.
  * Provides manual buttons to generate preview textures - nothing runs automatically.
  *
- * Three generation layers:
+ * Four generation layers:
  *   Layer 1 - Landmass: Black/white texture (white=land, black=ocean)
  *   Layer 2 - Biomes: Color-coded biome distribution texture
  *   Layer 3 - Heightmaps: Per-biome grayscale height textures (white=tallest, black=lowest)
+ *   Layer 4 - Mesh: Procedural terrain mesh built from composited heightmaps
  */
 UCLASS(Blueprintable)
 class RANDOMLANDSCAPE_5_7_API ABiomeDataGenerationActor : public AActor
@@ -72,6 +73,12 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generation|Landmass")
 	int32 TextureResolutionUsed = 0;
 
+	// ==================== Mesh Component ====================
+
+	/** Procedural mesh component that holds the generated terrain geometry */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generation|Mesh")
+	TObjectPtr<UProceduralMeshComponent> TerrainMesh;
+
 	// ==================== Editor Buttons ====================
 
 	/** Generate landmass mask and preview texture */
@@ -98,12 +105,6 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Generation|Actions")
 	void GenerateMesh();
 
-	// ==================== Output (Mesh) ====================
-
-	/** Spawned landscape mesh actor (auto-managed) */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Generation|Mesh")
-	TObjectPtr<ALandscapeMeshActor> SpawnedMeshActor;
-
 	// ==================== Data Accessors ====================
 
 	/** Get cached land mask (1 = land, 0 = ocean) */
@@ -124,4 +125,18 @@ private:
 
 	/** Build biome preview texture from cached data */
 	void BuildBiomePreviewTexture();
+
+	/** Read pixel data from a UTexture2D into a float array (grayscale 0-1) */
+	bool ReadHeightmapTexture(UTexture2D* Texture, int32 Resolution, TArray<float>& OutHeights) const;
+
+	/** Build terrain mesh geometry from composited heightmap data */
+	void BuildTerrainMesh(
+		const TArray<int32>& BiomeMap,
+		const TArray<uint8>& LandMask,
+		const TArray<FBiomeHeightmapResult>& InHeightmapResults,
+		const TArray<FBiomeLayerSettings>& BiomeLayers,
+		const FLinearColor& OceanColor,
+		int32 Resolution,
+		float WorldSizeCm,
+		float MaxMapHeight);
 };
