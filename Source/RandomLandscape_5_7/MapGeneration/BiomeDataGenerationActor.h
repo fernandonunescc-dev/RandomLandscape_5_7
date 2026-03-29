@@ -105,6 +105,20 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Generation|Actions")
 	void GenerateMesh();
 
+	// ==================== Debug / Isolation ====================
+
+	/** Which biome to isolate when using Generate Single Biome Mesh */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Generation|Debug")
+	EBiomeType DebugBiomeFilter = EBiomeType::Land;
+
+	/**
+	 * Generate mesh from ONLY the selected biome's heightmap.
+	 * Uses DebugBiomeFilter to pick which biome to visualize in isolation.
+	 * Helpful for debugging which biome is causing terrain issues.
+	 */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Generation|Debug")
+	void GenerateSingleBiomeMesh();
+
 	// ==================== Data Accessors ====================
 
 	/** Get cached land mask (1 = land, 0 = ocean) */

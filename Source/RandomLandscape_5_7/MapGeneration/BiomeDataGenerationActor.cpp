@@ -192,6 +192,54 @@ void ABiomeDataGenerationActor::GenerateMesh()
 		Resolution, WorldSizeCm, MaxMapHeight);
 }
 
+void ABiomeDataGenerationActor::GenerateSingleBiomeMesh()
+{
+	// Check prerequisites
+	if (CachedLandMask.Num() == 0 || CachedBiomeMap.Num() == 0 || HeightmapResults.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ABiomeDataGenerationActor: Generate Landmass, Biomes, and Heightmaps first before generating single biome mesh"));
+		return;
+	}
+
+	// Find the heightmap result for the selected biome
+	const FBiomeHeightmapResult* FoundResult = nullptr;
+	for (const FBiomeHeightmapResult& Result : HeightmapResults)
+	{
+		if (Result.BiomeType == DebugBiomeFilter)
+		{
+			FoundResult = &Result;
+			break;
+		}
+	}
+
+	if (!FoundResult)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ABiomeDataGenerationActor: No heightmap found for biome type %d"), static_cast<int32>(DebugBiomeFilter));
+		return;
+	}
+
+	// Build single-element array with only the selected biome's heightmap
+	TArray<FBiomeHeightmapResult> SingleResult;
+	SingleResult.Add(*FoundResult);
+
+	const int32 Resolution = LandmassSettings.TextureResolution;
+	const float WorldSizeCm = LandmassSettings.GetWorldSizeCm();
+	const float MaxMapHeight = HeightmapSettings.MaxMapHeight;
+
+	BuildTerrainMesh(
+		CachedBiomeMap,
+		CachedLandMask,
+		SingleResult,
+		BiomeLayoutSettings.Layers,
+		BiomeLayoutSettings.OceanColor,
+		Resolution,
+		WorldSizeCm,
+		MaxMapHeight);
+
+	UE_LOG(LogTemp, Log, TEXT("ABiomeDataGenerationActor: Single biome mesh generated for '%s' - Resolution: %d, HeightScale: %.2f, MaxHeight: %.0f cm"),
+		*FoundResult->DisplayName, Resolution, FoundResult->HeightScale, MaxMapHeight);
+}
+
 void ABiomeDataGenerationActor::BuildBiomePreviewTexture()
 {
 	const int32 Resolution = BiomeLayoutSettings.TextureResolution;
