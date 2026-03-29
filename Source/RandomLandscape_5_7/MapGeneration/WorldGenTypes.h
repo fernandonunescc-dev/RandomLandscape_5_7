@@ -56,6 +56,38 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "1", ClampMax = "8"))
 	int32 MountainOctaves = 5;
 
+	// --- Hills (rolling FBM terrain) ---
+
+	/** Frequency of hill features */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hills", meta = (ClampMin = "0.5", ClampMax = "10.0"))
+	float HillFrequency = 3.0f;
+
+	/** Amplitude of hill features relative to total height */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hills", meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float HillAmplitude = 0.15f;
+
+	/** Octaves for hill noise */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hills", meta = (ClampMin = "1", ClampMax = "6"))
+	int32 HillOctaves = 3;
+
+	// --- Plateaus (flat-topped elevated areas) ---
+
+	/** Frequency of plateau noise regions */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Plateaus", meta = (ClampMin = "0.5", ClampMax = "8.0"))
+	float PlateauNoiseFrequency = 1.8f;
+
+	/** Noise threshold above which terrain becomes a plateau (higher = rarer) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Plateaus", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float PlateauThreshold = 0.55f;
+
+	/** How flat plateau tops are (0 = no flattening, 1 = perfectly flat) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Plateaus", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float PlateauFlatness = 0.7f;
+
+	/** Elevation of plateau tops (0-1 range) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Plateaus", meta = (ClampMin = "0.1", ClampMax = "0.8"))
+	float PlateauElevation = 0.45f;
+
 	// --- Volcanic hotspots ---
 
 	/** Number of volcanic hotspots to place */
@@ -102,6 +134,10 @@ struct RANDOMLANDSCAPE_5_7_API FHydrologySettings
 	/** Lake fill — if a local minimum catches flow above this, mark as lake */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Lakes", meta = (ClampMin = "0.001", ClampMax = "0.1"))
 	float LakeThreshold = 0.01f;
+
+	/** Minimum elevation drop along a river pixel to mark as waterfall */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Waterfalls", meta = (ClampMin = "0.01", ClampMax = "0.3"))
+	float WaterfallMinElevationDrop = 0.05f;
 };
 
 /**

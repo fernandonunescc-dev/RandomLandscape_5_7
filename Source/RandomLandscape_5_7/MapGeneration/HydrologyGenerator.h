@@ -52,6 +52,9 @@ public:
 	/** Binary lake mask (1 = lake, 0 = not). */
 	const TArray<uint8>& GetLakeMap() const { return LakeMap; }
 
+	/** Binary waterfall mask (1 = waterfall site, 0 = not). */
+	const TArray<uint8>& GetWaterfallMap() const { return WaterfallMap; }
+
 	/** Upstream drainage area per pixel. */
 	const TArray<float>& GetFlowAccumulation() const { return FlowAccumulation; }
 
@@ -86,6 +89,9 @@ private:
 	/** Binary lake mask. */
 	TArray<uint8> LakeMap;
 
+	/** Binary waterfall mask. */
+	TArray<uint8> WaterfallMap;
+
 	//--------------------------------------------------------------------------
 	// Internal helpers
 	//--------------------------------------------------------------------------
@@ -105,4 +111,7 @@ private:
 
 	/** Mark local minima with sufficient accumulation as lakes, then BFS expand. */
 	void IdentifyLakes(const TArray<float>& Elevation, const TArray<uint8>& LandMask);
+
+	/** Detect waterfall sites: river pixels with steep downstream elevation drops. */
+	void DetectWaterfalls(const TArray<float>& Elevation, const TArray<uint8>& LandMask);
 };

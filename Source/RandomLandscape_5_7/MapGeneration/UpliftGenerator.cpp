@@ -35,13 +35,16 @@ bool UUpliftGenerator::Generate(const TArray<uint8>& LandMask)
 	BaseElevation.SetNum(TotalPixels);
 	UpliftMap.SetNum(TotalPixels);
 	CombinedElevation.SetNum(TotalPixels);
+	PlateauMap.SetNum(TotalPixels);
 	VolcanicCenters.Empty();
 
 	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator::Generate – starting (%d pixels)"), TotalPixels);
 
 	GenerateBaseElevation(LandMask);
 	GenerateUpliftMap(LandMask);
+	GenerateHills(LandMask);
 	GenerateVolcanicHotspots(LandMask);
+	GeneratePlateaus(LandMask);
 	CombineElevation();
 
 	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator::Generate – complete"));
@@ -290,6 +293,111 @@ void UUpliftGenerator::GenerateVolcanicHotspots(const TArray<uint8>& LandMask)
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator – %d volcanic hotspots placed"), VolcanicCenters.Num());
+}
+
+//------------------------------------------------------------------------------
+// GenerateHills:
+//   FBM-based rolling hills, added to UpliftMap.
+//   Hills are smaller-scale undulations distinct from mountain ridges.
+//   They are modulated by BaseElevation so they fade near coastlines.
+//------------------------------------------------------------------------------
+void UUpliftGenerator::GenerateHills(const TArray<uint8>& LandMask)
+{
+	const int32 TotalPixels = Resolution * Resolution;
+	const float Freq = Settings.HillFrequency;
+	const float Amplitude = Settings.HillAmplitude;
+	const int32 Octaves = Settings.HillOctaves;
+	const int32 Seed = ActualSeed + 300; // Decorrelate from mountain noise
+	const float InvRes = 1.0f / FMath::Max(Resolution - 1, 1);
+
+	if (Amplitude <= 0.0f)
+	{
+		return;
+	}
+
+	for (int32 i = 0; i < TotalPixels; ++i)
+	{
+		if (LandMask[i] == 0)
+		{
+			continue;
+		}
+
+		const float NormX = static_cast<float>(i % Resolution) * InvRes;
+		const float NormY = static_cast<float>(i / Resolution) * InvRes;
+
+		float Hill = WorldNoise::FBM(NormX * Freq, NormY * Freq, Octaves, 0.5f, Seed);
+		// Remap [-1,1] → [0,1] then scale by amplitude
+		Hill = (Hill * 0.5f + 0.5f) * Amplitude;
+
+		// Fade near coastline by multiplying with base elevation
+		UpliftMap[i] += Hill * BaseElevation[i];
+		UpliftMap[i] = FMath::Clamp(UpliftMap[i], 0.0f, 1.0f);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator – Hills generated (freq %.2f, amp %.2f)"),
+		Freq, Amplitude);
+}
+
+//------------------------------------------------------------------------------
+// GeneratePlateaus:
+//   Identify plateau regions using thresholded FBM noise and flatten terrain
+//   in those regions to a target elevation, producing flat-topped elevated areas.
+//   PlateauMap stores the plateau mask [0,1] per pixel.
+//------------------------------------------------------------------------------
+void UUpliftGenerator::GeneratePlateaus(const TArray<uint8>& LandMask)
+{
+	const int32 TotalPixels = Resolution * Resolution;
+	const float Freq = Settings.PlateauNoiseFrequency;
+	const float Threshold = Settings.PlateauThreshold;
+	const float Flatness = Settings.PlateauFlatness;
+	const float TargetElev = Settings.PlateauElevation;
+	const int32 Seed = ActualSeed + 400; // Decorrelate from other noise
+	const float InvRes = 1.0f / FMath::Max(Resolution - 1, 1);
+
+	FMemory::Memzero(PlateauMap.GetData(), TotalPixels * sizeof(float));
+
+	if (Flatness <= 0.0f)
+	{
+		return;
+	}
+
+	for (int32 i = 0; i < TotalPixels; ++i)
+	{
+		if (LandMask[i] == 0)
+		{
+			continue;
+		}
+
+		const float NormX = static_cast<float>(i % Resolution) * InvRes;
+		const float NormY = static_cast<float>(i / Resolution) * InvRes;
+
+		// Plateau noise field — remap [-1,1] to [0,1]
+		float PlateauNoise = WorldNoise::FBM(NormX * Freq, NormY * Freq, 3, 0.5f, Seed);
+		PlateauNoise = PlateauNoise * 0.5f + 0.5f;
+
+		if (PlateauNoise < Threshold)
+		{
+			continue;
+		}
+
+		// Only apply plateaus to areas with moderate elevation (not ocean-edge or mountain-peak)
+		const float CurrentElev = BaseElevation[i] + UpliftMap[i];
+		if (CurrentElev < 0.15f || CurrentElev > 0.8f)
+		{
+			continue;
+		}
+
+		// Smooth transition into plateau zone
+		const float PlateauStrength = FMath::Clamp((PlateauNoise - Threshold) / (1.0f - Threshold), 0.0f, 1.0f);
+		PlateauMap[i] = PlateauStrength;
+
+		// Flatten toward target elevation: lerp current uplift toward TargetElev
+		const float DesiredUplift = FMath::Max(TargetElev - BaseElevation[i], 0.0f);
+		UpliftMap[i] = FMath::Lerp(UpliftMap[i], DesiredUplift, PlateauStrength * Flatness);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator – Plateaus generated (freq %.2f, threshold %.2f, flatness %.2f)"),
+		Freq, Threshold, Flatness);
 }
 
 //------------------------------------------------------------------------------

@@ -44,6 +44,7 @@ bool UHydrologyGenerator::Generate(const TArray<float>& Elevation, const TArray<
 	FlowAccumulation.SetNum(TotalPixels);
 	RiverMap.SetNum(TotalPixels);
 	LakeMap.SetNum(TotalPixels);
+	WaterfallMap.SetNum(TotalPixels);
 
 	UE_LOG(LogTemp, Log, TEXT("HydrologyGenerator::Generate – starting (%d pixels)"), TotalPixels);
 
@@ -51,6 +52,7 @@ bool UHydrologyGenerator::Generate(const TArray<float>& Elevation, const TArray<
 	ComputeFlowAccumulation();
 	IdentifyRivers();
 	IdentifyLakes(Elevation, LandMask);
+	DetectWaterfalls(Elevation, LandMask);
 
 	UE_LOG(LogTemp, Log, TEXT("HydrologyGenerator::Generate – complete"));
 	return true;
@@ -373,4 +375,49 @@ void UHydrologyGenerator::IdentifyLakes(const TArray<float>& Elevation, const TA
 
 	UE_LOG(LogTemp, Log, TEXT("HydrologyGenerator – Lakes identified (%d seeds, expanded %d steps)"),
 		LakeSeeds, LakeExpandSteps);
+}
+
+//------------------------------------------------------------------------------
+// DetectWaterfalls:
+//   A river pixel is a waterfall site when its elevation drop to the
+//   downstream neighbor exceeds WaterfallMinElevationDrop and it has
+//   significant flow (river strength > 0).
+//------------------------------------------------------------------------------
+void UHydrologyGenerator::DetectWaterfalls(const TArray<float>& Elevation, const TArray<uint8>& LandMask)
+{
+	const int32 TotalPixels = Resolution * Resolution;
+	FMemory::Memzero(WaterfallMap.GetData(), TotalPixels * sizeof(uint8));
+
+	const float MinDrop = Settings.WaterfallMinElevationDrop;
+	int32 WaterfallCount = 0;
+
+	for (int32 i = 0; i < TotalPixels; ++i)
+	{
+		if (LandMask[i] == 0 || RiverMap[i] <= 0.0f || FlowDirection[i] < 0)
+		{
+			continue;
+		}
+
+		const int32 X = i % Resolution;
+		const int32 Y = i / Resolution;
+		const int32 NX = X + DX8[FlowDirection[i]];
+		const int32 NY = Y + DY8[FlowDirection[i]];
+
+		if (NX < 0 || NX >= Resolution || NY < 0 || NY >= Resolution)
+		{
+			continue;
+		}
+
+		const int32 DownIdx = NY * Resolution + NX;
+		const float Drop = Elevation[i] - Elevation[DownIdx];
+
+		if (Drop >= MinDrop)
+		{
+			WaterfallMap[i] = 1;
+			WaterfallCount++;
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("HydrologyGenerator – Waterfalls detected (%d sites, minDrop: %.3f)"),
+		WaterfallCount, MinDrop);
 }

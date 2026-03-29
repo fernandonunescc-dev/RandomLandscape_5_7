@@ -92,10 +92,12 @@ void AWorldGenerationActor::Step2_GenerateUplift()
 	CachedUpliftMap = Generator->GetUpliftMap();
 	CachedCombinedElevation = Generator->GetCombinedElevation();
 	CachedVolcanicCenters = Generator->GetVolcanicCenters();
+	CachedPlateauMap = Generator->GetPlateauMap();
 
 	Debug_BaseElevation = CreateGrayscaleDebugTexture(TextureResolution, CachedBaseElevation);
 	Debug_UpliftMap = CreateGrayscaleDebugTexture(TextureResolution, CachedUpliftMap);
 	Debug_CombinedElevation = CreateGrayscaleDebugTexture(TextureResolution, CachedCombinedElevation);
+	Debug_PlateauMap = CreateGrayscaleDebugTexture(TextureResolution, CachedPlateauMap);
 
 	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor: Stage 2 Uplift complete - VolcanicCenters: %d"),
 		CachedVolcanicCenters.Num());
@@ -129,6 +131,8 @@ void AWorldGenerationActor::Step3_GenerateHydrology()
 
 	CachedRiverMap = Generator->GetRiverMap();
 	CachedLakeMap = Generator->GetLakeMap();
+	CachedWaterfallMap = Generator->GetWaterfallMap();
+	CachedFlowAccumulation = Generator->GetFlowAccumulation();
 
 	// Debug_Rivers: blue where river, grayscale elevation otherwise
 	{
@@ -173,6 +177,64 @@ void AWorldGenerationActor::Step3_GenerateHydrology()
 		}
 
 		Debug_Lakes = CreateColorDebugTexture(TextureResolution, LakePixels);
+	}
+
+	// Debug_Waterfalls: magenta where waterfall, grayscale elevation otherwise
+	{
+		const int32 TotalPixels = TextureResolution * TextureResolution;
+		TArray<FColor> WaterfallPixels;
+		WaterfallPixels.SetNumUninitialized(TotalPixels);
+
+		for (int32 i = 0; i < TotalPixels; ++i)
+		{
+			if (CachedWaterfallMap[i] == 1)
+			{
+				WaterfallPixels[i] = FColor(230, 50, 230, 255);
+			}
+			else if (CachedRiverMap[i] > 0.0f)
+			{
+				const uint8 Intensity = static_cast<uint8>(FMath::Clamp(CachedRiverMap[i] * 255.0f, 50.0f, 255.0f));
+				WaterfallPixels[i] = FColor(0, 0, Intensity, 255);
+			}
+			else
+			{
+				const uint8 Gray = static_cast<uint8>(FMath::Clamp(CachedCombinedElevation[i] * 255.0f, 0.0f, 255.0f));
+				WaterfallPixels[i] = FColor(Gray, Gray, Gray, 255);
+			}
+		}
+
+		Debug_Waterfalls = CreateColorDebugTexture(TextureResolution, WaterfallPixels);
+	}
+
+	// Debug_FlowAccumulation: log-normalized grayscale
+	{
+		const int32 TotalPixels = TextureResolution * TextureResolution;
+		float MaxAccum = 1.0f;
+		for (int32 i = 0; i < TotalPixels; ++i)
+		{
+			if (CachedFlowAccumulation[i] > MaxAccum)
+			{
+				MaxAccum = CachedFlowAccumulation[i];
+			}
+		}
+
+		const float LogMax = FMath::Loge(MaxAccum);
+		TArray<float> LogNormAccum;
+		LogNormAccum.SetNumUninitialized(TotalPixels);
+
+		for (int32 i = 0; i < TotalPixels; ++i)
+		{
+			if (CachedFlowAccumulation[i] > 1.0f && LogMax > 0.0f)
+			{
+				LogNormAccum[i] = FMath::Clamp(FMath::Loge(CachedFlowAccumulation[i]) / LogMax, 0.0f, 1.0f);
+			}
+			else
+			{
+				LogNormAccum[i] = 0.0f;
+			}
+		}
+
+		Debug_FlowAccumulation = CreateGrayscaleDebugTexture(TextureResolution, LogNormAccum);
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor: Stage 3 Hydrology complete"));
@@ -464,8 +526,11 @@ void AWorldGenerationActor::ClearAll()
 	Debug_BaseElevation = nullptr;
 	Debug_UpliftMap = nullptr;
 	Debug_CombinedElevation = nullptr;
+	Debug_PlateauMap = nullptr;
 	Debug_Rivers = nullptr;
 	Debug_Lakes = nullptr;
+	Debug_Waterfalls = nullptr;
+	Debug_FlowAccumulation = nullptr;
 	Debug_ErodedElevation = nullptr;
 	Debug_Temperature = nullptr;
 	Debug_Moisture = nullptr;
@@ -484,6 +549,9 @@ void AWorldGenerationActor::ClearAll()
 	CachedPrecipitation.Empty();
 	CachedFinalElevation.Empty();
 	CachedLakeMap.Empty();
+	CachedWaterfallMap.Empty();
+	CachedFlowAccumulation.Empty();
+	CachedPlateauMap.Empty();
 	CachedBiomeMap.Empty();
 	CachedVolcanicCenters.Empty();
 

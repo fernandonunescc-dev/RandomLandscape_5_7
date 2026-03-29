@@ -93,11 +93,20 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|2-Uplift")
 	TObjectPtr<UTexture2D> Debug_CombinedElevation = nullptr;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|2-Uplift")
+	TObjectPtr<UTexture2D> Debug_PlateauMap = nullptr;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|3-Hydrology")
 	TObjectPtr<UTexture2D> Debug_Rivers = nullptr;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|3-Hydrology")
 	TObjectPtr<UTexture2D> Debug_Lakes = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|3-Hydrology")
+	TObjectPtr<UTexture2D> Debug_Waterfalls = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|3-Hydrology")
+	TObjectPtr<UTexture2D> Debug_FlowAccumulation = nullptr;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|4-Erosion")
 	TObjectPtr<UTexture2D> Debug_ErodedElevation = nullptr;
@@ -176,6 +185,9 @@ private:
 	TArray<float> CachedPrecipitation;
 	TArray<float> CachedFinalElevation;
 	TArray<uint8> CachedLakeMap;
+	TArray<uint8> CachedWaterfallMap;
+	TArray<float> CachedFlowAccumulation;
+	TArray<float> CachedPlateauMap;
 	TArray<int32> CachedBiomeMap;
 	TArray<FVector2D> CachedVolcanicCenters;
 

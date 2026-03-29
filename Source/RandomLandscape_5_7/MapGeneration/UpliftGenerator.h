@@ -54,6 +54,9 @@ public:
 	/** Final combined elevation (base + uplift, clamped), range [0,1]. */
 	const TArray<float>& GetCombinedElevation() const { return CombinedElevation; }
 
+	/** Plateau mask per pixel [0,1] — 1.0 means fully plateau. */
+	const TArray<float>& GetPlateauMap() const { return PlateauMap; }
+
 	/** Normalized positions of volcanic hotspot centers. */
 	const TArray<FVector2D>& GetVolcanicCenters() const { return VolcanicCenters; }
 
@@ -82,6 +85,9 @@ private:
 	/** Base + uplift, 0-1. */
 	TArray<float> CombinedElevation;
 
+	/** Plateau mask, 0-1 (1 = fully plateau). */
+	TArray<float> PlateauMap;
+
 	/** Normalized positions of volcanic centers. */
 	TArray<FVector2D> VolcanicCenters;
 
@@ -107,6 +113,12 @@ private:
 
 	/** Place volcanic hotspot cones (with craters) and add them to UpliftMap. */
 	void GenerateVolcanicHotspots(const TArray<uint8>& LandMask);
+
+	/** Compute rolling hills via FBM and add to UpliftMap. */
+	void GenerateHills(const TArray<uint8>& LandMask);
+
+	/** Compute plateau mask and flatten qualifying terrain. */
+	void GeneratePlateaus(const TArray<uint8>& LandMask);
 
 	/** Merge BaseElevation and UpliftMap into CombinedElevation. */
 	void CombineElevation();
