@@ -28,11 +28,27 @@ struct RANDOMLANDSCAPE_5_7_API FHeightmapSettings
 	int32 TextureResolution = 512;
 
 	/**
+	 * Maximum terrain height in world units (cm).
+	 * Controls the absolute ceiling of the terrain mesh.
+	 * Individual biome HeightScale values are relative to this.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heightmap", meta = (ClampMin = "1000.0", ClampMax = "200000.0", UIMin = "1000.0", UIMax = "200000.0"))
+	float MaxMapHeight = 50000.0f;
+
+	/**
 	 * Width of the blending zone at biome boundaries (in pixels).
 	 * Larger values produce smoother transitions between biomes.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heightmap", meta = (ClampMin = "1", ClampMax = "64"))
-	int32 BlendRadius = 16;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heightmap", meta = (ClampMin = "1", ClampMax = "128"))
+	int32 BlendRadius = 32;
+
+	/**
+	 * Number of smoothing passes applied to the composited heightmap.
+	 * Each pass blurs sharp edges between biomes for a more natural look.
+	 * 0 = no smoothing (raw heightmaps), higher = smoother terrain.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Heightmap", meta = (ClampMin = "0", ClampMax = "20"))
+	int32 SmoothingPasses = 4;
 };
 
 /**
@@ -50,6 +66,13 @@ struct FBiomeHeightmapResult
 	/** Display name */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Heightmap")
 	FString DisplayName;
+
+	/**
+	 * Height scale used for this biome (0.0 - 1.0).
+	 * This fraction of MaxMapHeight is the tallest this biome can reach.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Heightmap")
+	float HeightScale = 0.0f;
 
 	/**
 	 * Per-biome heightmap texture. White = tallest, Black = lowest.

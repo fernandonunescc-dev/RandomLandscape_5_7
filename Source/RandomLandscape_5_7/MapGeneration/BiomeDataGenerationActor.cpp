@@ -176,7 +176,7 @@ void ABiomeDataGenerationActor::GenerateMesh()
 
 	const int32 Resolution = LandmassSettings.TextureResolution;
 	const float WorldSizeCm = LandmassSettings.GetWorldSizeCm();
-	const float MaxMapHeight = LandmassSettings.MaxMapHeight;
+	const float MaxMapHeight = HeightmapSettings.MaxMapHeight;
 
 	BuildTerrainMesh(
 		CachedBiomeMap,
@@ -352,6 +352,47 @@ void ABiomeDataGenerationActor::BuildTerrainMesh(
 			MaxH = FMath::Max(MaxH, Pair.Value[i]);
 		}
 		CompositeHeights[i] = MaxH;
+	}
+
+	// ---- Step 2b: Smooth composited heightmap ----
+	// Apply box blur passes to remove sharp cliffs between biomes.
+	// Each pass averages each pixel with its 8 neighbors.
+	const int32 SmoothPasses = HeightmapSettings.SmoothingPasses;
+	if (SmoothPasses > 0)
+	{
+		TArray<float> TempHeights;
+		TempHeights.SetNumZeroed(TotalPixels);
+
+		for (int32 Pass = 0; Pass < SmoothPasses; ++Pass)
+		{
+			for (int32 Y = 0; Y < Resolution; ++Y)
+			{
+				for (int32 X = 0; X < Resolution; ++X)
+				{
+					float Sum = 0.0f;
+					float Count = 0.0f;
+
+					for (int32 DY = -1; DY <= 1; ++DY)
+					{
+						for (int32 DX = -1; DX <= 1; ++DX)
+						{
+							const int32 NX = X + DX;
+							const int32 NY = Y + DY;
+							if (NX >= 0 && NX < Resolution && NY >= 0 && NY < Resolution)
+							{
+								Sum += CompositeHeights[NY * Resolution + NX];
+								Count += 1.0f;
+							}
+						}
+					}
+
+					TempHeights[Y * Resolution + X] = Sum / Count;
+				}
+			}
+
+			// Swap buffers for next pass
+			Swap(CompositeHeights, TempHeights);
+		}
 	}
 
 	// ---- Step 3: Build color lookup from biome layers ----

@@ -119,6 +119,7 @@ bool UHeightmapGenerator::Generate(
 		FBiomeHeightmapResult Result;
 		Result.BiomeType = Layer.BiomeType;
 		Result.DisplayName = Layer.DisplayName;
+		Result.HeightScale = Layer.TerrainSettings.HeightScale;
 		Result.HeightmapTexture = CreateHeightmapTexture(Res, HeightData);
 
 		Results.Add(MoveTemp(Result));
