@@ -41,7 +41,7 @@ public:
 	 *   4. IdentifyLakes          – local-minima detection + BFS expansion
 	 *
 	 * @param Elevation  Combined elevation map [0,1] from Stage 2
-	 * @param LandMask   Binary mask (255 = land, 0 = ocean) from Stage 1
+	 * @param LandMask   Binary mask (1 = land, 0 = ocean) from Stage 1
 	 * @return true on success
 	 */
 	bool Generate(const TArray<float>& Elevation, const TArray<uint8>& LandMask);

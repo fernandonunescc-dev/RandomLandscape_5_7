@@ -40,7 +40,7 @@ public:
 	 *   3. GenerateVolcanicHotspots – cone/crater features
 	 *   4. CombineElevation        – merge all layers
 	 *
-	 * @param LandMask  Binary mask (255 = land, 0 = ocean) from Stage 1
+	 * @param LandMask  Binary mask (1 = land, 0 = ocean) from Stage 1
 	 * @return true on success
 	 */
 	bool Generate(const TArray<uint8>& LandMask);
@@ -94,7 +94,7 @@ private:
 	 * Ocean pixels get distance 0; land pixels receive the shortest distance
 	 * in pixels to the nearest ocean cell.
 	 *
-	 * @param LandMask      Binary mask (255 = land)
+	 * @param LandMask      Binary mask (1 = land)
 	 * @param OutDistances   Output array sized Resolution*Resolution
 	 */
 	void ComputeCoastlineDistance(const TArray<uint8>& LandMask, TArray<float>& OutDistances);

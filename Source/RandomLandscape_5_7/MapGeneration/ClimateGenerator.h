@@ -39,7 +39,7 @@ public:
 	 *   3. ComputePrecipitation— combine moisture and temperature
 	 *
 	 * @param Elevation Combined/eroded elevation [0,1]
-	 * @param LandMask  Binary mask (255 = land, 0 = ocean)
+	 * @param LandMask  Binary mask (1 = land, 0 = ocean)
 	 * @param RiverMap  Normalized river strength [0,1]
 	 * @param LakeMap   Binary mask (1 = lake, 0 = not lake)
 	 * @return true on success

@@ -40,7 +40,7 @@ public:
 	 * @param InputElevation Combined elevation map [0,1] from Stage 2
 	 * @param RiverMap       Normalized river strength [0,1] from Stage 3
 	 * @param UpliftMap      Uplift intensity [0,1] from Stage 2
-	 * @param LandMask       Binary mask (255 = land, 0 = ocean) from Stage 1
+	 * @param LandMask       Binary mask (1 = land, 0 = ocean) from Stage 1
 	 * @return true on success
 	 */
 	bool Generate(const TArray<float>& InputElevation, const TArray<float>& RiverMap,

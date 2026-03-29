@@ -61,7 +61,7 @@ public:
 	 *
 	 * @param ErodedElevation Elevation map [0,1] from Stage 4
 	 * @param BiomeMap        Per-pixel biome ID map from Stage 6
-	 * @param LandMask        Binary mask (255 = land, 0 = ocean) from Stage 1
+	 * @param LandMask        Binary mask (1 = land, 0 = ocean) from Stage 1
 	 * @return true on success
 	 */
 	bool Generate(const TArray<float>& ErodedElevation, const TArray<int32>& BiomeMap, const TArray<uint8>& LandMask);
@@ -109,7 +109,7 @@ private:
 	 * Uses a double-buffered swap to avoid order-dependent artifacts.
 	 * Ocean pixels are left at 0.
 	 *
-	 * @param LandMask Binary mask (255 = land, 0 = ocean)
+	 * @param LandMask Binary mask (1 = land, 0 = ocean)
 	 */
 	void ApplySmoothing(const TArray<uint8>& LandMask);
 };
