@@ -260,13 +260,19 @@ void UHydrologyGenerator::IdentifyRivers()
 	const float Threshold = Settings.RiverThreshold;
 	const float LogMax = FMath::Loge(MaxAccum);
 
+	if (LogMax <= 0.0f)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HydrologyGenerator – LogMax <= 0; skipping river identification"));
+		return;
+	}
+
 	for (int32 i = 0; i < TotalPixels; ++i)
 	{
 		const float FracAccum = FlowAccumulation[i] / MaxAccum;
 
 		if (FracAccum > Threshold)
 		{
-			RiverMap[i] = FMath::Loge(FlowAccumulation[i]) / LogMax;
+			RiverMap[i] = FMath::Clamp(FMath::Loge(FlowAccumulation[i]) / LogMax, 0.0f, 1.0f);
 		}
 		else
 		{

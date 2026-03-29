@@ -674,7 +674,14 @@ UTexture2D* AWorldGenerationActor::CreateColorDebugTexture(int32 Res, const TArr
 	Texture->SRGB = false;
 	Texture->CompressionSettings = TC_VectorDisplacementmap;
 
-	FTexture2DMipMap& Mip = Texture->GetPlatformData()->Mips[0];
+	FTexturePlatformData* PlatformData = Texture->GetPlatformData();
+	if (!PlatformData || PlatformData->Mips.Num() == 0)
+	{
+		UE_LOG(LogTemp, Error, TEXT("AWorldGenerationActor: Texture has no platform data"));
+		return nullptr;
+	}
+
+	FTexture2DMipMap& Mip = PlatformData->Mips[0];
 	void* Data = Mip.BulkData.Lock(LOCK_READ_WRITE);
 	FMemory::Memcpy(Data, PixelData.GetData(), PixelData.Num() * sizeof(FColor));
 	Mip.BulkData.Unlock();

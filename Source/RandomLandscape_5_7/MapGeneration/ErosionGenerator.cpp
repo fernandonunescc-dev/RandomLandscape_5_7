@@ -151,7 +151,7 @@ void UErosionGenerator::ApplyThermalErosion(const TArray<uint8>& LandMask)
 
 				if (Diff > Threshold)
 				{
-					const float Transfer = Rate * (Diff - Threshold) * 0.5f;
+					const float Transfer = FMath::Min(Rate * (Diff - Threshold) * 0.5f, TempBuffer[i] * 0.25f);
 					TempBuffer[i] -= Transfer;
 					TempBuffer[NIdx] += Transfer;
 					TotalMoved += static_cast<double>(Transfer);
