@@ -10,6 +10,74 @@
 // Forward declaration for EBiomeType used in per-biome data tables
 // (EBiomeType is defined in BiomeTypes.h; avoid circular include)
 
+// ==================== Terrain Validation Types ====================
+
+/** Severity level for terrain plausibility issues. */
+UENUM(BlueprintType)
+enum class EValidationSeverity : uint8
+{
+	Info     UMETA(DisplayName = "Info"),
+	Warning  UMETA(DisplayName = "Warning"),
+	Error    UMETA(DisplayName = "Error")
+};
+
+/** A single terrain plausibility issue found during validation. */
+USTRUCT(BlueprintType)
+struct RANDOMLANDSCAPE_5_7_API FTerrainValidationError
+{
+	GENERATED_BODY()
+
+	/** Which check produced this error (e.g. "UphillRiver", "RidgeLake") */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Validation")
+	FString CheckName;
+
+	/** How severe the issue is */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Validation")
+	EValidationSeverity Severity = EValidationSeverity::Warning;
+
+	/** Human-readable explanation of what went wrong */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Validation")
+	FString Description;
+
+	/** Number of pixels or sites affected */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Validation")
+	int32 AffectedPixelCount = 0;
+
+	/** Fraction of relevant pixels affected (0-1) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Validation")
+	float AffectedPercentage = 0.0f;
+
+	/** Suggested parameter tweak to fix the issue */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Validation")
+	FString SuggestedFix;
+
+	/** Debug map name to inspect for this issue */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Validation")
+	FString DebugMapToInspect;
+};
+
+/** Aggregate result of all terrain plausibility checks. */
+USTRUCT(BlueprintType)
+struct RANDOMLANDSCAPE_5_7_API FTerrainValidationResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Validation")
+	TArray<FTerrainValidationError> Errors;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Validation")
+	int32 TotalChecksRun = 0;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Validation")
+	int32 ErrorCount = 0;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Validation")
+	int32 WarningCount = 0;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Validation")
+	int32 InfoCount = 0;
+};
+
 /**
  * Per-biome terrain refinement profile.
  * Describes the noise character applied during Stage 7 for a single biome type.

@@ -183,6 +183,14 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Pipeline|Actions")
 	void ClearAll();
 
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Pipeline|Actions")
+	void ValidateTerrain();
+
+	// ==================== Validation Result ====================
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|Validation")
+	FTerrainValidationResult LastValidationResult;
+
 private:
 	// ==================== Cached Pipeline Data ====================
 
@@ -201,6 +209,7 @@ private:
 	TArray<uint8> CachedLakeMap;
 	TArray<uint8> CachedWaterfallMap;
 	TArray<float> CachedFlowAccumulation;
+	TArray<int32> CachedFlowDirection;
 	TArray<float> CachedPlateauMap;
 	TArray<int32> CachedBiomeMap;
 	TArray<float> CachedSlopeMap;

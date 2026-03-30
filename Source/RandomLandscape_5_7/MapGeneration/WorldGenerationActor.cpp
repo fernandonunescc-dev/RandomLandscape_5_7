@@ -8,6 +8,7 @@
 #include "ClimateGenerator.h"
 #include "BiomeAssignmentGenerator.h"
 #include "TerrainRefinementGenerator.h"
+#include "TerrainValidator.h"
 #include "Engine/Texture2D.h"
 
 AWorldGenerationActor::AWorldGenerationActor()
@@ -133,6 +134,7 @@ void AWorldGenerationActor::Step3_GenerateHydrology()
 	CachedLakeMap = Generator->GetLakeMap();
 	CachedWaterfallMap = Generator->GetWaterfallMap();
 	CachedFlowAccumulation = Generator->GetFlowAccumulation();
+	CachedFlowDirection = Generator->GetFlowDirection();
 
 	// Debug_Rivers: blue where river, grayscale elevation otherwise
 	{
@@ -659,6 +661,7 @@ void AWorldGenerationActor::ClearAll()
 	CachedLakeMap.Empty();
 	CachedWaterfallMap.Empty();
 	CachedFlowAccumulation.Empty();
+	CachedFlowDirection.Empty();
 	CachedPlateauMap.Empty();
 	CachedBiomeMap.Empty();
 	CachedSlopeMap.Empty();
@@ -674,6 +677,59 @@ void AWorldGenerationActor::ClearAll()
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor: All generated data cleared"));
+}
+
+// ------------------------------------------------------------
+// Validate Terrain
+// ------------------------------------------------------------
+void AWorldGenerationActor::ValidateTerrain()
+{
+	if (CachedBiomeMap.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AWorldGenerationActor: Run GenerateAll or complete all stages before validating"));
+		return;
+	}
+
+	UTerrainValidator* Validator = NewObject<UTerrainValidator>(this);
+	if (!Validator)
+	{
+		UE_LOG(LogTemp, Error, TEXT("AWorldGenerationActor: Failed to create UTerrainValidator"));
+		return;
+	}
+
+	Validator->Initialize(TextureResolution);
+
+	LastValidationResult = Validator->Validate(
+		CachedLandMask,
+		CachedCombinedElevation,
+		CachedUpliftMap,
+		CachedFlowDirection,
+		CachedRiverMap,
+		CachedLakeMap,
+		CachedWaterfallMap,
+		CachedCanyonMask,
+		CachedErodedElevation,
+		CachedTemperature,
+		CachedMoisture,
+		CachedBiomeMap,
+		CachedSlopeMap,
+		CachedVolcanicCenters);
+
+	// Log each issue to the output log
+	for (const FTerrainValidationError& Err : LastValidationResult.Errors)
+	{
+		const TCHAR* SeverityStr =
+			(Err.Severity == EValidationSeverity::Error) ? TEXT("ERROR") :
+			(Err.Severity == EValidationSeverity::Warning) ? TEXT("WARN") : TEXT("INFO");
+
+		UE_LOG(LogTemp, Log,
+			TEXT("  [%s] %s: %s | Fix: %s | Inspect: %s"),
+			SeverityStr, *Err.CheckName, *Err.Description, *Err.SuggestedFix, *Err.DebugMapToInspect);
+	}
+
+	UE_LOG(LogTemp, Log,
+		TEXT("AWorldGenerationActor: Validation complete — %d errors, %d warnings, %d info"),
+		LastValidationResult.ErrorCount, LastValidationResult.WarningCount, LastValidationResult.InfoCount);
 }
 
 // ------------------------------------------------------------
