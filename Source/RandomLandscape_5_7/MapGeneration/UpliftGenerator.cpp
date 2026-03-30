@@ -136,8 +136,8 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 	// Coastal variation: use low-frequency noise to vary gradient width per pixel
 	const float CoastalVar     = FMath::Clamp(Settings.CoastalVariation, 0.0f, 1.0f);
 	const float CoastalVarFreq = Settings.CoastalVariationFrequency;
-	// Offset seed to decorrelate coastal variation noise from base elevation noise
-	const int32 CoastalVarSeed = ActualSeed + 500;
+	// Decorrelate coastal variation noise from other sub-stage seeds
+	const int32 CoastalVarSeed = WorldNoise::DeriveSeed(ActualSeed, 5);
 
 	for (int32 i = 0; i < TotalPixels; ++i)
 	{
@@ -156,9 +156,10 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 		{
 			// Sample low-frequency noise for this position, returns ~[-1, 1]
 			const float VarNoise = WorldNoise::FBM(NormX * CoastalVarFreq, NormY * CoastalVarFreq, 2, 0.5f, CoastalVarSeed);
-			// Map noise to a multiplier: centre on 1.0, spread by CoastalVar
-			// At CoastalVar=1: multiplier ranges [0.25, 1.75] → steep cliffs to gentle beaches
-			const float Multiplier = 1.0f + VarNoise * CoastalVar * 0.75f;
+			// Map noise to a multiplier: centre on 1.0, spread by CoastalVar.
+			// Max spread factor — at CoastalVar=1, multiplier ranges ~[0.25, 1.75].
+			constexpr float CoastalVariationScale = 0.75f;
+			const float Multiplier = 1.0f + VarNoise * CoastalVar * CoastalVariationScale;
 			LocalGradWidth = FMath::Max(GradWidth * Multiplier, 1.0f);
 		}
 
