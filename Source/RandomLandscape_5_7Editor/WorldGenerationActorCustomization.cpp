@@ -133,6 +133,7 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, LandCoveragePercent), "Land Coverage %");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MaxMapHeight), "Max Map Height (m)");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, OceanLevel), "Ocean Level (m)");
+	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, SeaLevel), "Sea Level (normalized)");
 
 	// ==================== STAGE GROUPS ====================
 
@@ -230,6 +231,9 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 		S.DebugTextureProps.Add(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, Debug_BiomeMap));
 		S.DebugTextureProps.Add(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, Debug_SlopeMap));
 		S.DebugTextureProps.Add(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, Debug_BiomeBlendWeights));
+		S.DebugTextureProps.Add(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, Debug_TerrainArchetypeMap));
+		S.DebugTextureProps.Add(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, Debug_SurfaceOverlayMap));
+		S.DebugTextureProps.Add(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, Debug_GeneratedFeatureMap));
 		Stages.Add(MoveTemp(S));
 	}
 

@@ -487,13 +487,17 @@ void AWorldGenerationActor::Step6_GenerateBiomes()
 	Generator->Initialize(BiomeAssignmentSettings, TextureResolution);
 
 	if (!Generator->Generate(CachedErodedElevation, CachedTemperature, CachedMoisture,
-		CachedPrecipitation, CachedLandMask, CachedRiverMap, CachedLakeMap, CachedVolcanicCenters))
+		CachedPrecipitation, CachedLandMask, CachedRiverMap, CachedLakeMap, CachedVolcanicCenters,
+		CachedPlateauMap, CachedCanyonMask, CachedWaterfallMap, SeaLevel))
 	{
 		UE_LOG(LogTemp, Error, TEXT("AWorldGenerationActor: Biome assignment failed"));
 		return;
 	}
 
 	CachedBiomeMap = Generator->GetBiomeMap();
+	CachedTerrainArchetypeMap = Generator->GetTerrainArchetypeMap();
+	CachedSurfaceOverlayMap = Generator->GetSurfaceOverlayMap();
+	CachedGeneratedFeatureMap = Generator->GetGeneratedFeatureMap();
 	CachedSlopeMap = Generator->GetSlopeMap();
 	CachedBiomeBlendWeights = Generator->GetBiomeBlendWeights();
 
@@ -544,6 +548,59 @@ void AWorldGenerationActor::Step6_GenerateBiomes()
 		}
 
 		Debug_BiomeBlendWeights = CreateColorDebugTexture(TextureResolution, BlendPixels);
+	}
+
+	// Debug_TerrainArchetypeMap: color each pixel by terrain archetype
+	{
+		const int32 TotalPixels = TextureResolution * TextureResolution;
+		TArray<FColor> ArchetypePixels;
+		ArchetypePixels.SetNumUninitialized(TotalPixels);
+
+		for (int32 i = 0; i < TotalPixels; ++i)
+		{
+			const ETerrainArchetype Archetype = static_cast<ETerrainArchetype>(CachedTerrainArchetypeMap[i]);
+			const FLinearColor ArchetypeColor = GetArchetypeDebugColor(Archetype);
+			ArchetypePixels[i] = ArchetypeColor.ToFColor(false);
+		}
+
+		Debug_TerrainArchetypeMap = CreateColorDebugTexture(TextureResolution, ArchetypePixels);
+	}
+
+	// Debug_SurfaceOverlayMap: color each pixel by surface overlay
+	{
+		const int32 TotalPixels = TextureResolution * TextureResolution;
+		TArray<FColor> OverlayPixels;
+		OverlayPixels.SetNumUninitialized(TotalPixels);
+
+		for (int32 i = 0; i < TotalPixels; ++i)
+		{
+			const ESurfaceOverlay Overlay = static_cast<ESurfaceOverlay>(CachedSurfaceOverlayMap[i]);
+			const FLinearColor OverlayColor = GetSurfaceOverlayDebugColor(Overlay);
+			OverlayPixels[i] = OverlayColor.ToFColor(false);
+		}
+
+		Debug_SurfaceOverlayMap = CreateColorDebugTexture(TextureResolution, OverlayPixels);
+	}
+
+	// Debug_GeneratedFeatureMap: highlight water features
+	{
+		const int32 TotalPixels = TextureResolution * TextureResolution;
+		TArray<FColor> FeaturePixels;
+		FeaturePixels.SetNumUninitialized(TotalPixels);
+
+		for (int32 i = 0; i < TotalPixels; ++i)
+		{
+			const EGeneratedFeature Feature = static_cast<EGeneratedFeature>(CachedGeneratedFeatureMap[i]);
+			switch (Feature)
+			{
+			case EGeneratedFeature::River:     FeaturePixels[i] = FColor(30, 80, 200, 255); break;
+			case EGeneratedFeature::Lake:      FeaturePixels[i] = FColor(20, 60, 160, 255); break;
+			case EGeneratedFeature::Waterfall: FeaturePixels[i] = FColor(100, 180, 255, 255); break;
+			default:                           FeaturePixels[i] = FColor(0, 0, 0, 255); break;
+			}
+		}
+
+		Debug_GeneratedFeatureMap = CreateColorDebugTexture(TextureResolution, FeaturePixels);
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor: Stage 6 Biomes complete"));
@@ -674,6 +731,9 @@ void AWorldGenerationActor::ClearAll()
 	Debug_BiomeMap = nullptr;
 	Debug_SlopeMap = nullptr;
 	Debug_BiomeBlendWeights = nullptr;
+	Debug_TerrainArchetypeMap = nullptr;
+	Debug_SurfaceOverlayMap = nullptr;
+	Debug_GeneratedFeatureMap = nullptr;
 	Debug_FinalElevation = nullptr;
 
 	CachedLandMask.Empty();
@@ -694,6 +754,9 @@ void AWorldGenerationActor::ClearAll()
 	CachedFlowDirection.Empty();
 	CachedPlateauMap.Empty();
 	CachedBiomeMap.Empty();
+	CachedTerrainArchetypeMap.Empty();
+	CachedSurfaceOverlayMap.Empty();
+	CachedGeneratedFeatureMap.Empty();
 	CachedSlopeMap.Empty();
 	CachedBiomeBlendWeights.Empty();
 	CachedVolcanicCenters.Empty();
@@ -883,6 +946,13 @@ void AWorldGenerationActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, OceanLevel))
 	{
 		GenerateMesh();
+		return;
+	}
+
+	// Sea level affects biome classification (stage 6)
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, SeaLevel))
+	{
+		RegenerateFromStage(6);
 		return;
 	}
 }

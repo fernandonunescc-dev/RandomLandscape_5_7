@@ -94,6 +94,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "0.0", ClampMax = "100.0"))
 	float OceanLevel = 15.0f;
 
+	/** Configurable sea level as a normalized elevation threshold [0,1].
+	 *  Land pixels below this value are treated as near- or below-sea-level
+	 *  terrain during classification.  Does NOT change the land/ocean mask —
+	 *  that is determined by Stage 1 (Landmass).  Default 0 means the
+	 *  land/ocean boundary IS sea level (traditional behavior). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "0.0", ClampMax = "0.5", Tooltip = "Normalised sea-level elevation threshold. Land pixels below this elevation are considered near sea level for classification purposes. 0 means the land/ocean boundary is sea level (default behaviour)."))
+	float SeaLevel = 0.0f;
+
 	// ==================== Per-Stage Settings ====================
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|1-Landmass")
@@ -172,6 +180,15 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|6-Biomes")
 	TObjectPtr<UTexture2D> Debug_BiomeBlendWeights = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|6-Biomes")
+	TObjectPtr<UTexture2D> Debug_TerrainArchetypeMap = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|6-Biomes")
+	TObjectPtr<UTexture2D> Debug_SurfaceOverlayMap = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|6-Biomes")
+	TObjectPtr<UTexture2D> Debug_GeneratedFeatureMap = nullptr;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|7-Refinement")
 	TObjectPtr<UTexture2D> Debug_FinalElevation = nullptr;
@@ -256,6 +273,9 @@ private:
 	TArray<int32> CachedFlowDirection;
 	TArray<float> CachedPlateauMap;
 	TArray<int32> CachedBiomeMap;
+	TArray<int32> CachedTerrainArchetypeMap;
+	TArray<int32> CachedSurfaceOverlayMap;
+	TArray<int32> CachedGeneratedFeatureMap;
 	TArray<float> CachedSlopeMap;
 	/** Flat array: pixel i → [i*8 .. i*8+7], one weight per EBiomeType. */
 	TArray<float> CachedBiomeBlendWeights;

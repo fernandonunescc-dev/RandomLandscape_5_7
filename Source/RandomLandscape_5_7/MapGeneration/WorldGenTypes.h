@@ -449,6 +449,36 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water Proximity", meta = (ClampMin = "0.0", ClampMax = "0.5", Tooltip = "Normalised moisture bonus added to pixels within the water proximity radius. Higher values create wider green corridors along rivers in otherwise dry terrain."))
 	float WaterProximityMoistureBonus = 0.15f;
 
+	// --- Terrain archetype thresholds (used by the three-tier classification) ---
+
+	/** Elevation slope threshold separating Plains from Hills (as max 8-connected elevation diff) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Archetype Thresholds", meta = (ClampMin = "0.01", ClampMax = "0.3", Tooltip = "Normalised slope above which low-elevation terrain is classified as Hills rather than Plains. Lower values create more hill coverage; higher values restrict hills to noticeably rolling terrain."))
+	float HillSlopeThreshold = 0.04f;
+
+	/** Normalised elevation above which the terrain archetype becomes Mountains (reuses MountainElevationThreshold for archetype) */
+
+	/** Minimum plateau mask strength for Plateaus archetype classification */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Archetype Thresholds", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Minimum value in the PlateauMap required for a pixel to be classified as the Plateaus terrain archetype. Higher values restrict plateaus to only the most well-defined flat-topped regions."))
+	float PlateauArchetypeThreshold = 0.3f;
+
+	// --- Surface overlay thresholds ---
+
+	/** Moisture above which Wetlands surface overlay is assigned (when near water) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Overlay Thresholds", meta = (ClampMin = "0.2", ClampMax = "1.0", Tooltip = "Normalised effective moisture above which terrain near water is classified with a Wetlands surface overlay. Wetlands require both high moisture and water proximity."))
+	float WetlandsMoistureThreshold = 0.7f;
+
+	/** Maximum water distance (pixels) for Wetlands classification */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Overlay Thresholds", meta = (ClampMin = "0", ClampMax = "64", Tooltip = "Maximum distance in pixels from a river or lake for a pixel to be eligible for Wetlands classification. Combined with the WetlandsMoistureThreshold."))
+	int32 WetlandsMaxWaterDistance = 12;
+
+	/** Temperature above which DesertScrub surface overlay is assigned (when not fully arid) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Overlay Thresholds", meta = (ClampMin = "0.2", ClampMax = "1.0", Tooltip = "Normalised temperature above which terrain with moderate moisture receives a DesertScrub surface overlay instead of bare Desert. DesertScrub is the semi-arid fringe around true deserts."))
+	float DesertScrubTemperatureThreshold = 0.55f;
+
+	/** Moisture range for DesertScrub: below DesertMoistureThreshold but above this value */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Surface Overlay Thresholds", meta = (ClampMin = "0.0", ClampMax = "0.5", Tooltip = "Normalised moisture below which DesertScrub is assigned instead of Grassland (when temperature is above DesertScrubTemperatureThreshold). Must be less than or equal to DesertMoistureThreshold + margin."))
+	float DesertScrubMoistureMax = 0.35f;
+
 	/** Biome blend radius in pixels for producing smooth blending weights at boundaries */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Blending", meta = (ClampMin = "0", ClampMax = "32", Tooltip = "Radius in pixels over which biome boundaries are blended. Larger values produce smoother, more gradual biome transitions; 0 creates hard biome edges."))
 	int32 BiomeBlendRadius = 8;

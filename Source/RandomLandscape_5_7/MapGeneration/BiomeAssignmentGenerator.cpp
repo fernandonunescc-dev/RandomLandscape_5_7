@@ -23,6 +23,9 @@ void UBiomeAssignmentGenerator::Initialize(const FBiomeAssignmentSettings& InSet
 
 	const int32 TotalPixels = Resolution * Resolution;
 	BiomeMap.SetNumZeroed(TotalPixels);
+	TerrainArchetypeMap.SetNumZeroed(TotalPixels);
+	SurfaceOverlayMap.SetNumZeroed(TotalPixels);
+	GeneratedFeatureMap.SetNumZeroed(TotalPixels);
 	SlopeMap.SetNumZeroed(TotalPixels);
 	WaterDistMap.SetNumZeroed(TotalPixels);
 	BiomeBlendWeights.SetNumZeroed(TotalPixels * NumBiomeTypes);
@@ -209,7 +212,9 @@ void UBiomeAssignmentGenerator::ComputeBiomeBlendWeights()
 bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const TArray<float>& Temperature,
 	const TArray<float>& Moisture, const TArray<float>& Precipitation,
 	const TArray<uint8>& LandMask, const TArray<float>& RiverMap,
-	const TArray<uint8>& LakeMap, const TArray<FVector2D>& VolcanicCenters)
+	const TArray<uint8>& LakeMap, const TArray<FVector2D>& VolcanicCenters,
+	const TArray<float>& PlateauMap, const TArray<uint8>& CanyonMask,
+	const TArray<uint8>& WaterfallMap, float SeaLevel)
 {
 	if (Resolution <= 0)
 	{
@@ -229,8 +234,13 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 		return false;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("BiomeAssignmentGenerator::Generate – starting (%d pixels, %d volcanic centers)"),
-		TotalPixels, VolcanicCenters.Num());
+	// PlateauMap, CanyonMask, WaterfallMap may be empty if earlier stages were skipped
+	const bool bHasPlateauMap = (PlateauMap.Num() == TotalPixels);
+	const bool bHasCanyonMask = (CanyonMask.Num() == TotalPixels);
+	const bool bHasWaterfallMap = (WaterfallMap.Num() == TotalPixels);
+
+	UE_LOG(LogTemp, Log, TEXT("BiomeAssignmentGenerator::Generate – starting (%d pixels, %d volcanic centers, SeaLevel=%.3f)"),
+		TotalPixels, VolcanicCenters.Num(), SeaLevel);
 
 	// --- Pre-compute derived inputs ---
 	ComputeSlopeMap(Elevation);
@@ -251,17 +261,38 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 	const float WaterProxRadius = static_cast<float>(Settings.WaterProximityRadiusPixels);
 	const bool bApplyWaterProximity = (WaterProxRadius > 0.0f);
 
+	const float WetlandsMaxDist = static_cast<float>(Settings.WetlandsMaxWaterDistance);
+
 	// Biome distribution counters
 	TMap<EBiomeType, int32> BiomeCounts;
 
 	for (int32 i = 0; i < TotalPixels; ++i)
 	{
 		EBiomeType Biome = EBiomeType::Land;
+		ETerrainArchetype Archetype = ETerrainArchetype::Plains;
+		ESurfaceOverlay Overlay = ESurfaceOverlay::Grassland;
+		EGeneratedFeature Feature = EGeneratedFeature::None;
+
+		// --- Generated feature layer ---
+		if (bHasWaterfallMap && WaterfallMap[i] != 0)
+		{
+			Feature = EGeneratedFeature::Waterfall;
+		}
+		else if (RiverMap[i] > 0.0f)
+		{
+			Feature = EGeneratedFeature::River;
+		}
+		else if (LakeMap[i] != 0)
+		{
+			Feature = EGeneratedFeature::Lake;
+		}
 
 		// 1. Ocean
 		if (LandMask[i] == 0)
 		{
 			Biome = EBiomeType::Ocean;
+			Archetype = ETerrainArchetype::Ocean;
+			Overlay = ESurfaceOverlay::None;
 		}
 		else
 		{
@@ -274,6 +305,64 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 				EffectiveMoisture = FMath::Min(EffectiveMoisture, 1.0f);
 			}
 
+			// --- Terrain archetype classification (shape-based) ---
+			// Priority: Canyons > Plateaus > Mountains > Desert > Hills > Plains
+			if (bHasCanyonMask && CanyonMask[i] != 0)
+			{
+				Archetype = ETerrainArchetype::Canyons;
+			}
+			else if (bHasPlateauMap && PlateauMap[i] >= Settings.PlateauArchetypeThreshold)
+			{
+				Archetype = ETerrainArchetype::Plateaus;
+			}
+			else if (Elevation[i] > Settings.MountainElevationThreshold
+				|| SlopeMap[i] > Settings.SteepSlopeThreshold)
+			{
+				Archetype = ETerrainArchetype::Mountains;
+			}
+			else if (Temperature[i] > Settings.DesertTemperatureThreshold
+				&& EffectiveMoisture < Settings.DesertMoistureThreshold)
+			{
+				Archetype = ETerrainArchetype::Desert;
+			}
+			else if (SlopeMap[i] > Settings.HillSlopeThreshold)
+			{
+				Archetype = ETerrainArchetype::Hills;
+			}
+			else
+			{
+				Archetype = ETerrainArchetype::Plains;
+			}
+
+			// --- Surface overlay classification (climate-based) ---
+			// Priority: Snow > Wetlands > Forest > DesertScrub > Grassland (default)
+			if (Temperature[i] < Settings.SnowTemperatureThreshold)
+			{
+				Overlay = ESurfaceOverlay::Snow;
+			}
+			else if (EffectiveMoisture >= Settings.WetlandsMoistureThreshold
+				&& WaterDistMap[i] < WetlandsMaxDist)
+			{
+				Overlay = ESurfaceOverlay::Wetlands;
+			}
+			else if (EffectiveMoisture > Settings.ForestMoistureThreshold
+				&& Temperature[i] > Settings.ForestTemperatureThreshold
+				&& Precipitation[i] > Settings.ForestPrecipitationThreshold)
+			{
+				Overlay = ESurfaceOverlay::Forest;
+			}
+			else if (Temperature[i] > Settings.DesertScrubTemperatureThreshold
+				&& EffectiveMoisture < Settings.DesertScrubMoistureMax
+				&& EffectiveMoisture >= Settings.DesertMoistureThreshold)
+			{
+				Overlay = ESurfaceOverlay::DesertScrub;
+			}
+			else
+			{
+				Overlay = ESurfaceOverlay::Grassland;
+			}
+
+			// --- Legacy biome classification (unchanged for backward compat) ---
 			// 2. Volcanic — near a volcanic center AND elevation > 0.3
 			bool bIsVolcanic = false;
 			if (VolcanicPixelPositions.Num() > 0 && Elevation[i] > 0.3f)
@@ -329,6 +418,9 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 		}
 
 		BiomeMap[i] = static_cast<int32>(Biome);
+		TerrainArchetypeMap[i] = static_cast<int32>(Archetype);
+		SurfaceOverlayMap[i] = static_cast<int32>(Overlay);
+		GeneratedFeatureMap[i] = static_cast<int32>(Feature);
 		BiomeCounts.FindOrAdd(Biome)++;
 	}
 
