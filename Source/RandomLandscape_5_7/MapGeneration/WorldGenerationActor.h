@@ -225,6 +225,6 @@ private:
 	/** Copy global pipeline settings into LandmassSettings before generation */
 	void SyncLandmassSettings();
 
-	/** Build terrain mesh from final elevation and biome data */
-	void BuildTerrainMesh();
+	/** Build terrain mesh from the given elevation data, optionally colored by biome map */
+	void BuildTerrainMesh(const TArray<float>& Elevation, const TArray<int32>* BiomeMap);
 };

@@ -612,13 +612,43 @@ void AWorldGenerationActor::GenerateAll()
 // ------------------------------------------------------------
 void AWorldGenerationActor::GenerateMesh()
 {
-	if (CachedFinalElevation.Num() == 0 || CachedBiomeMap.Num() == 0)
+	// Determine the best available elevation data (walk pipeline backwards)
+	const TArray<float>* ElevationSource = nullptr;
+
+	if (CachedFinalElevation.Num() > 0)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("AWorldGenerationActor: Run GenerateAll or complete all stages first"));
+		ElevationSource = &CachedFinalElevation;
+	}
+	else if (CachedErodedElevation.Num() > 0)
+	{
+		ElevationSource = &CachedErodedElevation;
+	}
+	else if (CachedCombinedElevation.Num() > 0)
+	{
+		ElevationSource = &CachedCombinedElevation;
+	}
+	else if (CachedLandMask.Num() > 0)
+	{
+		// Derive a flat elevation from the land mask (land = 0.1, ocean = 0)
+		const int32 Count = CachedLandMask.Num();
+		CachedCombinedElevation.SetNumUninitialized(Count);
+		for (int32 i = 0; i < Count; ++i)
+		{
+			CachedCombinedElevation[i] = (CachedLandMask[i] != 0) ? 0.1f : 0.0f;
+		}
+		ElevationSource = &CachedCombinedElevation;
+	}
+
+	if (!ElevationSource || ElevationSource->Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AWorldGenerationActor: Run at least Step1_GenerateLandmass before generating mesh"));
 		return;
 	}
 
-	BuildTerrainMesh();
+	// Biome map is optional — pass nullptr if not yet generated
+	const TArray<int32>* BiomeSource = (CachedBiomeMap.Num() > 0) ? &CachedBiomeMap : nullptr;
+
+	BuildTerrainMesh(*ElevationSource, BiomeSource);
 }
 
 // ------------------------------------------------------------
@@ -735,16 +765,18 @@ void AWorldGenerationActor::ValidateTerrain()
 // ------------------------------------------------------------
 // Build Terrain Mesh
 // ------------------------------------------------------------
-void AWorldGenerationActor::BuildTerrainMesh()
+void AWorldGenerationActor::BuildTerrainMesh(const TArray<float>& Elevation, const TArray<int32>* BiomeMap)
 {
 	const int32 Resolution = TextureResolution;
 	const int32 TotalPixels = Resolution * Resolution;
 
-	if (CachedFinalElevation.Num() != TotalPixels || CachedBiomeMap.Num() != TotalPixels || CachedLandMask.Num() != TotalPixels)
+	if (Elevation.Num() != TotalPixels || CachedLandMask.Num() != TotalPixels)
 	{
 		UE_LOG(LogTemp, Error, TEXT("AWorldGenerationActor: Data size mismatch - expected %d pixels"), TotalPixels);
 		return;
 	}
+
+	const bool bHasBiomeMap = BiomeMap && BiomeMap->Num() == TotalPixels;
 
 	// World size from MapSize enum
 	float WorldSizeCm;
@@ -794,10 +826,19 @@ void AWorldGenerationActor::BuildTerrainMesh()
 			}
 			else
 			{
-				WorldZ = CachedFinalElevation[Index] * MaxMapHeight;
-				const EBiomeType BiomeType = static_cast<EBiomeType>(CachedBiomeMap[Index]);
-				const FLinearColor BiomeColor = GetBiomeDebugColor(BiomeType);
-				VertexColors[Index] = BiomeColor.ToFColor(false);
+				WorldZ = Elevation[Index] * MaxMapHeight;
+				if (bHasBiomeMap)
+				{
+					const EBiomeType BiomeType = static_cast<EBiomeType>((*BiomeMap)[Index]);
+					const FLinearColor BiomeColor = GetBiomeDebugColor(BiomeType);
+					VertexColors[Index] = BiomeColor.ToFColor(false);
+				}
+				else
+				{
+					// Grayscale based on elevation when biome data is not available
+					const uint8 Gray = static_cast<uint8>(FMath::Clamp(Elevation[Index] * 255.0f, 0.0f, 255.0f));
+					VertexColors[Index] = FColor(Gray, Gray, Gray, 255);
+				}
 			}
 
 			Vertices[Index] = FVector(WorldX, WorldY, WorldZ);
