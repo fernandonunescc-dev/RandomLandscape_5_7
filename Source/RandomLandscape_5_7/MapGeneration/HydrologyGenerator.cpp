@@ -2,12 +2,11 @@
 #include "NoiseUtility.h"
 
 //------------------------------------------------------------------------------
-// D8 neighbor offsets: E, NE, N, NW, W, SW, S, SE
+// D8 neighbor offsets: imported from WorldNoise namespace in NoiseUtility.h
 //------------------------------------------------------------------------------
-static constexpr int32 DX8[] = {  1,  1,  0, -1, -1, -1,  0,  1 };
-static constexpr int32 DY8[] = {  0, -1, -1, -1,  0,  1,  1,  1 };
-static constexpr float DiagDist = 1.41421356f; // sqrt(2)
-static constexpr float Dist8[] = { 1.f, DiagDist, 1.f, DiagDist, 1.f, DiagDist, 1.f, DiagDist };
+using WorldNoise::DX8;
+using WorldNoise::DY8;
+using WorldNoise::Dist8;
 
 //------------------------------------------------------------------------------
 // Initialize: store settings, derive seed, record resolution

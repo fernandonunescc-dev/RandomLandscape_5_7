@@ -1,9 +1,9 @@
 #include "TerrainValidator.h"
 #include "BiomeTypes.h"
+#include "NoiseUtility.h"
 
-// D8 neighbor offsets: E, NE, N, NW, W, SW, S, SE
-static constexpr int32 DX8[] = {  1,  1,  0, -1, -1, -1,  0,  1 };
-static constexpr int32 DY8[] = {  0, -1, -1, -1,  0,  1,  1,  1 };
+using WorldNoise::DX8;
+using WorldNoise::DY8;
 
 // ----------------------------------------------------------------
 void UTerrainValidator::Initialize(int32 TextureResolution)

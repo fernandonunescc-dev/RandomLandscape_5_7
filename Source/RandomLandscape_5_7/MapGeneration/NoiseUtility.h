@@ -99,4 +99,11 @@ namespace WorldNoise
 		H ^= H >> 15;
 		return static_cast<int32>(H & 0x7FFFFFFF);
 	}
+
+	/** D8 neighbor offsets: E, NE, N, NW, W, SW, S, SE */
+	inline constexpr int32 DX8[] = {  1,  1,  0, -1, -1, -1,  0,  1 };
+	inline constexpr int32 DY8[] = {  0, -1, -1, -1,  0,  1,  1,  1 };
+
+	/** D8 neighbor distances (1 for cardinal, sqrt(2) for diagonal) */
+	inline constexpr float Dist8[] = { 1.f, 1.41421356f, 1.f, 1.41421356f, 1.f, 1.41421356f, 1.f, 1.41421356f };
 }

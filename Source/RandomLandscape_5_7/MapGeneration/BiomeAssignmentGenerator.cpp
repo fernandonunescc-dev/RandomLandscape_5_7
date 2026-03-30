@@ -1,4 +1,5 @@
 #include "BiomeAssignmentGenerator.h"
+#include "NoiseUtility.h"
 
 //------------------------------------------------------------------------------
 // 4-connected neighbor offsets for BFS: E, N, W, S
@@ -7,10 +8,10 @@ static constexpr int32 BDX4[] = {  1,  0, -1,  0 };
 static constexpr int32 BDY4[] = {  0, -1,  0,  1 };
 
 //------------------------------------------------------------------------------
-// 8-connected neighbor offsets
+// 8-connected neighbor offsets: imported from shared header
 //------------------------------------------------------------------------------
-static constexpr int32 BDX8[] = {  1,  1,  0, -1, -1, -1,  0,  1 };
-static constexpr int32 BDY8[] = {  0, -1, -1, -1,  0,  1,  1,  1 };
+using WorldNoise::DX8;
+using WorldNoise::DY8;
 
 //------------------------------------------------------------------------------
 // Initialize
@@ -53,8 +54,8 @@ void UBiomeAssignmentGenerator::ComputeSlopeMap(const TArray<float>& Elevation)
 
 		for (int32 Dir = 0; Dir < 8; ++Dir)
 		{
-			const int32 NX = X + BDX8[Dir];
-			const int32 NY = Y + BDY8[Dir];
+			const int32 NX = X + DX8[Dir];
+			const int32 NY = Y + DY8[Dir];
 			if (NX < 0 || NX >= Resolution || NY < 0 || NY >= Resolution) continue;
 			const float Diff = FMath::Abs(Elevation[i] - Elevation[NY * Resolution + NX]);
 			if (Diff > MaxDiff) MaxDiff = Diff;
