@@ -89,6 +89,28 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 	IDetailCategoryBuilder& PipelineCategory = DetailBuilder.EditCategory(
 		"Pipeline", FText::FromString("Pipeline"), ECategoryPriority::Important);
 
+	// ==================== QUICK PRESETS GROUP ====================
+
+	IDetailGroup& PresetsGroup = PipelineCategory.AddGroup(
+		"PresetsGroup", FText::FromString("Quick Presets"), true, true);
+
+	auto AddPresetProp = [&](FName PropName, const FString& DisplayName)
+	{
+		TSharedRef<IPropertyHandle> Handle = DetailBuilder.GetProperty(PropName);
+		if (Handle->IsValidHandle())
+		{
+			PresetsGroup.AddPropertyRow(Handle).DisplayName(FText::FromString(DisplayName));
+		}
+	};
+
+	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bAutoRegenerate), "Live Preview");
+	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeVolcano), "Include Volcano");
+	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeMountains), "Include Mountains");
+	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeHills), "Include Hills");
+	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludePlateaus), "Include Plateaus");
+	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeRivers), "Include Rivers");
+	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeCanyons), "Include Canyons");
+
 	// ==================== GLOBAL SETTINGS GROUP ====================
 
 	IDetailGroup& GlobalGroup = PipelineCategory.AddGroup(

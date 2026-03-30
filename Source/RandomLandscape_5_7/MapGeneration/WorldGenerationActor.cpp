@@ -763,6 +763,229 @@ void AWorldGenerationActor::ValidateTerrain()
 }
 
 // ------------------------------------------------------------
+// Auto-Regeneration: PostEditChangeProperty + Preset Helpers
+// ------------------------------------------------------------
+#if WITH_EDITOR
+
+void AWorldGenerationActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+
+	if (!bAutoRegenerate) return;
+
+	// Skip interactive changes (slider drag) to avoid regenerating on every frame
+	if (PropertyChangedEvent.ChangeType == EPropertyChangeType::Interactive) return;
+
+	const FName MemberName = PropertyChangedEvent.MemberProperty
+		? PropertyChangedEvent.MemberProperty->GetFName()
+		: NAME_None;
+
+	if (MemberName == NAME_None) return;
+
+	// --- Quick Preset toggles ---
+
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeVolcano))
+	{
+		ApplyPreset_Volcano(bIncludeVolcano);
+		RegenerateFromStage(2);
+		return;
+	}
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeMountains))
+	{
+		ApplyPreset_Mountains(bIncludeMountains);
+		RegenerateFromStage(2);
+		return;
+	}
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeHills))
+	{
+		ApplyPreset_Hills(bIncludeHills);
+		RegenerateFromStage(2);
+		return;
+	}
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludePlateaus))
+	{
+		ApplyPreset_Plateaus(bIncludePlateaus);
+		RegenerateFromStage(2);
+		return;
+	}
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeRivers))
+	{
+		ApplyPreset_Rivers(bIncludeRivers);
+		RegenerateFromStage(3);
+		return;
+	}
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeCanyons))
+	{
+		ApplyPreset_Canyons(bIncludeCanyons);
+		RegenerateFromStage(4);
+		return;
+	}
+
+	// --- Per-stage settings struct changes ---
+
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, LandmassSettings))
+	{
+		RegenerateFromStage(1);
+		return;
+	}
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, UpliftSettings))
+	{
+		RegenerateFromStage(2);
+		return;
+	}
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, HydrologySettings))
+	{
+		RegenerateFromStage(3);
+		return;
+	}
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, ErosionSettings))
+	{
+		RegenerateFromStage(4);
+		return;
+	}
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, ClimateSettings))
+	{
+		RegenerateFromStage(5);
+		return;
+	}
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, BiomeAssignmentSettings))
+	{
+		RegenerateFromStage(6);
+		return;
+	}
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, RefinementSettings))
+	{
+		RegenerateFromStage(7);
+		return;
+	}
+
+	// --- Global settings that affect the full pipeline ---
+
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, GlobalSeed)
+		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TextureResolution)
+		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MapType)
+		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MapSize)
+		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, LandCoveragePercent))
+	{
+		RegenerateFromStage(1);
+		return;
+	}
+
+	// --- Mesh-only settings ---
+
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MaxMapHeight)
+		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, OceanLevel))
+	{
+		GenerateMesh();
+		return;
+	}
+}
+
+void AWorldGenerationActor::RegenerateFromStage(int32 StageIndex)
+{
+	if (StageIndex <= 1) Step1_GenerateLandmass();
+	if (StageIndex <= 2) Step2_GenerateUplift();
+	if (StageIndex <= 3) Step3_GenerateHydrology();
+	if (StageIndex <= 4) Step4_GenerateErosion();
+	if (StageIndex <= 5) Step5_GenerateClimate();
+	if (StageIndex <= 6) Step6_GenerateBiomes();
+	if (StageIndex <= 7) Step7_GenerateRefinement();
+	GenerateMesh();
+}
+
+void AWorldGenerationActor::ApplyPreset_Volcano(bool bEnable)
+{
+	if (bEnable)
+	{
+		UpliftSettings.VolcanicHotspotCount = 1;
+		UpliftSettings.VolcanicRadius = 0.08f;
+		UpliftSettings.VolcanicPeakHeight = 0.85f;
+		UpliftSettings.CraterDepth = 0.3f;
+		UpliftSettings.CraterRadiusFraction = 0.2f;
+	}
+	else
+	{
+		UpliftSettings.VolcanicHotspotCount = 0;
+	}
+}
+
+void AWorldGenerationActor::ApplyPreset_Mountains(bool bEnable)
+{
+	if (bEnable)
+	{
+		UpliftSettings.MountainRidgeFrequency = 2.5f;
+		UpliftSettings.MountainRidgeAmplitude = 0.6f;
+		UpliftSettings.MountainSharpness = 2.0f;
+		UpliftSettings.MountainOctaves = 5;
+	}
+	else
+	{
+		UpliftSettings.MountainRidgeAmplitude = 0.0f;
+	}
+}
+
+void AWorldGenerationActor::ApplyPreset_Hills(bool bEnable)
+{
+	if (bEnable)
+	{
+		UpliftSettings.HillFrequency = 3.0f;
+		UpliftSettings.HillAmplitude = 0.15f;
+		UpliftSettings.HillOctaves = 3;
+	}
+	else
+	{
+		UpliftSettings.HillAmplitude = 0.0f;
+	}
+}
+
+void AWorldGenerationActor::ApplyPreset_Plateaus(bool bEnable)
+{
+	if (bEnable)
+	{
+		UpliftSettings.PlateauNoiseFrequency = 1.8f;
+		UpliftSettings.PlateauThreshold = 0.55f;
+		UpliftSettings.PlateauFlatness = 0.7f;
+		UpliftSettings.PlateauElevation = 0.45f;
+	}
+	else
+	{
+		UpliftSettings.PlateauFlatness = 0.0f;
+	}
+}
+
+void AWorldGenerationActor::ApplyPreset_Rivers(bool bEnable)
+{
+	if (bEnable)
+	{
+		HydrologySettings.RiverThreshold = 0.005f;
+		HydrologySettings.FlowJitter = 0.002f;
+		HydrologySettings.LakeThreshold = 0.01f;
+		HydrologySettings.WaterfallMinElevationDrop = 0.05f;
+	}
+	else
+	{
+		HydrologySettings.RiverThreshold = 1.0f;
+		HydrologySettings.LakeThreshold = 1.0f;
+	}
+}
+
+void AWorldGenerationActor::ApplyPreset_Canyons(bool bEnable)
+{
+	if (bEnable)
+	{
+		ErosionSettings.RiverIncisionStrength = 0.3f;
+		ErosionSettings.CanyonDepthMultiplier = 1.5f;
+		ErosionSettings.CanyonWidth = 3;
+	}
+	else
+	{
+		ErosionSettings.RiverIncisionStrength = 0.0f;
+	}
+}
+
+#endif // WITH_EDITOR
+
+// ------------------------------------------------------------
 // Build Terrain Mesh
 // ------------------------------------------------------------
 void AWorldGenerationActor::BuildTerrainMesh(const TArray<float>& Elevation, const TArray<int32>* BiomeMap)

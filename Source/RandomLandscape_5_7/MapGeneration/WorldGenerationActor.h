@@ -35,6 +35,36 @@ class RANDOMLANDSCAPE_5_7_API AWorldGenerationActor : public AActor
 public:
 	AWorldGenerationActor();
 
+	// ==================== Quick Presets ====================
+
+	/** When true, property changes auto-regenerate the affected pipeline stages and update the mesh. Use lower TextureResolution (128-256) for faster preview. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (Tooltip = "Enable live preview: property changes auto-regenerate the affected pipeline stages and update the mesh. Use a lower TextureResolution for faster feedback."))
+	bool bAutoRegenerate = false;
+
+	/** Add a volcanic hotspot. Toggles volcano generation with sensible defaults in the Uplift settings. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (Tooltip = "Add a volcanic hotspot to the island. Enables volcano generation with sensible defaults that you can then fine-tune in the Uplift settings."))
+	bool bIncludeVolcano = true;
+
+	/** Add tectonic mountain ridges. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (Tooltip = "Add mountain ridges across the terrain. Enables mountain generation with sensible defaults."))
+	bool bIncludeMountains = true;
+
+	/** Add rolling hills. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (Tooltip = "Add rolling hills across the terrain. Disabling sets hill amplitude to zero."))
+	bool bIncludeHills = true;
+
+	/** Add flat-topped plateau regions. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (Tooltip = "Add flat-topped plateau regions. Disabling sets plateau flatness to zero."))
+	bool bIncludePlateaus = true;
+
+	/** Generate rivers, lakes and waterfalls from drainage simulation. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (Tooltip = "Generate rivers, lakes, and waterfalls from drainage simulation."))
+	bool bIncludeRivers = true;
+
+	/** Enable river-carved canyons in the erosion stage. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (Tooltip = "Enable river-carved canyons during the erosion stage."))
+	bool bIncludeCanyons = true;
+
 	// ==================== Pipeline Global Settings ====================
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global")
@@ -195,6 +225,12 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|Validation")
 	FTerrainValidationResult LastValidationResult;
 
+	// ==================== Auto-Regeneration ====================
+
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+
 private:
 	// ==================== Cached Pipeline Data ====================
 
@@ -231,4 +267,17 @@ private:
 
 	/** Build terrain mesh from the given elevation data, optionally colored by biome map */
 	void BuildTerrainMesh(const TArray<float>& Elevation, const TArray<int32>* BiomeMap);
+
+#if WITH_EDITOR
+	/** Re-run pipeline from the given stage (1-7) through the end, then rebuild the mesh */
+	void RegenerateFromStage(int32 StageIndex);
+
+	/** Apply quick preset defaults to the underlying settings structs */
+	void ApplyPreset_Volcano(bool bEnable);
+	void ApplyPreset_Mountains(bool bEnable);
+	void ApplyPreset_Hills(bool bEnable);
+	void ApplyPreset_Plateaus(bool bEnable);
+	void ApplyPreset_Rivers(bool bEnable);
+	void ApplyPreset_Canyons(bool bEnable);
+#endif
 };
