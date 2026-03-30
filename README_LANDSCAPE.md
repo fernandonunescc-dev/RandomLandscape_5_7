@@ -33,6 +33,13 @@ Welcome! This is your comprehensive guide to the procedurally generated landscap
    - Biome height distribution
    - Streaming visualization
 
+### 🏔️ Pipeline Stage Guides
+- **[PIPELINE_UPLIFT_GEOLOGY.md](PIPELINE_UPLIFT_GEOLOGY.md)**
+  - Stage 2 (Uplift / Geology) deep-dive
+  - All 24 settings with defaults and ranges
+  - 5 sub-stages explained (Base Elevation, Mountains, Hills, Volcanoes, Plateaus)
+  - Debug textures, editor layout, and tuning recipes
+
 ### 💻 Code & Integration
 5. **[CODE_EXAMPLES.md](CODE_EXAMPLES.md)**
    - Blueprint examples
@@ -73,6 +80,9 @@ Welcome! This is your comprehensive guide to the procedurally generated landscap
 **Fine-tune terrain appearance**
 → Read: [QUICK_REFERENCE.md](QUICK_REFERENCE.md) (Noise Tuning Section)
 
+**Understand the Uplift / Geology stage**
+→ Read: [PIPELINE_UPLIFT_GEOLOGY.md](PIPELINE_UPLIFT_GEOLOGY.md)
+
 **Integrate with my game code**
 → Read: [CODE_EXAMPLES.md](CODE_EXAMPLES.md)
 
@@ -109,6 +119,9 @@ Documentation Files:
 │
 ├─ ARCHITECTURE_DIAGRAMS.md
 │  └─ Visual explanations
+│
+├─ PIPELINE_UPLIFT_GEOLOGY.md
+│  └─ Stage 2 (Uplift / Geology) settings & sub-stages
 │
 ├─ CODE_EXAMPLES.md
 │  └─ Integration examples in C++ and Blueprint
