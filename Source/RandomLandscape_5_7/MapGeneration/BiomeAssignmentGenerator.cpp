@@ -248,6 +248,7 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 		* static_cast<float>(Settings.VolcanicRadiusPixels);
 
 	const float WaterProxRadius = static_cast<float>(Settings.WaterProximityRadiusPixels);
+	const bool bApplyWaterProximity = (WaterProxRadius > 0.0f);
 
 	// Biome distribution counters
 	TMap<EBiomeType, int32> BiomeCounts;
@@ -265,7 +266,7 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 		{
 			// Effective moisture: add bonus for proximity to water
 			float EffectiveMoisture = Moisture[i];
-			if (WaterDistMap[i] < WaterProxRadius && WaterProxRadius > 0.0f)
+			if (bApplyWaterProximity && WaterDistMap[i] < WaterProxRadius)
 			{
 				const float ProximityFactor = 1.0f - (WaterDistMap[i] / WaterProxRadius);
 				EffectiveMoisture += Settings.WaterProximityMoistureBonus * ProximityFactor;

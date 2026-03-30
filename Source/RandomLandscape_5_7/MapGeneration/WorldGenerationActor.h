@@ -196,6 +196,7 @@ private:
 	TArray<float> CachedPlateauMap;
 	TArray<int32> CachedBiomeMap;
 	TArray<float> CachedSlopeMap;
+	/** Flat array: pixel i → [i*8 .. i*8+7], one weight per EBiomeType. */
 	TArray<float> CachedBiomeBlendWeights;
 	TArray<FVector2D> CachedVolcanicCenters;
 
