@@ -214,7 +214,7 @@ struct RANDOMLANDSCAPE_5_7_API FHydrologySettings
 };
 
 /**
- * Stage 4: Erosion settings — river incision and thermal erosion.
+ * Stage 4: Erosion settings — river incision, canyon formation, and thermal erosion.
  */
 USTRUCT(BlueprintType)
 struct RANDOMLANDSCAPE_5_7_API FErosionSettings
@@ -232,6 +232,19 @@ struct RANDOMLANDSCAPE_5_7_API FErosionSettings
 	/** Canyon depth multiplier in high-uplift areas */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "River Incision", meta = (ClampMin = "0.0", ClampMax = "3.0"))
 	float CanyonDepthMultiplier = 1.5f;
+
+	/** Canyon half-width in pixels.  River incision is spread this many pixels
+	 *  outward from each river pixel, tapering linearly to zero at the edge.
+	 *  0 = only river pixels are carved (no width expansion). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Canyon", meta = (ClampMin = "0", ClampMax = "16"))
+	int32 CanyonWidth = 3;
+
+	/** How much canyon walls are protected from thermal erosion.
+	 *  0 = no protection (thermal erosion treats canyon walls normally).
+	 *  1 = full protection (canyon-adjacent pixels never erode thermally).
+	 *  Intermediate values scale the erosion rate down. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Canyon", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float CanyonWallSteepness = 0.7f;
 
 	/** Number of thermal erosion passes (smooths steep slopes) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thermal Erosion", meta = (ClampMin = "0", ClampMax = "20"))

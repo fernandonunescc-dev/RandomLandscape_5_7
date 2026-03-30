@@ -267,7 +267,73 @@ void AWorldGenerationActor::Step4_GenerateErosion()
 	}
 
 	CachedErodedElevation = Generator->GetErodedElevation();
+	CachedCanyonMask = Generator->GetCanyonMask();
+	CachedErosionDeltaMap = Generator->GetErosionDeltaMap();
+
 	Debug_ErodedElevation = CreateGrayscaleDebugTexture(TextureResolution, CachedErodedElevation);
+
+	// Debug_CanyonMask: red where canyon, grayscale elevation otherwise
+	{
+		const int32 TotalPixels = TextureResolution * TextureResolution;
+		TArray<FColor> CanyonPixels;
+		CanyonPixels.SetNumUninitialized(TotalPixels);
+
+		for (int32 i = 0; i < TotalPixels; ++i)
+		{
+			if (CachedCanyonMask[i] == 1)
+			{
+				CanyonPixels[i] = FColor(200, 80, 40, 255);
+			}
+			else
+			{
+				const uint8 Gray = static_cast<uint8>(FMath::Clamp(CachedErodedElevation[i] * 255.0f, 0.0f, 255.0f));
+				CanyonPixels[i] = FColor(Gray, Gray, Gray, 255);
+			}
+		}
+
+		Debug_CanyonMask = CreateColorDebugTexture(TextureResolution, CanyonPixels);
+	}
+
+	// Debug_ErosionDelta: green = removed, blue = deposited, black = no change
+	{
+		const int32 TotalPixels = TextureResolution * TextureResolution;
+
+		// Find max absolute delta for normalization
+		float MaxAbsDelta = 0.0f;
+		for (int32 i = 0; i < TotalPixels; ++i)
+		{
+			const float AbsDelta = FMath::Abs(CachedErosionDeltaMap[i]);
+			if (AbsDelta > MaxAbsDelta) MaxAbsDelta = AbsDelta;
+		}
+
+		TArray<FColor> DeltaPixels;
+		DeltaPixels.SetNumUninitialized(TotalPixels);
+
+		const float InvMax = (MaxAbsDelta > 0.0f) ? (1.0f / MaxAbsDelta) : 0.0f;
+
+		for (int32 i = 0; i < TotalPixels; ++i)
+		{
+			const float NormDelta = CachedErosionDeltaMap[i] * InvMax;
+			if (NormDelta > 0.01f)
+			{
+				// Material removed — green
+				const uint8 G = static_cast<uint8>(FMath::Clamp(NormDelta * 255.0f, 0.0f, 255.0f));
+				DeltaPixels[i] = FColor(0, G, 0, 255);
+			}
+			else if (NormDelta < -0.01f)
+			{
+				// Material deposited — blue
+				const uint8 B = static_cast<uint8>(FMath::Clamp(-NormDelta * 255.0f, 0.0f, 255.0f));
+				DeltaPixels[i] = FColor(0, 0, B, 255);
+			}
+			else
+			{
+				DeltaPixels[i] = FColor(0, 0, 0, 255);
+			}
+		}
+
+		Debug_ErosionDelta = CreateColorDebugTexture(TextureResolution, DeltaPixels);
+	}
 
 	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor: Stage 4 Erosion complete"));
 }
@@ -568,6 +634,8 @@ void AWorldGenerationActor::ClearAll()
 	Debug_Waterfalls = nullptr;
 	Debug_FlowAccumulation = nullptr;
 	Debug_ErodedElevation = nullptr;
+	Debug_CanyonMask = nullptr;
+	Debug_ErosionDelta = nullptr;
 	Debug_Temperature = nullptr;
 	Debug_Moisture = nullptr;
 	Debug_Precipitation = nullptr;
@@ -582,6 +650,8 @@ void AWorldGenerationActor::ClearAll()
 	CachedCombinedElevation.Empty();
 	CachedRiverMap.Empty();
 	CachedErodedElevation.Empty();
+	CachedCanyonMask.Empty();
+	CachedErosionDeltaMap.Empty();
 	CachedTemperature.Empty();
 	CachedMoisture.Empty();
 	CachedPrecipitation.Empty();

@@ -111,6 +111,12 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|4-Erosion")
 	TObjectPtr<UTexture2D> Debug_ErodedElevation = nullptr;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|4-Erosion")
+	TObjectPtr<UTexture2D> Debug_CanyonMask = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|4-Erosion")
+	TObjectPtr<UTexture2D> Debug_ErosionDelta = nullptr;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|5-Climate")
 	TObjectPtr<UTexture2D> Debug_Temperature = nullptr;
 
@@ -186,6 +192,8 @@ private:
 	TArray<float> CachedCombinedElevation;
 	TArray<float> CachedRiverMap;
 	TArray<float> CachedErodedElevation;
+	TArray<uint8> CachedCanyonMask;
+	TArray<float> CachedErosionDeltaMap;
 	TArray<float> CachedTemperature;
 	TArray<float> CachedMoisture;
 	TArray<float> CachedPrecipitation;
