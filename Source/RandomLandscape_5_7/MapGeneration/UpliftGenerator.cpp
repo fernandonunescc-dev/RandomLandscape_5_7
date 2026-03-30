@@ -114,6 +114,8 @@ void UUpliftGenerator::ComputeCoastlineDistance(const TArray<uint8>& LandMask, T
 //------------------------------------------------------------------------------
 // GenerateBaseElevation:
 //   1. Coastline distance → gradient clamped to [0,1]
+//      Gradient width varies spatially via low-frequency noise so different
+//      sides of the island can have steep cliffs or gentle beaches.
 //   2. Modulate with FBM noise to break up uniformity
 //   3. Ocean pixels = 0
 //------------------------------------------------------------------------------
@@ -131,6 +133,12 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 	const int32 Seed       = ActualSeed;
 	const float InvRes     = 1.0f / FMath::Max(Resolution - 1, 1);
 
+	// Coastal variation: use low-frequency noise to vary gradient width per pixel
+	const float CoastalVar     = FMath::Clamp(Settings.CoastalVariation, 0.0f, 1.0f);
+	const float CoastalVarFreq = Settings.CoastalVariationFrequency;
+	// Offset seed to decorrelate coastal variation noise from base elevation noise
+	const int32 CoastalVarSeed = ActualSeed + 500;
+
 	for (int32 i = 0; i < TotalPixels; ++i)
 	{
 		if (LandMask[i] == 0)
@@ -139,12 +147,25 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 			continue;
 		}
 
-		// Coastline distance gradient
-		float Elev = FMath::Clamp(CoastDist[i] / GradWidth, 0.0f, 1.0f);
-
-		// Modulate with FBM noise
 		const float NormX = static_cast<float>(i % Resolution) * InvRes;
 		const float NormY = static_cast<float>(i / Resolution) * InvRes;
+
+		// Per-pixel gradient width: modulate by low-frequency noise
+		float LocalGradWidth = GradWidth;
+		if (CoastalVar > 0.0f)
+		{
+			// Sample low-frequency noise for this position, returns ~[-1, 1]
+			const float VarNoise = WorldNoise::FBM(NormX * CoastalVarFreq, NormY * CoastalVarFreq, 2, 0.5f, CoastalVarSeed);
+			// Map noise to a multiplier: centre on 1.0, spread by CoastalVar
+			// At CoastalVar=1: multiplier ranges [0.25, 1.75] → steep cliffs to gentle beaches
+			const float Multiplier = 1.0f + VarNoise * CoastalVar * 0.75f;
+			LocalGradWidth = FMath::Max(GradWidth * Multiplier, 1.0f);
+		}
+
+		// Coastline distance gradient
+		float Elev = FMath::Clamp(CoastDist[i] / LocalGradWidth, 0.0f, 1.0f);
+
+		// Modulate with FBM noise
 		const float Noise = WorldNoise::FBM(NormX * Freq, NormY * Freq, Octaves, Persist, Seed);
 
 		// Remap FBM [-1,1] → [0,1], then clamp to [0.2,1.0] so coasts never
@@ -154,8 +175,8 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 		BaseElevation[i] = Elev * NoiseMod;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator – BaseElevation generated (gradient width %d)"),
-		Settings.CoastlineGradientWidth);
+	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator – BaseElevation generated (gradient width %d, coastal variation %.2f)"),
+		Settings.CoastlineGradientWidth, Settings.CoastalVariation);
 }
 
 //------------------------------------------------------------------------------
