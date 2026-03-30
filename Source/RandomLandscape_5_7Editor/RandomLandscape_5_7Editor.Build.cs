@@ -1,6 +1,5 @@
 // RandomLandscape_5_7Editor.Build.cs
 // Build rules for the editor module - handles Details panel customization
-// Version: 02.04.2026.23.37
 
 using UnrealBuildTool;
 
@@ -10,8 +9,6 @@ public class RandomLandscape_5_7Editor : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// ==================== Dependencies ====================
-		
 		// Core engine modules
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
@@ -20,30 +17,24 @@ public class RandomLandscape_5_7Editor : ModuleRules
 			"Engine",
 			"InputCore"
 		});
-		
-		// Editor-specific modules (only available in editor builds)
+
+		// Editor-specific modules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
-			// Our runtime module (contains ABiomeDataGenerationActor)
+			// Our runtime module (contains AWorldGenerationActor)
 			"RandomLandscape_5_7",
-			
+
 			// Editor framework
 			"UnrealEd",
-			
+
 			// Property/Details panel customization
 			"PropertyEditor",
-			
+
 			// Slate UI framework
 			"Slate",
-			"SlateCore",
-			
-			// Editor styling
-			"EditorStyle",
-			
-			// For EditorWidgets (thumbnails, asset pickers, etc.)
-			"EditorWidgets"
+			"SlateCore"
 		});
-		
+
 		// Include paths for the runtime module's headers
 		PublicIncludePaths.AddRange(new string[]
 		{
