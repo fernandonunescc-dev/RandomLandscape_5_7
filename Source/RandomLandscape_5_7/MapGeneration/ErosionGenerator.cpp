@@ -162,7 +162,7 @@ void UErosionGenerator::ApplyRiverIncision(const TArray<float>& RiverMap,
 					Dist[NIdx] = NewDist;
 
 					// Taper incision linearly: full at dist 0, zero at dist CanyonW
-					const float Taper = 1.0f - (static_cast<float>(NewDist) / static_cast<float>(CanyonW + 1));
+					const float Taper = 1.0f - (static_cast<float>(NewDist) / static_cast<float>(CanyonW));
 
 					// Find the incision from the river pixel that seeded this BFS direction.
 					// Use the center pixel's incision as the source depth.

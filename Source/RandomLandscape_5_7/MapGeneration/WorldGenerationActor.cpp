@@ -267,8 +267,8 @@ void AWorldGenerationActor::Step4_GenerateErosion()
 	}
 
 	CachedErodedElevation = Generator->GetErodedElevation();
-	CachedCanyonMask = Generator->GetCanyonMask();
-	CachedErosionDeltaMap = Generator->GetErosionDeltaMap();
+	CachedCanyonMask = Generator->GetCanyonMask();             // Binary: 1 = carved by river incision
+	CachedErosionDeltaMap = Generator->GetErosionDeltaMap();   // Signed: positive = material removed
 
 	Debug_ErodedElevation = CreateGrayscaleDebugTexture(TextureResolution, CachedErodedElevation);
 
