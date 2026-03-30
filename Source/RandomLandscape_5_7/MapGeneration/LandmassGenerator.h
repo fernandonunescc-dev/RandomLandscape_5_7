@@ -36,12 +36,12 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	EMapSize MapSize = EMapSize::Medium;
 
 	/**
-	 * Maximum height of the terrain mesh in world units (cm).
+	 * Maximum height of the terrain mesh in meters.
 	 * Controls how tall mountains and the highest biome features can be.
 	 * This is the absolute ceiling - individual biome HeightScale is relative to this.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "1000.0", ClampMax = "200000.0", UIMin = "1000.0", UIMax = "200000.0"))
-	float MaxMapHeight = 50000.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "10.0", ClampMax = "2000.0", UIMin = "10.0", UIMax = "2000.0"))
+	float MaxMapHeight = 500.0f;
 
 	/** 
 	 * Random seed for landmass shape generation.

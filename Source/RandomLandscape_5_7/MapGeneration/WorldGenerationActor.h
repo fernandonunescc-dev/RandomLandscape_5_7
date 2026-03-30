@@ -52,9 +52,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "5.0", ClampMax = "75.0"))
 	float LandCoveragePercent = 50.0f;
 
-	/** Maximum terrain height in world units (cm) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "1000.0", ClampMax = "200000.0"))
-	float MaxMapHeight = 50000.0f;
+	/** Maximum terrain height in meters */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "10.0", ClampMax = "2000.0"))
+	float MaxMapHeight = 500.0f;
+
+	/** Ocean depth in meters — ocean pixels are placed this far below sea level */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "0.0", ClampMax = "100.0"))
+	float OceanLevel = 15.0f;
 
 	// ==================== Per-Stage Settings ====================
 

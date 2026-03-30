@@ -629,12 +629,12 @@ void AWorldGenerationActor::GenerateMesh()
 	}
 	else if (CachedLandMask.Num() > 0)
 	{
-		// Derive a flat elevation from the land mask (land = 0.1, ocean = 0)
+		// Derive a flat elevation from the land mask (land = 0 at sea level, ocean = 0)
 		const int32 Count = CachedLandMask.Num();
 		CachedCombinedElevation.SetNumUninitialized(Count);
 		for (int32 i = 0; i < Count; ++i)
 		{
-			CachedCombinedElevation[i] = (CachedLandMask[i] != 0) ? 0.1f : 0.0f;
+			CachedCombinedElevation[i] = 0.0f;
 		}
 		ElevationSource = &CachedCombinedElevation;
 	}
@@ -808,6 +808,10 @@ void AWorldGenerationActor::BuildTerrainMesh(const TArray<float>& Elevation, con
 	const FLinearColor OceanLinear = GetBiomeDebugColor(EBiomeType::Ocean);
 	const FColor OceanColor = OceanLinear.ToFColor(false);
 
+	// Convert meters to cm for UE world units
+	const float MaxHeightCm = MaxMapHeight * 100.0f;
+	const float OceanDepthCm = OceanLevel * 100.0f;
+
 	// Build vertices
 	for (int32 Y = 0; Y < Resolution; ++Y)
 	{
@@ -821,12 +825,12 @@ void AWorldGenerationActor::BuildTerrainMesh(const TArray<float>& Elevation, con
 			float WorldZ;
 			if (CachedLandMask[Index] == 0)
 			{
-				WorldZ = 0.0f;
+				WorldZ = -OceanDepthCm;
 				VertexColors[Index] = OceanColor;
 			}
 			else
 			{
-				WorldZ = Elevation[Index] * MaxMapHeight;
+				WorldZ = Elevation[Index] * MaxHeightCm;
 				if (bHasBiomeMap)
 				{
 					const EBiomeType BiomeType = static_cast<EBiomeType>((*BiomeMap)[Index]);
@@ -903,8 +907,8 @@ void AWorldGenerationActor::BuildTerrainMesh(const TArray<float>& Elevation, con
 	TArray<FProcMeshTangent> Tangents;
 	TerrainMesh->CreateMeshSection(0, Vertices, Triangles, Normals, UVs, VertexColors, Tangents, true);
 
-	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor: Terrain mesh built - %d vertices, %d triangles, WorldSize=%.0f, MaxHeight=%.0f"),
-		VertexCount, TriangleCount, WorldSizeCm, MaxMapHeight);
+	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor: Terrain mesh built - %d vertices, %d triangles, WorldSize=%.0fcm, MaxHeight=%.0fm, OceanLevel=%.0fm"),
+		VertexCount, TriangleCount, WorldSizeCm, MaxMapHeight, OceanLevel);
 }
 
 // ------------------------------------------------------------
