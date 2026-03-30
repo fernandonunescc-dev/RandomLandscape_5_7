@@ -474,7 +474,7 @@ void UTerrainValidator::CheckIsolatedWetBiomes(
 		Err.Description = FString::Printf(
 			TEXT("%d wet-biome pixels (%.1f%%) have low moisture (<%.2f) and no water source within %d pixels"),
 			IsolatedCount, Err.AffectedPercentage * 100.0f, LowMoistureThreshold, WaterSearchRadius);
-		Err.SuggestedFix = TEXT("Increase WaterMoistureBoost in ClimateSettings or increase MoistureDecayRate");
+		Err.SuggestedFix = TEXT("Increase WaterMoistureBoost in ClimateSettings or decrease MoistureDecayRate");
 		Err.DebugMapToInspect = TEXT("Debug_BiomeMap, Debug_Moisture, Debug_Rivers");
 		OutErrors.Add(MoveTemp(Err));
 	}
