@@ -94,11 +94,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "0.0", ClampMax = "100.0"))
 	float OceanLevel = 15.0f;
 
-	/** Configurable sea level as a normalized elevation threshold [0,1].
+	/** Configurable sea level as a normalised elevation threshold [0,1].
 	 *  Land pixels below this value are treated as near- or below-sea-level
 	 *  terrain during classification.  Does NOT change the land/ocean mask —
 	 *  that is determined by Stage 1 (Landmass).  Default 0 means the
-	 *  land/ocean boundary IS sea level (traditional behavior). */
+	 *  land/ocean boundary IS sea level (traditional behaviour). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "0.0", ClampMax = "0.5", Tooltip = "Normalised sea-level elevation threshold. Land pixels below this elevation are considered near sea level for classification purposes. 0 means the land/ocean boundary is sea level (default behaviour)."))
 	float SeaLevel = 0.0f;
 
