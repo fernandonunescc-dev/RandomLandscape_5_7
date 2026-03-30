@@ -123,6 +123,12 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|6-Biomes")
 	TObjectPtr<UTexture2D> Debug_BiomeMap = nullptr;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|6-Biomes")
+	TObjectPtr<UTexture2D> Debug_SlopeMap = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|6-Biomes")
+	TObjectPtr<UTexture2D> Debug_BiomeBlendWeights = nullptr;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|7-Refinement")
 	TObjectPtr<UTexture2D> Debug_FinalElevation = nullptr;
 
@@ -189,6 +195,8 @@ private:
 	TArray<float> CachedFlowAccumulation;
 	TArray<float> CachedPlateauMap;
 	TArray<int32> CachedBiomeMap;
+	TArray<float> CachedSlopeMap;
+	TArray<float> CachedBiomeBlendWeights;
 	TArray<FVector2D> CachedVolcanicCenters;
 
 	// ==================== Helpers ====================

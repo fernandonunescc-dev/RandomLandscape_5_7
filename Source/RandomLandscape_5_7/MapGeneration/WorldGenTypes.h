@@ -7,6 +7,79 @@
 #include "CoreMinimal.h"
 #include "WorldGenTypes.generated.h"
 
+// Forward declaration for EBiomeType used in per-biome data tables
+// (EBiomeType is defined in BiomeTypes.h; avoid circular include)
+
+/**
+ * Per-biome terrain refinement profile.
+ * Describes the noise character applied during Stage 7 for a single biome type.
+ * Stored as an array in FTerrainRefinementSettings, indexed by biome.
+ */
+USTRUCT(BlueprintType)
+struct RANDOMLANDSCAPE_5_7_API FPerBiomeTerrainProfile
+{
+	GENERATED_BODY()
+
+	/** Noise frequency multiplier for this biome (relative to global DetailFrequency) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome Profile", meta = (ClampMin = "0.1", ClampMax = "10.0"))
+	float FrequencyMultiplier = 1.0f;
+
+	/** Noise amplitude multiplier for this biome (relative to global DetailScale) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome Profile", meta = (ClampMin = "0.0", ClampMax = "5.0"))
+	float AmplitudeMultiplier = 1.0f;
+
+	/** Extra octaves added on top of the global DetailOctaves for this biome */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome Profile", meta = (ClampMin = "0", ClampMax = "4"))
+	int32 ExtraOctaves = 0;
+
+	/** If true, use ridged FBM instead of standard FBM */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome Profile")
+	bool bUseRidgedNoise = false;
+
+	/** Ridged noise sharpness (only used when bUseRidgedNoise = true) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Biome Profile", meta = (ClampMin = "0.5", ClampMax = "5.0", EditCondition = "bUseRidgedNoise"))
+	float RidgedSharpness = 2.0f;
+};
+
+/**
+ * Per-biome material and foliage spawn rules.
+ * Describes base material, tint, and foliage density for a single biome type.
+ * These are data-only descriptors used by downstream rendering / spawn systems.
+ */
+USTRUCT(BlueprintType)
+struct RANDOMLANDSCAPE_5_7_API FBiomeMaterialRules
+{
+	GENERATED_BODY()
+
+	/** Base material asset path (soft reference to avoid hard dependency) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material")
+	FSoftObjectPath BaseMaterial;
+
+	/** Tint color applied to the base material in this biome */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material")
+	FLinearColor Tint = FLinearColor::White;
+
+	/** Roughness override for the material (0-1) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float Roughness = 0.7f;
+
+	/** Foliage density (instances per sq. meter).  0 = no foliage. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Foliage", meta = (ClampMin = "0.0", ClampMax = "50.0"))
+	float FoliageDensity = 0.0f;
+
+	/** Foliage mesh asset path (soft reference) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Foliage")
+	FSoftObjectPath FoliageMesh;
+
+	/** Minimum slope at which foliage can spawn (0-1, as dot product with up) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Foliage", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FoliageMinSlope = 0.0f;
+
+	/** Maximum slope at which foliage can spawn */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Foliage", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FoliageMaxSlope = 0.8f;
+};
+
 /**
  * Stage 2: Uplift / geology control map settings.
  * Drives mountains, plateaus, and volcanic hotspots from tectonic-style noise.
@@ -269,6 +342,31 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 	/** Radius around volcanic hotspots classified as Volcanic biome (pixels) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thresholds", meta = (ClampMin = "5", ClampMax = "100"))
 	int32 VolcanicRadiusPixels = 30;
+
+	/** Slope above which terrain may shift from Forest→Mountain (0-1, as elevation difference between neighbors) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thresholds", meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float SteepSlopeThreshold = 0.15f;
+
+	/** Minimum precipitation to count as wet enough for Forest override */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thresholds", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ForestPrecipitationThreshold = 0.3f;
+
+	/** Distance-to-water (pixels) below which moisture bonus is applied.
+	 *  Pixels within this range receive a moisture nudge, potentially shifting Desert→Land. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water Proximity", meta = (ClampMin = "0", ClampMax = "64"))
+	int32 WaterProximityRadiusPixels = 16;
+
+	/** Moisture bonus added for pixels within WaterProximityRadiusPixels of a river/lake */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Water Proximity", meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float WaterProximityMoistureBonus = 0.15f;
+
+	/** Biome blend radius in pixels for producing smooth blending weights at boundaries */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Blending", meta = (ClampMin = "0", ClampMax = "32"))
+	int32 BiomeBlendRadius = 8;
+
+	/** Per-biome material & foliage spawn rules (8 entries, indexed by EBiomeType) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material Rules")
+	TArray<FBiomeMaterialRules> BiomeMaterialRules;
 };
 
 /**
@@ -310,4 +408,9 @@ struct RANDOMLANDSCAPE_5_7_API FTerrainRefinementSettings
 	/** Number of smoothing passes on the final elevation */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post-Process", meta = (ClampMin = "0", ClampMax = "10"))
 	int32 FinalSmoothingPasses = 2;
+
+	/** Per-biome terrain refinement profiles (8 entries, indexed by EBiomeType).
+	 *  If empty, hard-coded defaults are used. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Per-Biome")
+	TArray<FPerBiomeTerrainProfile> BiomeProfiles;
 };

@@ -86,10 +86,37 @@ bool UTerrainRefinementGenerator::Generate(const TArray<float>& ErodedElevation,
 float UTerrainRefinementGenerator::ComputeBiomeDetail(float NormX, float NormY, EBiomeType Biome) const
 {
 	const int32 BiomeSeed = static_cast<int32>(Biome) * 137 + ActualSeed;
-	const float Freq = Settings.DetailFrequency;
-	const int32 Oct = Settings.DetailOctaves;
+	const float BaseFreq = Settings.DetailFrequency;
+	const int32 BaseOct = Settings.DetailOctaves;
 	const float DS = Settings.DetailScale;
+	const int32 BiomeIdx = static_cast<int32>(Biome);
 
+	// Check if per-biome profiles are configured
+	const bool bHasProfile = (BiomeIdx >= 0 && BiomeIdx < Settings.BiomeProfiles.Num());
+
+	if (bHasProfile)
+	{
+		// --- Data-driven per-biome profile ---
+		const FPerBiomeTerrainProfile& P = Settings.BiomeProfiles[BiomeIdx];
+		const float Freq = BaseFreq * P.FrequencyMultiplier;
+		const int32 Oct = BaseOct + P.ExtraOctaves;
+		const float Scale = DS * P.AmplitudeMultiplier;
+		const float SX = NormX * Freq;
+		const float SY = NormY * Freq;
+
+		if (P.bUseRidgedNoise)
+		{
+			return WorldNoise::RidgedFBM(SX, SY, Oct, 0.5f, P.RidgedSharpness, BiomeSeed) * Scale;
+		}
+		else
+		{
+			return WorldNoise::FBM(SX, SY, Oct, 0.5f, BiomeSeed) * Scale;
+		}
+	}
+
+	// --- Fallback: original hard-coded per-biome noise ---
+	const float Freq = BaseFreq;
+	const int32 Oct = BaseOct;
 	const float SX = NormX * Freq;
 	const float SY = NormY * Freq;
 

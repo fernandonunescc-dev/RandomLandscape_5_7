@@ -418,13 +418,16 @@ void AWorldGenerationActor::Step6_GenerateBiomes()
 
 	Generator->Initialize(BiomeAssignmentSettings, TextureResolution);
 
-	if (!Generator->Generate(CachedErodedElevation, CachedTemperature, CachedMoisture, CachedLandMask, CachedVolcanicCenters))
+	if (!Generator->Generate(CachedErodedElevation, CachedTemperature, CachedMoisture,
+		CachedPrecipitation, CachedLandMask, CachedRiverMap, CachedLakeMap, CachedVolcanicCenters))
 	{
 		UE_LOG(LogTemp, Error, TEXT("AWorldGenerationActor: Biome assignment failed"));
 		return;
 	}
 
 	CachedBiomeMap = Generator->GetBiomeMap();
+	CachedSlopeMap = Generator->GetSlopeMap();
+	CachedBiomeBlendWeights = Generator->GetBiomeBlendWeights();
 
 	// Debug_BiomeMap: color each pixel by biome type
 	{
@@ -440,6 +443,39 @@ void AWorldGenerationActor::Step6_GenerateBiomes()
 		}
 
 		Debug_BiomeMap = CreateColorDebugTexture(TextureResolution, BiomePixels);
+	}
+
+	// Debug_SlopeMap: grayscale slope
+	Debug_SlopeMap = CreateGrayscaleDebugTexture(TextureResolution, CachedSlopeMap);
+
+	// Debug_BiomeBlendWeights: visualise dominant-biome purity (white=pure, gray=blended)
+	{
+		const int32 TotalPixels = TextureResolution * TextureResolution;
+		TArray<FColor> BlendPixels;
+		BlendPixels.SetNumUninitialized(TotalPixels);
+
+		for (int32 i = 0; i < TotalPixels; ++i)
+		{
+			// Find max weight for this pixel (blend purity)
+			float MaxW = 0.0f;
+			int32 DomBiome = 0;
+			const int32 Base = i * 8;
+			for (int32 b = 0; b < 8; ++b)
+			{
+				if (CachedBiomeBlendWeights[Base + b] > MaxW)
+				{
+					MaxW = CachedBiomeBlendWeights[Base + b];
+					DomBiome = b;
+				}
+			}
+
+			// Tint the dominant biome color by purity
+			const FLinearColor BiomeColor = GetBiomeDebugColor(static_cast<EBiomeType>(DomBiome));
+			const FLinearColor Blended = FMath::Lerp(FLinearColor(0.5f, 0.5f, 0.5f), BiomeColor, MaxW);
+			BlendPixels[i] = Blended.ToFColor(false);
+		}
+
+		Debug_BiomeBlendWeights = CreateColorDebugTexture(TextureResolution, BlendPixels);
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor: Stage 6 Biomes complete"));
@@ -536,6 +572,8 @@ void AWorldGenerationActor::ClearAll()
 	Debug_Moisture = nullptr;
 	Debug_Precipitation = nullptr;
 	Debug_BiomeMap = nullptr;
+	Debug_SlopeMap = nullptr;
+	Debug_BiomeBlendWeights = nullptr;
 	Debug_FinalElevation = nullptr;
 
 	CachedLandMask.Empty();
@@ -553,6 +591,8 @@ void AWorldGenerationActor::ClearAll()
 	CachedFlowAccumulation.Empty();
 	CachedPlateauMap.Empty();
 	CachedBiomeMap.Empty();
+	CachedSlopeMap.Empty();
+	CachedBiomeBlendWeights.Empty();
 	CachedVolcanicCenters.Empty();
 
 	ActualSeedUsed = 0;
