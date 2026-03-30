@@ -110,6 +110,7 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludePlateaus), "Include Plateaus");
 	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeRivers), "Include Rivers");
 	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeCanyons), "Include Canyons");
+	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TerrainRoughness), "Terrain Roughness");
 
 	// ==================== GLOBAL SETTINGS GROUP ====================
 

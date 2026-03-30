@@ -820,6 +820,12 @@ void AWorldGenerationActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 		RegenerateFromStage(4);
 		return;
 	}
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TerrainRoughness))
+	{
+		ApplyTerrainRoughness(TerrainRoughness);
+		RegenerateFromStage(2);
+		return;
+	}
 
 	// --- Per-stage settings struct changes ---
 
@@ -981,6 +987,33 @@ void AWorldGenerationActor::ApplyPreset_Canyons(bool bEnable)
 	{
 		ErosionSettings.RiverIncisionStrength = 0.0f;
 	}
+}
+
+void AWorldGenerationActor::ApplyTerrainRoughness(float Roughness)
+{
+	// Clamp just in case
+	Roughness = FMath::Clamp(Roughness, 0.0f, 1.0f);
+
+	// Mountain ridge amplitude: 0 at roughness=0, up to 0.8 at roughness=1
+	UpliftSettings.MountainRidgeAmplitude = FMath::Lerp(0.0f, 0.8f, Roughness);
+
+	// Mountain sharpness: softer at low roughness, sharper at high
+	UpliftSettings.MountainSharpness = FMath::Lerp(1.0f, 3.5f, Roughness);
+
+	// Hill amplitude: gentle at low roughness, moderate at mid, reduced at extreme high (mountains dominate)
+	// Peaks at roughness ~0.4
+	const float HillCurve = FMath::Clamp(1.0f - FMath::Abs(Roughness - 0.4f) * 2.0f, 0.0f, 1.0f);
+	UpliftSettings.HillAmplitude = FMath::Lerp(0.02f, 0.25f, HillCurve);
+
+	// Base noise persistence: flatter terrain uses smoother noise
+	UpliftSettings.BaseNoisePersistence = FMath::Lerp(0.25f, 0.55f, Roughness);
+
+	// Coastline gradient: flat terrain gets wider coastal plains
+	UpliftSettings.CoastlineGradientWidth = FMath::RoundToInt32(FMath::Lerp(120.0f, 50.0f, Roughness));
+
+	// Plateau flatness: more prominent in mid-range, reduced at extremes
+	const float PlateauCurve = FMath::Clamp(1.0f - FMath::Abs(Roughness - 0.5f) * 3.0f, 0.0f, 1.0f);
+	UpliftSettings.PlateauFlatness = FMath::Lerp(0.0f, 0.7f, PlateauCurve);
 }
 
 #endif // WITH_EDITOR
