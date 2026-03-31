@@ -13,7 +13,6 @@
 UENUM(BlueprintType)
 enum class EMapType : uint8
 {
-	Continent   UMETA(DisplayName = "Continent"),
 	Island      UMETA(DisplayName = "Island"),
 	Archipelago UMETA(DisplayName = "Archipelago")
 };

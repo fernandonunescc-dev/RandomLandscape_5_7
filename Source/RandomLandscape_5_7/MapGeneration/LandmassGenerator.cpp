@@ -28,17 +28,11 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 		if (Settings.Seed == 0) Settings.Seed = 1; // Ensure non-zero after auto-seed
 	}
 
-	// Adjust land coverage based on MapType if user hasn't customized it significantly
-	// These are the recommended defaults for each map type
+	// Adjust land coverage based on MapType
 	switch (Settings.MapType)
 	{
-	case EMapType::Continent:
-		// Large landmass, small ocean - keep user setting (default ~50%)
-		Settings.bKeepOnlyLargestLandmass = true;
-		break;
 	case EMapType::Island:
-		// Small landmass, large ocean - clamp coverage lower
-		Settings.LandCoveragePercent = FMath::Clamp(Settings.LandCoveragePercent, 5.0f, 30.0f);
+		// Single landmass surrounded by ocean - keep user setting
 		Settings.bKeepOnlyLargestLandmass = true;
 		break;
 	case EMapType::Archipelago:
@@ -46,6 +40,12 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 		Settings.bKeepOnlyLargestLandmass = false;
 		break;
 	}
+
+	// Compute minimum edge padding in normalised 0-1 space from world-metres setting.
+	// WorldSize is in cm; convert MinEdgeMarginMeters to cm then normalise.
+	const float WorldSizeCm = Settings.GetWorldSizeCm();
+	MinEdgePaddingNorm = (Settings.MinEdgeMarginMeters * 100.0f) / WorldSizeCm;
+	MinEdgePaddingNorm = FMath::Clamp(MinEdgePaddingNorm, 0.0f, 0.45f);
 
 	// Initialize random stream with seed for deterministic noise generation
 	RandomStream.Initialize(Settings.Seed);
@@ -133,7 +133,7 @@ bool ULandmassGenerator::Generate()
 // GenerateLandMask: Creates the binary land/ocean classification.
 // 
 // Two-pass algorithm:
-//   Pass 1: Compute GetContinentMask() for every pixel (continuous 0-1 values)
+//   Pass 1: Compute GetIslandMask() for every pixel (continuous 0-1 values)
 //   Pass 2: Sort values and find threshold that achieves exact land coverage %
 //           Then apply threshold to create binary mask
 // 
@@ -151,14 +151,14 @@ void ULandmassGenerator::GenerateLandMask()
 	LandMask.SetNum(TotalPixels);
 	LandPixels.Empty();
 
-	// ===== PASS 1: Compute continent mask value for every pixel =====
+	// ===== PASS 1: Compute island mask value for every pixel =====
 	// These are continuous values from 0.0 (definitely ocean) to 1.0 (definitely land)
 	// PARALLELIZED: Each pixel is independent; MaskValues[Index] written by one thread only.
 	TArray<float> MaskValues;
 	MaskValues.SetNum(TotalPixels);
 
 	// Use ParallelFor for large resolutions (>=1024²) to distribute work across cores.
-	// GetContinentMask() is the expensive call (multiple FBM evaluations per pixel).
+	// GetIslandMask() is the expensive call (multiple FBM evaluations per pixel).
 	ParallelFor(TotalPixels, [&](int32 Index)
 	{
 		int32 X = Index % Width;
@@ -176,7 +176,7 @@ void ULandmassGenerator::GenerateLandMask()
 		}
 		else
 		{
-			MaskValues[Index] = GetContinentMask(NormX, NormY);
+			MaskValues[Index] = GetIslandMask(NormX, NormY);
 		}
 	});
 
@@ -274,7 +274,7 @@ void ULandmassGenerator::GenerateLandMask()
 
 	// ===== PASS 3 (Optional): Keep only the largest connected landmass =====
 	// Uses 4-way adjacency (up/down/left/right) for connectivity.
-	// 4-way chosen over 8-way for stricter continent separation (diagonal pixels are not connected).
+	// 4-way chosen over 8-way for stricter landmass separation (diagonal pixels are not connected).
 	// Tie-break rule: if two components have equal size, keep the one with the lowest starting index.
 	
 	if (Settings.bKeepOnlyLargestLandmass && LandPixels.Num() > 0)
@@ -423,7 +423,7 @@ void ULandmassGenerator::GenerateLandMask()
 	// ===== PASS 4 (Optional): Fill enclosed ocean holes (lakes) =====
 	// Flood-fill ocean from all border pixels using 4-way adjacency.
 	// Any ocean pixel NOT reached is an enclosed hole and gets converted to land.
-	// This ensures the final continent has no interior lakes/holes.
+	// This ensures the final landmass has no interior lakes/holes.
 	
 	if (Settings.bFillEnclosedHoles)
 	{
@@ -695,14 +695,14 @@ float ULandmassGenerator::FBM(float X, float Y, int32 Octaves, float Persistence
 }
 
 //------------------------------------------------------------------------------
-// GetContinentMask: Computes how "land-like" a point is.
+// GetIslandMask: Computes how "land-like" a point is.
 // 
-// Combines multiple factors to create organic continent shapes:
-//   1. Distance from center: land more likely near texture center
+// Combines multiple factors to create organic island shapes:
+//   1. Distance from centre: land more likely near texture centre
 //   2. Coast noise: irregular coastline details (medium frequency)
-//   3. Shape noise: large-scale continent shape variation (low frequency)
+//   3. Shape noise: large-scale island shape variation (low frequency)
 //   4. Detail noise: fine bumps and indentations (high frequency)
-//   5. Edge falloff: ensures land doesn't touch texture borders
+//   5. Edge falloff: enforces minimum margin from texture borders
 // 
 // If domain warping is enabled, coordinates are displaced before noise sampling
 // to create large-scale bends, peninsulas, and bays for more realistic coastlines.
@@ -711,7 +711,7 @@ float ULandmassGenerator::FBM(float X, float Y, int32 Octaves, float Persistence
 // The actual land/ocean threshold is determined by GenerateLandMask()
 // based on target land coverage percentage.
 //------------------------------------------------------------------------------
-float ULandmassGenerator::GetContinentMask(float NormX, float NormY) const
+float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 {
 	// ===== Domain Warping (optional) =====
 	// Displaces sampling coordinates using a low-frequency noise field.
@@ -751,7 +751,7 @@ float ULandmassGenerator::GetContinentMask(float NormX, float NormY) const
 
 	// ===== Center-based base shape =====
 	// Transform to centered coordinates: (0,0) at center, ±0.5 at edges
-	// Use ORIGINAL coordinates for center distance to maintain continent centering
+	// Use ORIGINAL coordinates for centre distance to maintain island centering
 	float CX = NormX - 0.5f;
 	float CY = NormY - 0.5f;
 
@@ -766,15 +766,15 @@ float ULandmassGenerator::GetContinentMask(float NormX, float NormY) const
 	float NoiseScale = 3.0f;
 	float CoastNoise = FBM(SampleX * NoiseScale, SampleY * NoiseScale, 4, 0.5f) * 0.4f;
 
-	// Low-frequency noise for overall continent shape variation
+	// Low-frequency noise for overall island shape variation
 	// Uses seed-derived ShapeNoiseOffset to decorrelate from coast noise
 	float ShapeNoise = FBM(
 		SampleX * 1.5f + ShapeNoiseOffset.X, 
 		SampleY * 1.5f + ShapeNoiseOffset.Y, 
 		3, 0.6f) * 0.3f;
 
-	// Combine: start with inverted distance (1 at center, 0 at corners) + noise
-	float ContinentValue = 1.0f - DistFromCenter + CoastNoise + ShapeNoise;
+	// Combine: start with inverted distance (1 at centre, 0 at corners) + noise
+	float IslandValue = 1.0f - DistFromCenter + CoastNoise + ShapeNoise;
 
 	// High-frequency noise for fine coastal details (bays, peninsulas)
 	// Uses seed-derived DetailNoiseOffset to decorrelate from other layers
@@ -782,13 +782,14 @@ float ULandmassGenerator::GetContinentMask(float NormX, float NormY) const
 		SampleX * 8.0f + DetailNoiseOffset.X, 
 		SampleY * 8.0f + DetailNoiseOffset.Y, 
 		2, 0.5f) * 0.15f;
-	ContinentValue += DetailNoise;
+	IslandValue += DetailNoise;
 
-	// ===== Edge falloff: prevent land from touching texture borders =====
+	// ===== Edge falloff: enforce minimum margin from texture borders =====
 	// Uses ORIGINAL coordinates (NormX, NormY) to enforce border padding
 	// regardless of warp displacement—land must not touch texture edges.
+	// MinEdgePaddingNorm is derived from MinEdgeMarginMeters in Initialize().
 	
-	// Calculate distance from each edge (0 at edge, 0.5 at center)
+	// Calculate distance from each edge (0 at edge, 0.5 at centre)
 	float DistFromLeft = NormX;
 	float DistFromRight = 1.0f - NormX;
 	float DistFromTop = NormY;
@@ -805,8 +806,9 @@ float ULandmassGenerator::GetContinentMask(float NormX, float NormY) const
 		SampleY * 6.0f + EdgeNoiseOffset.Y, 
 		3, 0.5f) * 0.5f + 0.5f;
 
-	// Noisy padding zone: varies between 2.5% and 7.5% of texture width
-	float NoisyPadding = 0.05f * (0.5f + EdgeNoise);
+	// Noisy padding zone: base varies between 2.5% and 7.5%, but never below the
+	// configured minimum edge margin (MinEdgePaddingNorm, default 20 m).
+	float NoisyPadding = FMath::Max(MinEdgePaddingNorm, 0.05f * (0.5f + EdgeNoise));
 
 	// Smooth falloff: 0 at edge, 1 when past the padding zone
 	float EdgeFalloff = FMath::Clamp(MinEdgeDist / FMath::Max(NoisyPadding, 0.001f), 0.0f, 1.0f);
@@ -814,18 +816,18 @@ float ULandmassGenerator::GetContinentMask(float NormX, float NormY) const
 	// Apply smoothstep curve for gradual transition (avoids harsh cutoff)
 	EdgeFalloff = EdgeFalloff * EdgeFalloff * (3.0f - 2.0f * EdgeFalloff);
 
-	// Apply edge falloff to continent value
-	ContinentValue *= EdgeFalloff;
+	// Apply edge falloff to island value
+	IslandValue *= EdgeFalloff;
 
 	// Clamp to valid range
-	return FMath::Clamp(ContinentValue, 0.0f, 1.0f);
+	return FMath::Clamp(IslandValue, 0.0f, 1.0f);
 }
 
 //------------------------------------------------------------------------------
 // GetArchipelagoMask: Generates multiple island shapes for Archipelago mode.
 //
 // Each island has its own center and radius (generated in Initialize).
-// Uses the same noise techniques as GetContinentMask but applied per-island
+// Uses the same noise techniques as GetIslandMask but applied per-island
 // with a smooth maximum combination to create natural multi-island layouts.
 //------------------------------------------------------------------------------
 float ULandmassGenerator::GetArchipelagoMask(float NormX, float NormY) const
@@ -890,14 +892,16 @@ float ULandmassGenerator::GetArchipelagoMask(float NormX, float NormY) const
 		MaxIslandValue = FMath::Max(MaxIslandValue, IslandValue);
 	}
 
-	// Edge falloff to prevent islands from touching texture borders
+	// Edge falloff to enforce minimum margin from texture borders
 	float DistFromLeft = NormX;
 	float DistFromRight = 1.0f - NormX;
 	float DistFromTop = NormY;
 	float DistFromBottom = 1.0f - NormY;
 	float MinEdgeDist = FMath::Min(FMath::Min(DistFromLeft, DistFromRight),
 	                              FMath::Min(DistFromTop, DistFromBottom));
-	float EdgeFalloff = FMath::Clamp(MinEdgeDist / 0.05f, 0.0f, 1.0f);
+	// Use whichever is larger: the fixed 5% base padding or the metres-based minimum
+	float Padding = FMath::Max(MinEdgePaddingNorm, 0.05f);
+	float EdgeFalloff = FMath::Clamp(MinEdgeDist / Padding, 0.0f, 1.0f);
 	EdgeFalloff = EdgeFalloff * EdgeFalloff * (3.0f - 2.0f * EdgeFalloff);
 
 	MaxIslandValue *= EdgeFalloff;

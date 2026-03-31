@@ -176,7 +176,7 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 	float CoastalVariationFrequency = 0.8f;
 
 	/** Noise frequency modulating the base elevation */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.1", ClampMax = "10.0", Tooltip = "Controls how rapidly the base terrain varies across the map. Higher values add more frequent elevation changes over shorter distances; lower values produce broad, smooth continental shapes."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.1", ClampMax = "10.0", Tooltip = "Controls how rapidly the base terrain varies across the map. Higher values add more frequent elevation changes over shorter distances; lower values produce broad, smooth landmass shapes."))
 	float BaseNoiseFrequency = 1.5f;
 
 	/** Noise octaves for base elevation modulation */

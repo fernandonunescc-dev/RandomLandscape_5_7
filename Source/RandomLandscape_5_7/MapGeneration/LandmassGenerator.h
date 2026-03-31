@@ -21,12 +21,11 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 
 	/** 
 	 * Map type controls the overall land/ocean distribution pattern.
-	 * Continent: Large landmass, small ocean.
-	 * Island: Small landmass, large ocean.
+	 * Island: Single landmass surrounded by ocean.
 	 * Archipelago: Multiple islands scattered across the map.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass")
-	EMapType MapType = EMapType::Continent;
+	EMapType MapType = EMapType::Island;
 
 	/**
 	 * Map physical size in world space.
@@ -113,13 +112,13 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	/** 
 	 * If true, only the largest connected land component is kept.
 	 * All other land components (islands) are converted to ocean.
-	 * Ensures a single contiguous continent in the final mask.
+	 * Ensures a single contiguous landmass in the final mask.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Post-Processing")
 	bool bKeepOnlyLargestLandmass = true;
 
 	/** 
-	 * If true, fills enclosed ocean areas (holes/lakes) inside the continent.
+	 * If true, fills enclosed ocean areas (holes/lakes) inside the landmass.
 	 * Works by flood-filling ocean from borders and converting unreachable ocean to land.
 	 * Applied after bKeepOnlyLargestLandmass if both are enabled.
 	 */
@@ -134,6 +133,15 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Archipelago", meta = (ClampMin = "2", ClampMax = "20", EditCondition = "MapType == EMapType::Archipelago"))
 	int32 IslandCount = 5;
+
+	// === Edge Margin Settings ===
+
+	/**
+	 * Minimum distance in metres from the map edge where land may appear.
+	 * Guarantees an ocean border around the entire map.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "0.0", ClampMax = "200.0", Tooltip = "Minimum distance in metres from the map edge where land may appear. Land is forced to ocean within this margin. Ensures an ocean border around the entire map."))
+	float MinEdgeMarginMeters = 20.0f;
 
 	/**
 	 * Get the world-space size in centimeters for the current MapSize.
@@ -155,17 +163,17 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
  * Generates land/ocean mask for procedural map generation.
  * 
  * This class creates a binary land mask using layered FBM (Fractal Brownian Motion) noise
- * to produce organic, natural-looking continent shapes with irregular coastlines.
+ * to produce organic, natural-looking island shapes with irregular coastlines.
  * 
  * Generation Pipeline:
  *   1. Initialize() - Store settings and seed the random stream
  *   2. Generate()   - Run the full generation pipeline
- *      a. GenerateLandMask()      - Compute per-pixel continent values and threshold to binary mask
+ *      a. GenerateLandMask()      - Compute per-pixel island mask values and threshold to binary mask
  *      b. GeneratePreviewTexture() - Convert mask to black/white texture for visualization
  * 
  * The algorithm uses distance-from-center combined with multi-octave noise to create
- * continent shapes that are roughly centered but have organic, irregular edges.
- * Edge falloff ensures land doesn't touch texture borders.
+ * island shapes that are roughly centered but have organic, irregular edges.
+ * Edge falloff enforces a minimum margin from texture borders.
  */
 UCLASS(BlueprintType)
 class RANDOMLANDSCAPE_5_7_API ULandmassGenerator : public UObject
@@ -220,10 +228,10 @@ public:
 
 protected:
 	/**
-	 * Generate the binary land mask from noise-based continent values.
+	 * Generate the binary land mask from noise-based island mask values.
 	 * 
 	 * Algorithm:
-	 *   1. For each pixel, compute GetContinentMask() value (0.0 to 1.0)
+	 *   1. For each pixel, compute GetIslandMask() value (0.0 to 1.0)
 	 *   2. Sort all values to find the threshold that achieves target land coverage
 	 *   3. Apply threshold: pixels >= threshold become land
 	 * 
@@ -261,20 +269,20 @@ protected:
 	float FBM(float X, float Y, int32 Octaves, float Persistence) const;
 
 	/**
-	 * Compute the "continent-ness" value for a normalized texture coordinate.
+	 * Compute the "island-ness" value for a normalised texture coordinate.
 	 * Higher values are more likely to be land.
 	 * 
 	 * Components:
-	 *   - Distance from center: land concentrated toward middle
+	 *   - Distance from centre: land concentrated toward middle
 	 *   - Coast noise: irregular coastline detail
-	 *   - Shape noise: large-scale continent shape variation
+	 *   - Shape noise: large-scale island shape variation
 	 *   - Detail noise: fine bumps and indentations
-	 *   - Edge falloff: prevents land from touching texture borders
+	 *   - Edge falloff: enforces minimum margin from texture borders
 	 * 
-	 * @param NormX, NormY - Normalized coordinates (0.0 to 1.0)
-	 * @return Continent mask value (0.0 to 1.0, higher = more land-like)
+	 * @param NormX, NormY - Normalised coordinates (0.0 to 1.0)
+	 * @return Island mask value (0.0 to 1.0, higher = more land-like)
 	 */
-	float GetContinentMask(float NormX, float NormY) const;
+	float GetIslandMask(float NormX, float NormY) const;
 
 	/**
 	 * Compute the "island-ness" value for Archipelago mode.
@@ -296,7 +304,7 @@ protected:
 	// Each layer samples noise at a different offset to decorrelate patterns.
 	// These replace hard-coded offsets (+50, +100, +200) for better variety per seed.
 	
-	/** Offset for shape noise layer (low-frequency continent shape) */
+	/** Offset for shape noise layer (low-frequency island shape) */
 	FVector2D ShapeNoiseOffset;
 	
 	/** Offset for detail noise layer (high-frequency coastal details) */
@@ -319,6 +327,9 @@ protected:
 
 	/** Island radii for Archipelago mode (generated in Initialize) */
 	TArray<float> IslandRadii;
+
+	/** Minimum edge padding in normalised coordinates, computed from MinEdgeMarginMeters in Initialize() */
+	float MinEdgePaddingNorm = 0.02f;
 
 	/** Land mask - 1 = land, 0 = ocean (uint8 for thread-safe parallel writes) */
 	TArray<uint8> LandMask;

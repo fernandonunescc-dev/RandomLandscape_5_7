@@ -78,7 +78,7 @@ public:
 	int32 TextureResolution = 512;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global")
-	EMapType MapType = EMapType::Continent;
+	EMapType MapType = EMapType::Island;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global")
 	EMapSize MapSize = EMapSize::Medium;
