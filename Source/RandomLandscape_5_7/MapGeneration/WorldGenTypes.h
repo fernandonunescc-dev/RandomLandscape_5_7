@@ -455,8 +455,6 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Archetype Thresholds", meta = (ClampMin = "0.01", ClampMax = "0.3", Tooltip = "Normalised slope above which low-elevation terrain is classified as Hills rather than Plains. Lower values create more hill coverage; higher values restrict hills to noticeably rolling terrain."))
 	float HillSlopeThreshold = 0.04f;
 
-	/** Normalised elevation above which the terrain archetype becomes Mountains (reuses MountainElevationThreshold for archetype) */
-
 	/** Minimum plateau mask strength for Plateaus archetype classification */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Archetype Thresholds", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Minimum value in the PlateauMap required for a pixel to be classified as the Plateaus terrain archetype. Higher values restrict plateaus to only the most well-defined flat-topped regions."))
 	float PlateauArchetypeThreshold = 0.3f;
