@@ -257,7 +257,7 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 
 	/** Crater radius as fraction of volcano radius */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volcanic", meta = (ClampMin = "0.0", ClampMax = "0.5", Tooltip = "Radius of the summit crater bowl as a fraction of the full volcano radius. At 0 there is no visible crater. Larger values widen the crater opening at the top of the cone."))
-	float CraterRadiusFraction = 0.2f;
+	float CraterRadiusFraction = 0.3f;
 };
 
 /**

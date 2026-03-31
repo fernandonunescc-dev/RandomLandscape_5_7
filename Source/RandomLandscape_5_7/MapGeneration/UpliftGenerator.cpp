@@ -220,7 +220,11 @@ void UUpliftGenerator::GenerateUpliftMap(const TArray<uint8>& LandMask)
 
 //------------------------------------------------------------------------------
 // GenerateVolcanicHotspots:
-//   Random cone-shaped volcanoes with craters, added to UpliftMap.
+//   Smooth shield-shaped volcanoes with rounded craters, blended into
+//   UpliftMap.  Uses cosine falloff for the cone and a parabolic bowl
+//   for the crater so the result looks like a real volcanic landform.
+//   Underlying terrain noise is suppressed inside the volcano footprint
+//   via a replace-blend so mountain ridges don't poke through the cone.
 //------------------------------------------------------------------------------
 void UUpliftGenerator::GenerateVolcanicHotspots(const TArray<uint8>& LandMask)
 {
@@ -296,20 +300,29 @@ void UUpliftGenerator::GenerateVolcanicHotspots(const TArray<uint8>& LandMask)
 
 				const float NormDist = Dist / Radius; // 0 at center, 1 at edge
 
-				// Cone shape: linearly decreasing from peak at center to 0 at edge
-				float Height = PeakHeight * (1.0f - NormDist);
+				// Smooth shield-volcano profile: cosine falloff gives a
+				// rounded dome instead of a sharp linear cone.
+				float Height = PeakHeight * 0.5f * (1.0f + FMath::Cos(PI * NormDist));
 
-				// Crater: subtract a bowl inside the crater radius fraction
-				if (NormDist < CraterFraction)
+				// Rounded crater bowl: parabolic subtraction inside the
+				// crater radius produces a smooth U-shaped depression.
+				if (NormDist < CraterFraction && CraterFraction > 0.0f)
 				{
 					const float CraterNorm = NormDist / CraterFraction; // 0 at center, 1 at rim
-					Height -= CraterDepth * PeakHeight * (1.0f - CraterNorm);
+					Height -= CraterDepth * PeakHeight * (1.0f - CraterNorm * CraterNorm);
 				}
 
 				Height = FMath::Max(Height, 0.0f);
 
-				// Additive contribution to the uplift map
-				UpliftMap[Idx] = FMath::Clamp(UpliftMap[Idx] + Height, 0.0f, 1.0f);
+				// Replace-blend: suppress underlying terrain noise inside
+				// the volcano so mountain ridges don't poke through.
+				// Near the centre the volcano fully replaces the base;
+				// at the outer edge it blends additively with existing terrain.
+				const float BlendAlpha = NormDist * NormDist; // 0 at centre, 1 at edge
+				const float Existing = UpliftMap[Idx];
+				UpliftMap[Idx] = FMath::Clamp(
+					FMath::Lerp(Height, Existing + Height, BlendAlpha),
+					0.0f, 1.0f);
 			}
 		}
 	}

@@ -977,7 +977,7 @@ void AWorldGenerationActor::ApplyPreset_Volcano(bool bEnable)
 		UpliftSettings.VolcanicRadius = 0.08f;
 		UpliftSettings.VolcanicPeakHeight = 0.65f;
 		UpliftSettings.CraterDepth = 0.3f;
-		UpliftSettings.CraterRadiusFraction = 0.2f;
+		UpliftSettings.CraterRadiusFraction = 0.3f;
 	}
 	else
 	{
