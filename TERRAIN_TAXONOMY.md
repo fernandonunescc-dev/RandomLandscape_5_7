@@ -104,7 +104,7 @@ A new `SeaLevel` parameter (normalized `[0, 0.5]`, default `0.0`) defines the el
 |-----------|------|-------|---------|---------|
 | `SeaLevel` | float | 0.0–0.5 | 0.0 | Normalized elevation threshold for classification |
 | `OceanLevel` | float | 0–100 m | 15 m | Mesh depth of ocean vertices below Z=0 |
-| `MaxMapHeight` | float | 10–2000 m | 500 m | Maximum land elevation in meters |
+| `MaxMapHeight` | float | 10–2000 m | 100 m | Maximum land elevation in meters |
 
 ### Height Rules
 

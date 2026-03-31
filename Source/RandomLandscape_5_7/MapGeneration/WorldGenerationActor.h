@@ -88,7 +88,7 @@ public:
 
 	/** Maximum terrain height in meters */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "10.0", ClampMax = "2000.0"))
-	float MaxMapHeight = 500.0f;
+	float MaxMapHeight = 100.0f;
 
 	/** Ocean depth in meters — ocean pixels are placed this far below sea level */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "0.0", ClampMax = "100.0"))

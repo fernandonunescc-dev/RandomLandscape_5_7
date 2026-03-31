@@ -41,7 +41,7 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	 * This is the absolute ceiling - individual biome HeightScale is relative to this.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "10.0", ClampMax = "2000.0", UIMin = "10.0", UIMax = "2000.0"))
-	float MaxMapHeight = 500.0f;
+	float MaxMapHeight = 100.0f;
 
 	/** 
 	 * Random seed for landmass shape generation.
