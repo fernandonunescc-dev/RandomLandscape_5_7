@@ -165,7 +165,7 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 
 	/** How many pixels inland before elevation reaches maximum gradient */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "10", ClampMax = "256", Tooltip = "Distance in pixels from the coastline before terrain reaches full inland height. Larger values produce wider, gentler coastal plains; smaller values create steep cliffs right at the shore."))
-	int32 CoastlineGradientWidth = 80;
+	int32 CoastlineGradientWidth = 100;
 
 	/** How much the coastal gradient varies around the island (0 = uniform, 1 = full variation) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Controls how much the coastline steepness varies around the island. At 0 the coast is uniform everywhere. At 1 some sides may have steep cliffs while others have gentle beaches. The variation is driven by low-frequency noise so it changes gradually."))
@@ -185,7 +185,7 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 
 	/** Noise persistence for base elevation */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.1", ClampMax = "1.0", Tooltip = "How much influence each successive noise octave has relative to the previous one. Lower values produce smoother terrain; higher values make fine detail almost as prominent as large features."))
-	float BaseNoisePersistence = 0.45f;
+	float BaseNoisePersistence = 0.35f;
 
 	// --- Mountain ridges (ridged noise) ---
 
@@ -195,15 +195,15 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 
 	/** Amplitude of mountain ridges relative to total height */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Maximum height of mountain ridges as a proportion of the total elevation range. At 0 mountains are disabled entirely; at 1 ridges can reach the full map height. Ridges fade toward the coast automatically."))
-	float MountainRidgeAmplitude = 0.6f;
+	float MountainRidgeAmplitude = 0.35f;
 
 	/** Sharpness of mountain peaks (higher = sharper ridges) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "0.5", ClampMax = "5.0", Tooltip = "Power exponent applied to the ridged noise. Higher values produce sharper, more defined peaks and deeper valleys between them; lower values yield softer, rounded mountain tops."))
-	float MountainSharpness = 2.0f;
+	float MountainSharpness = 1.5f;
 
 	/** Octaves for ridged mountain noise */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "1", ClampMax = "8", Tooltip = "Number of ridged-noise layers for mountain generation. More octaves add smaller-scale ridge detail on top of the main mountain shape."))
-	int32 MountainOctaves = 5;
+	int32 MountainOctaves = 4;
 
 	// --- Hills (rolling FBM terrain) ---
 
@@ -213,7 +213,7 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 
 	/** Amplitude of hill features relative to total height */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hills", meta = (ClampMin = "0.0", ClampMax = "0.5", Tooltip = "Maximum height contribution of hills as a proportion of total elevation. Set to 0 to disable hills. Increase for more pronounced rolling terrain between the mountains."))
-	float HillAmplitude = 0.15f;
+	float HillAmplitude = 0.2f;
 
 	/** Octaves for hill noise */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hills", meta = (ClampMin = "1", ClampMax = "6", Tooltip = "Number of FBM noise layers for hill generation. More octaves add finer bumps and texture to the rolling hills."))
@@ -241,7 +241,7 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 
 	/** Number of volcanic hotspots to place */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volcanic", meta = (ClampMin = "0", ClampMax = "10", Tooltip = "How many volcanic cones to scatter across the landmass. Set to 0 to disable volcanoes entirely. Each volcano is placed randomly on land and generates a cone with an optional crater."))
-	int32 VolcanicHotspotCount = 2;
+	int32 VolcanicHotspotCount = 1;
 
 	/** Radius of volcanic influence (normalized 0-1) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volcanic", meta = (ClampMin = "0.02", ClampMax = "0.3", Tooltip = "Size of each volcano's influence area as a fraction of the total map width. A value of 0.08 means the volcano affects roughly 8 percent of the map. Larger values create massive shield-style volcanoes."))
@@ -249,7 +249,7 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 
 	/** Peak height of volcanoes relative to max (0-1) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volcanic", meta = (ClampMin = "0.1", ClampMax = "1.0", Tooltip = "Normalised peak elevation of each volcano cone (0 = sea level, 1 = maximum map height). Higher values create towering volcanic peaks that dominate the surrounding terrain."))
-	float VolcanicPeakHeight = 0.85f;
+	float VolcanicPeakHeight = 0.65f;
 
 	/** Crater depth as fraction of peak */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volcanic", meta = (ClampMin = "0.0", ClampMax = "0.8", Tooltip = "How deep the summit crater is, expressed as a fraction of the volcano's peak height. Set to 0 for a solid cone with no crater. Values above 0.5 create deep calderas."))
@@ -324,7 +324,7 @@ struct RANDOMLANDSCAPE_5_7_API FErosionSettings
 
 	/** Number of thermal erosion passes (smooths steep slopes) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thermal Erosion", meta = (ClampMin = "0", ClampMax = "20", Tooltip = "Number of thermal erosion iterations. Each pass moves material from steep slopes to lower neighbours, smoothing out abrupt cliffs. More passes produce a more weathered, rounded landscape."))
-	int32 ThermalErosionPasses = 3;
+	int32 ThermalErosionPasses = 5;
 
 	/** Maximum slope angle before thermal erosion kicks in (0-1, as height difference) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thermal Erosion", meta = (ClampMin = "0.001", ClampMax = "0.2", Tooltip = "Normalised height difference between neighbours above which thermal erosion activates. Slopes steeper than this threshold shed material downhill. Lower values erode gentler slopes; higher values only erode very steep terrain."))
@@ -361,7 +361,7 @@ struct RANDOMLANDSCAPE_5_7_API FClimateSettings
 
 	/** How much temperature drops per unit of elevation (lapse rate) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Temperature", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Temperature reduction per unit of normalised elevation (adiabatic lapse rate). Higher values make mountaintops significantly colder than lowlands, encouraging snow biomes at altitude."))
-	float ElevationLapseRate = 0.4f;
+	float ElevationLapseRate = 0.3f;
 
 	/** How quickly moisture decays inland from the coast */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moisture", meta = (ClampMin = "0.001", ClampMax = "0.1", Tooltip = "Rate at which moisture decreases with distance from the coastline. Higher values dry out the interior faster, creating arid inland zones. Lower values allow moisture to penetrate deep inland."))
@@ -398,11 +398,11 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 
 	/** Elevation above which terrain is classified as Mountain */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thresholds", meta = (ClampMin = "0.3", ClampMax = "1.0", Tooltip = "Normalised elevation above which terrain is classified as Mountain biome. Lower values extend mountains further down the elevation range; higher values restrict mountains to the tallest peaks."))
-	float MountainElevationThreshold = 0.65f;
+	float MountainElevationThreshold = 0.72f;
 
 	/** Temperature below which Snow/Tundra is assigned */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thresholds", meta = (ClampMin = "0.0", ClampMax = "0.5", Tooltip = "Normalised temperature below which terrain is classified as Snow or Tundra. Higher values expand snow coverage to warmer areas; lower values restrict snow to the coldest peaks and poles."))
-	float SnowTemperatureThreshold = 0.25f;
+	float SnowTemperatureThreshold = 0.18f;
 
 	/** Temperature below which Ice/Glacier is assigned (colder than snow) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thresholds", meta = (ClampMin = "0.0", ClampMax = "0.3", Tooltip = "Normalised temperature below which terrain is classified as Ice or Glacier (must be colder than the Snow threshold). Extremely cold areas with sufficient moisture form permanent ice sheets."))
@@ -522,11 +522,11 @@ struct RANDOMLANDSCAPE_5_7_API FTerrainRefinementSettings
 
 	/** Mountain extra ridge detail */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountain", meta = (ClampMin = "0.0", ClampMax = "0.5", Tooltip = "Additional ridged noise amplitude applied exclusively to Mountain biome pixels. Adds craggy, jagged detail on top of the macro mountain shape."))
-	float MountainDetailScale = 0.12f;
+	float MountainDetailScale = 0.08f;
 
 	/** Number of smoothing passes on the final elevation */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Post-Process", meta = (ClampMin = "0", ClampMax = "10", Tooltip = "Number of box-blur smoothing passes applied to the final elevation map after all detail is added. Softens any remaining sharp edges between biomes. 0 skips smoothing entirely."))
-	int32 FinalSmoothingPasses = 2;
+	int32 FinalSmoothingPasses = 3;
 
 	/** Per-biome terrain refinement profiles (8 entries, indexed by EBiomeType).
 	 *  If empty, hard-coded defaults are used. */

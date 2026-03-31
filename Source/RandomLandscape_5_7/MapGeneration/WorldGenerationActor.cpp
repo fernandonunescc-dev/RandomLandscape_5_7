@@ -975,7 +975,7 @@ void AWorldGenerationActor::ApplyPreset_Volcano(bool bEnable)
 	{
 		UpliftSettings.VolcanicHotspotCount = 1;
 		UpliftSettings.VolcanicRadius = 0.08f;
-		UpliftSettings.VolcanicPeakHeight = 0.85f;
+		UpliftSettings.VolcanicPeakHeight = 0.65f;
 		UpliftSettings.CraterDepth = 0.3f;
 		UpliftSettings.CraterRadiusFraction = 0.2f;
 	}
@@ -990,9 +990,9 @@ void AWorldGenerationActor::ApplyPreset_Mountains(bool bEnable)
 	if (bEnable)
 	{
 		UpliftSettings.MountainRidgeFrequency = 2.5f;
-		UpliftSettings.MountainRidgeAmplitude = 0.6f;
-		UpliftSettings.MountainSharpness = 2.0f;
-		UpliftSettings.MountainOctaves = 5;
+		UpliftSettings.MountainRidgeAmplitude = 0.35f;
+		UpliftSettings.MountainSharpness = 1.5f;
+		UpliftSettings.MountainOctaves = 4;
 	}
 	else
 	{
@@ -1005,7 +1005,7 @@ void AWorldGenerationActor::ApplyPreset_Hills(bool bEnable)
 	if (bEnable)
 	{
 		UpliftSettings.HillFrequency = 3.0f;
-		UpliftSettings.HillAmplitude = 0.15f;
+		UpliftSettings.HillAmplitude = 0.2f;
 		UpliftSettings.HillOctaves = 3;
 	}
 	else
@@ -1064,22 +1064,22 @@ void AWorldGenerationActor::ApplyTerrainRoughness(float Roughness)
 	// Clamp just in case
 	Roughness = FMath::Clamp(Roughness, 0.0f, 1.0f);
 
-	// Mountain ridge amplitude: 0 at roughness=0, up to 0.8 at roughness=1
-	UpliftSettings.MountainRidgeAmplitude = FMath::Lerp(0.0f, 0.8f, Roughness);
+	// Mountain ridge amplitude: 0 at roughness=0, up to 0.6 at roughness=1
+	UpliftSettings.MountainRidgeAmplitude = FMath::Lerp(0.0f, 0.6f, Roughness);
 
 	// Mountain sharpness: softer at low roughness, sharper at high
-	UpliftSettings.MountainSharpness = FMath::Lerp(1.0f, 3.5f, Roughness);
+	UpliftSettings.MountainSharpness = FMath::Lerp(1.0f, 2.5f, Roughness);
 
 	// Hill amplitude: gentle at low roughness, moderate at mid, reduced at extreme high (mountains dominate)
 	// Peaks at roughness ~0.4
 	const float HillCurve = FMath::Clamp(1.0f - FMath::Abs(Roughness - 0.4f) * 2.0f, 0.0f, 1.0f);
-	UpliftSettings.HillAmplitude = FMath::Lerp(0.02f, 0.25f, HillCurve);
+	UpliftSettings.HillAmplitude = FMath::Lerp(0.05f, 0.3f, HillCurve);
 
 	// Base noise persistence: flatter terrain uses smoother noise
-	UpliftSettings.BaseNoisePersistence = FMath::Lerp(0.25f, 0.55f, Roughness);
+	UpliftSettings.BaseNoisePersistence = FMath::Lerp(0.25f, 0.5f, Roughness);
 
 	// Coastline gradient: flat terrain gets wider coastal plains
-	UpliftSettings.CoastlineGradientWidth = FMath::RoundToInt32(FMath::Lerp(120.0f, 50.0f, Roughness));
+	UpliftSettings.CoastlineGradientWidth = FMath::RoundToInt32(FMath::Lerp(140.0f, 50.0f, Roughness));
 
 	// Plateau flatness: more prominent in mid-range, reduced at extremes
 	const float PlateauCurve = FMath::Clamp(1.0f - FMath::Abs(Roughness - 0.5f) * 3.0f, 0.0f, 1.0f);
