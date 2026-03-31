@@ -506,12 +506,21 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "30.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Mountain coverage as a percentage of total land pixels. The highest-elevation and steepest-slope pixels are selected up to this target."))
 	float TargetMountainPercent = 10.0f;
 
+	// --- Spatial Smoothing ---
+
+	/** Number of majority-vote smoothing passes applied to the biome map.
+	    Each pass replaces a pixel with the most common biome in its
+	    neighbourhood, eliminating thin stripe artefacts along threshold
+	    boundaries. 0 = no smoothing. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spatial Smoothing", meta = (ClampMin = "0", ClampMax = "8", Tooltip = "Number of majority-vote smoothing passes applied to the biome map after classification. Each pass replaces every pixel with the most common biome in a 5×5 neighbourhood window, eliminating thin stripe artefacts that form along elevation or temperature contour lines. Higher values produce broader, more cohesive biome regions. 0 disables smoothing."))
+	int32 BiomeSmoothingPasses = 2;
+
 	// --- Cluster Filtering ---
 
 	/** Minimum contiguous biome region size in pixels. Patches smaller than this
 	    are absorbed into the most common surrounding biome. 0 = no filtering. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cluster Filtering", meta = (ClampMin = "0", ClampMax = "256", Tooltip = "Minimum contiguous area in pixels for a biome patch to survive. Smaller patches are absorbed into the dominant neighbouring biome, producing cleaner, more readable biome boundaries. Set to 0 to disable."))
-	int32 MinBiomeClusterSize = 16;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cluster Filtering", meta = (ClampMin = "0", ClampMax = "512", Tooltip = "Minimum contiguous area in pixels for a biome patch to survive. Smaller patches are absorbed into the dominant neighbouring biome, producing cleaner, more readable biome boundaries. Set to 0 to disable."))
+	int32 MinBiomeClusterSize = 64;
 
 	/** Per-biome material & foliage spawn rules (8 entries, indexed by EBiomeType) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material Rules", meta = (Tooltip = "Array of material and foliage spawn rules, one per biome type (indexed by EBiomeType). Controls the visual appearance and vegetation of each biome."))

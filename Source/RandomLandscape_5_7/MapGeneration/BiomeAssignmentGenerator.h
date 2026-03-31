@@ -129,4 +129,9 @@ private:
 	/** Flood-fill connected components; absorb patches smaller than
 	    MinBiomeClusterSize into the dominant neighbouring biome. */
 	void RemoveSmallClusters();
+
+	/** Majority-vote spatial smoothing: each pixel is replaced with the
+	    most common biome in a 5×5 neighbourhood.  Repeated for
+	    BiomeSmoothingPasses iterations to eliminate thin stripe artefacts. */
+	void SmoothBiomeMap();
 };

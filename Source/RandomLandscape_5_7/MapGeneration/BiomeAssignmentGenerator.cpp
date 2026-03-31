@@ -439,6 +439,9 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 	// --- Optional: remove small biome clusters ---
 	RemoveSmallClusters();
 
+	// --- Majority-vote spatial smoothing ---
+	SmoothBiomeMap();
+
 	// --- Biome blending weights ---
 	ComputeBiomeBlendWeights();
 
@@ -725,5 +728,82 @@ void UBiomeAssignmentGenerator::RemoveSmallClusters()
 		UE_LOG(LogTemp, Log,
 			TEXT("BiomeAssignmentGenerator – removed small clusters: %d pixels absorbed (min size %d)"),
 			Absorbed, MinSize);
+	}
+}
+
+//------------------------------------------------------------------------------
+// SmoothBiomeMap:
+//   Majority-vote filter in a 5×5 neighbourhood window.
+//   For each pixel, count how often each biome type appears in the window;
+//   replace the pixel with the most common biome.  This eliminates thin
+//   stripe artefacts that form along elevation/temperature contour lines.
+//   Repeated for BiomeSmoothingPasses iterations.
+//------------------------------------------------------------------------------
+void UBiomeAssignmentGenerator::SmoothBiomeMap()
+{
+	const int32 Passes = Settings.BiomeSmoothingPasses;
+	if (Passes <= 0) return;
+
+	const int32 Total = Resolution * Resolution;
+	const int32 R = 2;  // half-window radius → 5×5
+
+	TArray<int32> Temp;
+	Temp.SetNumUninitialized(Total);
+
+	for (int32 Pass = 0; Pass < Passes; ++Pass)
+	{
+		int32 Changed = 0;
+
+		for (int32 Y = 0; Y < Resolution; ++Y)
+		{
+			for (int32 X = 0; X < Resolution; ++X)
+			{
+				const int32 Idx = Y * Resolution + X;
+
+				// Tally votes from NxN neighbourhood
+				int32 Votes[NumBiomeTypes] = {};
+
+				const int32 YMin = FMath::Max(0, Y - R);
+				const int32 YMax = FMath::Min(Resolution - 1, Y + R);
+				const int32 XMin = FMath::Max(0, X - R);
+				const int32 XMax = FMath::Min(Resolution - 1, X + R);
+
+				for (int32 NY = YMin; NY <= YMax; ++NY)
+				{
+					for (int32 NX = XMin; NX <= XMax; ++NX)
+					{
+						const int32 B = BiomeMap[NY * Resolution + NX];
+						if (B >= 0 && B < NumBiomeTypes)
+						{
+							Votes[B]++;
+						}
+					}
+				}
+
+				// Find the biome with the most votes
+				int32 BestBiome = BiomeMap[Idx];
+				int32 BestCount = 0;
+				for (int32 B = 0; B < NumBiomeTypes; ++B)
+				{
+					if (Votes[B] > BestCount)
+					{
+						BestCount = Votes[B];
+						BestBiome = B;
+					}
+				}
+
+				Temp[Idx] = BestBiome;
+				if (BestBiome != BiomeMap[Idx]) Changed++;
+			}
+		}
+
+		// Copy smoothed result back
+		FMemory::Memcpy(BiomeMap.GetData(), Temp.GetData(), Total * sizeof(int32));
+
+		UE_LOG(LogTemp, Log,
+			TEXT("BiomeAssignmentGenerator – smoothing pass %d/%d: %d pixels changed"),
+			Pass + 1, Passes, Changed);
+
+		if (Changed == 0) break;  // converged
 	}
 }
