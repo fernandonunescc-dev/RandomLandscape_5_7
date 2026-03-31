@@ -117,4 +117,16 @@ private:
 	void ComputeSlopeMap(const TArray<float>& Elevation);
 	void ComputeWaterDistMap(const TArray<float>& RiverMap, const TArray<uint8>& LakeMap);
 	void ComputeBiomeBlendWeights();
+
+	/** If bEnableBiomeTargets, override threshold-based assignment with
+	    score-ranked selection to achieve target coverage per biome. */
+	void ApplyBiomeTargets(const TArray<float>& Elevation,
+		const TArray<float>& Temperature,
+		const TArray<float>& EffectiveMoisture,
+		const TArray<float>& Precipitation,
+		const TArray<uint8>& LandMask);
+
+	/** Flood-fill connected components; absorb patches smaller than
+	    MinBiomeClusterSize into the dominant neighbouring biome. */
+	void RemoveSmallClusters();
 };

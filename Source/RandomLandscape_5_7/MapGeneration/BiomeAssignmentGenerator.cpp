@@ -263,6 +263,20 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 
 	const float WetlandsMaxDist = static_cast<float>(Settings.WetlandsMaxWaterDistance);
 
+	// Pre-compute effective moisture (with water proximity bonus) for reuse
+	TArray<float> EffMoisture;
+	EffMoisture.SetNum(TotalPixels);
+	for (int32 i = 0; i < TotalPixels; ++i)
+	{
+		EffMoisture[i] = Moisture[i];
+		if (LandMask[i] != 0 && bApplyWaterProximity && WaterDistMap[i] < WaterProxRadius)
+		{
+			const float ProximityFactor = 1.0f - (WaterDistMap[i] / WaterProxRadius);
+			EffMoisture[i] += Settings.WaterProximityMoistureBonus * ProximityFactor;
+			EffMoisture[i] = FMath::Min(EffMoisture[i], 1.0f);
+		}
+	}
+
 	// Biome distribution counters
 	TMap<EBiomeType, int32> BiomeCounts;
 
@@ -296,14 +310,7 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 		}
 		else
 		{
-			// Effective moisture: add bonus for proximity to water
-			float EffectiveMoisture = Moisture[i];
-			if (bApplyWaterProximity && WaterDistMap[i] < WaterProxRadius)
-			{
-				const float ProximityFactor = 1.0f - (WaterDistMap[i] / WaterProxRadius);
-				EffectiveMoisture += Settings.WaterProximityMoistureBonus * ProximityFactor;
-				EffectiveMoisture = FMath::Min(EffectiveMoisture, 1.0f);
-			}
+			const float EffectiveMoisture = EffMoisture[i];
 
 			// --- Terrain archetype classification (shape-based) ---
 			// Priority: Canyons > Plateaus > Mountains > Desert > Hills > Plains
@@ -421,13 +428,25 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 		TerrainArchetypeMap[i] = static_cast<int32>(Archetype);
 		SurfaceOverlayMap[i] = static_cast<int32>(Overlay);
 		GeneratedFeatureMap[i] = static_cast<int32>(Feature);
-		BiomeCounts.FindOrAdd(Biome)++;
 	}
+
+	// --- Optional: target percentage biome redistribution ---
+	if (Settings.bEnableBiomeTargets)
+	{
+		ApplyBiomeTargets(Elevation, Temperature, EffMoisture, Precipitation, LandMask);
+	}
+
+	// --- Optional: remove small biome clusters ---
+	RemoveSmallClusters();
 
 	// --- Biome blending weights ---
 	ComputeBiomeBlendWeights();
 
-	// Log biome distribution
+	// Log biome distribution (after all adjustments)
+	for (int32 i = 0; i < TotalPixels; ++i)
+	{
+		BiomeCounts.FindOrAdd(static_cast<EBiomeType>(BiomeMap[i]))++;
+	}
 	UE_LOG(LogTemp, Log, TEXT("BiomeAssignmentGenerator::Generate – Biome distribution:"));
 	UE_LOG(LogTemp, Log, TEXT("  Ocean:    %d"), BiomeCounts.FindRef(EBiomeType::Ocean));
 	UE_LOG(LogTemp, Log, TEXT("  Volcanic: %d"), BiomeCounts.FindRef(EBiomeType::Volcanic));
@@ -440,4 +459,271 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 
 	UE_LOG(LogTemp, Log, TEXT("BiomeAssignmentGenerator::Generate – complete"));
 	return true;
+}
+
+//------------------------------------------------------------------------------
+// ApplyBiomeTargets:
+//   Score-ranked biome assignment to achieve target percentage coverage.
+//   For each biome (in priority order), compute an affinity score per pixel,
+//   then select the top-N land pixels to match the configured target.
+//   Ocean and Volcanic assignments are preserved; remaining land → Grassland.
+//------------------------------------------------------------------------------
+void UBiomeAssignmentGenerator::ApplyBiomeTargets(
+	const TArray<float>& Elevation,
+	const TArray<float>& Temperature,
+	const TArray<float>& EffectiveMoisture,
+	const TArray<float>& Precipitation,
+	const TArray<uint8>& LandMask)
+{
+	const int32 Total = Resolution * Resolution;
+
+	// Count land pixels and mark fixed biomes (Ocean, Volcanic)
+	int32 LandCount = 0;
+	TArray<bool> Fixed;
+	Fixed.SetNumZeroed(Total);
+
+	for (int32 i = 0; i < Total; ++i)
+	{
+		if (LandMask[i] == 0 || BiomeMap[i] == static_cast<int32>(EBiomeType::Volcanic))
+		{
+			Fixed[i] = true;
+		}
+		else
+		{
+			LandCount++;
+		}
+	}
+	if (LandCount == 0) return;
+
+	// Reset all non-fixed to Land (Grassland) — the default remainder
+	const int32 LandVal = static_cast<int32>(EBiomeType::Land);
+	for (int32 i = 0; i < Total; ++i)
+	{
+		if (!Fixed[i]) BiomeMap[i] = LandVal;
+	}
+
+	// Scored candidate for sorting
+	struct FScored
+	{
+		int32 Idx;
+		float Score;
+	};
+
+	// --- Mountain pass: highest elevation + steepest slope ---
+	{
+		int32 Target = FMath::RoundToInt(LandCount * Settings.TargetMountainPercent / 100.0f);
+		if (Target > 0)
+		{
+			TArray<FScored> Cands;
+			Cands.Reserve(LandCount);
+			for (int32 i = 0; i < Total; ++i)
+			{
+				if (Fixed[i] || BiomeMap[i] != LandVal) continue;
+				float S = FMath::Max(0.0f, Elevation[i] - 0.3f) * 2.0f
+				        + FMath::Max(0.0f, SlopeMap[i] - 0.03f);
+				if (S > 0.0f) Cands.Add({i, S});
+			}
+			Cands.Sort([](const FScored& A, const FScored& B) { return A.Score > B.Score; });
+			int32 Count = FMath::Min(Target, Cands.Num());
+			for (int32 j = 0; j < Count; ++j)
+				BiomeMap[Cands[j].Idx] = static_cast<int32>(EBiomeType::Mountain);
+		}
+	}
+
+	// --- Snow/Ice pass: coldest pixels ---
+	{
+		int32 Target = FMath::RoundToInt(LandCount * Settings.TargetSnowPercent / 100.0f);
+		if (Target > 0)
+		{
+			TArray<FScored> Cands;
+			Cands.Reserve(LandCount);
+			for (int32 i = 0; i < Total; ++i)
+			{
+				if (Fixed[i] || BiomeMap[i] != LandVal) continue;
+				float S = FMath::Max(0.0f, 0.5f - Temperature[i]);
+				if (S > 0.0f) Cands.Add({i, S});
+			}
+			Cands.Sort([](const FScored& A, const FScored& B) { return A.Score > B.Score; });
+			int32 Count = FMath::Min(Target, Cands.Num());
+			for (int32 j = 0; j < Count; ++j)
+			{
+				const int32 Idx = Cands[j].Idx;
+				if (Temperature[Idx] < Settings.IceTemperatureThreshold
+					&& EffectiveMoisture[Idx] > Settings.IceMoistureThreshold)
+				{
+					BiomeMap[Idx] = static_cast<int32>(EBiomeType::Ice);
+				}
+				else
+				{
+					BiomeMap[Idx] = static_cast<int32>(EBiomeType::Snow);
+				}
+			}
+		}
+	}
+
+	// --- Desert pass: hottest + driest ---
+	{
+		int32 Target = FMath::RoundToInt(LandCount * Settings.TargetDesertPercent / 100.0f);
+		if (Target > 0)
+		{
+			TArray<FScored> Cands;
+			Cands.Reserve(LandCount);
+			for (int32 i = 0; i < Total; ++i)
+			{
+				if (Fixed[i] || BiomeMap[i] != LandVal) continue;
+				float S = FMath::Max(0.0f, Temperature[i] - 0.3f)
+				        * FMath::Max(0.0f, 0.6f - EffectiveMoisture[i]);
+				if (S > 0.0f) Cands.Add({i, S});
+			}
+			Cands.Sort([](const FScored& A, const FScored& B) { return A.Score > B.Score; });
+			int32 Count = FMath::Min(Target, Cands.Num());
+			for (int32 j = 0; j < Count; ++j)
+				BiomeMap[Cands[j].Idx] = static_cast<int32>(EBiomeType::Desert);
+		}
+	}
+
+	// --- Forest pass: wettest + warmest + highest precipitation ---
+	{
+		int32 Target = FMath::RoundToInt(LandCount * Settings.TargetForestPercent / 100.0f);
+		if (Target > 0)
+		{
+			TArray<FScored> Cands;
+			Cands.Reserve(LandCount);
+			for (int32 i = 0; i < Total; ++i)
+			{
+				if (Fixed[i] || BiomeMap[i] != LandVal) continue;
+				float S = EffectiveMoisture[i]
+				        * FMath::Max(0.0f, Temperature[i] - 0.1f)
+				        * Precipitation[i];
+				if (S > 0.0f) Cands.Add({i, S});
+			}
+			Cands.Sort([](const FScored& A, const FScored& B) { return A.Score > B.Score; });
+			int32 Count = FMath::Min(Target, Cands.Num());
+			for (int32 j = 0; j < Count; ++j)
+				BiomeMap[Cands[j].Idx] = static_cast<int32>(EBiomeType::Forest);
+		}
+	}
+
+	// Remaining land pixels stay as Land (Grassland)
+
+	UE_LOG(LogTemp, Log, TEXT("BiomeAssignmentGenerator – Applied target percentages (Mtn:%.0f%%, Snow:%.0f%%, Desert:%.0f%%, Forest:%.0f%% of %d land)"),
+		Settings.TargetMountainPercent, Settings.TargetSnowPercent,
+		Settings.TargetDesertPercent, Settings.TargetForestPercent, LandCount);
+}
+
+//------------------------------------------------------------------------------
+// RemoveSmallClusters:
+//   Flood-fill connected components (4-connected) in the BiomeMap.
+//   Any component with fewer pixels than MinBiomeClusterSize is absorbed into
+//   the most common neighbouring biome, producing cleaner biome boundaries.
+//------------------------------------------------------------------------------
+void UBiomeAssignmentGenerator::RemoveSmallClusters()
+{
+	const int32 Total = Resolution * Resolution;
+	const int32 MinSize = Settings.MinBiomeClusterSize;
+	if (MinSize <= 1) return;
+
+	// --- Pass 1: label connected components ---
+	TArray<int32> Label;
+	Label.SetNumUninitialized(Total);
+	for (int32 i = 0; i < Total; ++i) Label[i] = -1;
+
+	struct FComp { int32 Size; int32 Biome; };
+	TArray<FComp> Comps;
+
+	TArray<int32> FloodStack;
+	FloodStack.Reserve(512);
+
+	for (int32 Seed = 0; Seed < Total; ++Seed)
+	{
+		if (Label[Seed] >= 0) continue;
+
+		const int32 CId = Comps.Num();
+		const int32 SeedBiome = BiomeMap[Seed];
+		Comps.Add({0, SeedBiome});
+
+		FloodStack.Reset();
+		FloodStack.Add(Seed);
+		Label[Seed] = CId;
+
+		while (FloodStack.Num() > 0)
+		{
+			const int32 Cur = FloodStack.Pop(false);
+			Comps[CId].Size++;
+
+			const int32 X = Cur % Resolution;
+			const int32 Y = Cur / Resolution;
+			for (int32 D = 0; D < 4; ++D)
+			{
+				const int32 NX = X + BDX4[D];
+				const int32 NY = Y + BDY4[D];
+				if (NX < 0 || NX >= Resolution || NY < 0 || NY >= Resolution) continue;
+				const int32 NI = NY * Resolution + NX;
+				if (Label[NI] >= 0 || BiomeMap[NI] != SeedBiome) continue;
+				Label[NI] = CId;
+				FloodStack.Add(NI);
+			}
+		}
+	}
+
+	// --- Pass 2: for each small component, tally neighbour biome votes ---
+	TArray<TMap<int32, int32>> Votes;
+	Votes.SetNum(Comps.Num());
+
+	for (int32 i = 0; i < Total; ++i)
+	{
+		const int32 CId = Label[i];
+		if (Comps[CId].Size >= MinSize) continue;
+
+		const int32 X = i % Resolution;
+		const int32 Y = i / Resolution;
+		for (int32 D = 0; D < 4; ++D)
+		{
+			const int32 NX = X + BDX4[D];
+			const int32 NY = Y + BDY4[D];
+			if (NX < 0 || NX >= Resolution || NY < 0 || NY >= Resolution) continue;
+			const int32 NI = NY * Resolution + NX;
+			if (Label[NI] == CId) continue;
+			Votes[CId].FindOrAdd(BiomeMap[NI])++;
+		}
+	}
+
+	// Determine replacement biome for each small component
+	TArray<int32> Replacement;
+	Replacement.SetNumUninitialized(Comps.Num());
+	for (int32 c = 0; c < Comps.Num(); ++c) Replacement[c] = -1;
+
+	for (int32 c = 0; c < Comps.Num(); ++c)
+	{
+		if (Comps[c].Size >= MinSize) continue;
+		int32 Best = Comps[c].Biome;
+		int32 BestN = 0;
+		for (const auto& V : Votes[c])
+		{
+			if (V.Value > BestN) { BestN = V.Value; Best = V.Key; }
+		}
+		if (Best != Comps[c].Biome)
+		{
+			Replacement[c] = Best;
+		}
+	}
+
+	// --- Pass 3: apply replacements ---
+	int32 Absorbed = 0;
+	for (int32 i = 0; i < Total; ++i)
+	{
+		const int32 CId = Label[i];
+		if (Replacement[CId] >= 0)
+		{
+			BiomeMap[i] = Replacement[CId];
+			Absorbed++;
+		}
+	}
+
+	if (Absorbed > 0)
+	{
+		UE_LOG(LogTemp, Log,
+			TEXT("BiomeAssignmentGenerator – removed small clusters: %d pixels absorbed (min size %d)"),
+			Absorbed, MinSize);
+	}
 }
