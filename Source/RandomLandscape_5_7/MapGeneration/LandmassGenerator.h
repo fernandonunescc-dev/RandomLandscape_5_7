@@ -133,16 +133,19 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 
 	/**
 	 * Get the world-space size in centimeters for the current MapSize.
+	 * Gigantic: 800000 (8km), ExtraLarge: 400000 (4km),
 	 * Large: 200000 (2km), Medium: 100000 (1km), Small: 50000 (500m).
 	 */
 	float GetWorldSizeCm() const
 	{
 		switch (MapSize)
 		{
-		case EMapSize::Large:  return 200000.0f;
-		case EMapSize::Medium: return 100000.0f;
-		case EMapSize::Small:  return 50000.0f;
-		default:               return 100000.0f;
+		case EMapSize::Gigantic:   return 800000.0f;
+		case EMapSize::ExtraLarge: return 400000.0f;
+		case EMapSize::Large:      return 200000.0f;
+		case EMapSize::Medium:     return 100000.0f;
+		case EMapSize::Small:      return 50000.0f;
+		default:                   return 100000.0f;
 		}
 	}
 };

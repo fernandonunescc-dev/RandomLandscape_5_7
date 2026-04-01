@@ -1123,10 +1123,12 @@ void AWorldGenerationActor::BuildTerrainMesh(const TArray<float>& Elevation, con
 	float WorldSizeCm;
 	switch (MapSize)
 	{
-	case EMapSize::Large:  WorldSizeCm = 200000.0f; break;
-	case EMapSize::Medium: WorldSizeCm = 100000.0f; break;
-	case EMapSize::Small:  WorldSizeCm = 50000.0f;  break;
-	default:               WorldSizeCm = 100000.0f; break;
+	case EMapSize::Gigantic:   WorldSizeCm = 800000.0f; break;
+	case EMapSize::ExtraLarge: WorldSizeCm = 400000.0f; break;
+	case EMapSize::Large:      WorldSizeCm = 200000.0f; break;
+	case EMapSize::Medium:     WorldSizeCm = 100000.0f; break;
+	case EMapSize::Small:      WorldSizeCm = 50000.0f;  break;
+	default:                   WorldSizeCm = 100000.0f; break;
 	}
 
 	// Prepare mesh arrays
