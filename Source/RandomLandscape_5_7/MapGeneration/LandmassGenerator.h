@@ -121,12 +121,14 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	// === Edge Margin Settings ===
 
 	/**
-	 * Width of the ocean border added around the map after generation, in metres.
-	 * The landmass is generated filling the full map area, then this thin
-	 * ocean strip is enforced at the boundary.  Default 30 m gives a clean
-	 * ocean edge without wasting usable land area.
+	 * Width of the ocean ring around the circular land zone, in metres.
+	 * Land is constrained to a circle inscribed in the map; this setting
+	 * controls how far from the map edge that circle boundary sits.
+	 * The map appears round — corners are always ocean.
+	 * Default 30 m keeps a thin guaranteed ocean border while maximising
+	 * usable land area.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "0.0", ClampMax = "300.0", Tooltip = "Width of the ocean border added after generation in metres. Land fills the full map first, then this edge is enforced. Default 30 m."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "0.0", ClampMax = "300.0", Tooltip = "Width of the ocean ring around the circular land zone in metres. Land is constrained to a circle inscribed in the map; corners are always ocean. Default 30 m."))
 	float MinEdgeMarginMeters = 30.0f;
 
 	/**
