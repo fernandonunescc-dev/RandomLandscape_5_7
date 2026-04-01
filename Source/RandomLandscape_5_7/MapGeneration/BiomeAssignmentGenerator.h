@@ -110,6 +110,10 @@ private:
 	/** Flat array: pixel i → [i*8 .. i*8+7], one weight per EBiomeType. */
 	TArray<float> BiomeBlendWeights;
 
+	/** Cached pointer to the land mask passed in Generate(), used by SmoothBiomeMap
+	 *  to prevent land pixels from being overwritten with Ocean during majority-vote smoothing. */
+	const TArray<uint8>* CachedLandMask = nullptr;
+
 	/** Number of distinct biome types (must match EBiomeType count). */
 	static constexpr int32 NumBiomeTypes = 8;
 

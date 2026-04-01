@@ -85,28 +85,77 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 	);
 
 	// === Generate island centers for Archipelago mode ===
+	// Strategy: one large "main island" near the centre + smaller satellite
+	// islands placed to maximise distance from existing islands AND edges.
+	// This avoids clustering near borders and fills the available ocean.
 	if (Settings.MapType == EMapType::Archipelago)
 	{
 		IslandCenters.Reset();
 		IslandRadii.Reset();
 		const int32 NumIslands = FMath::Max(2, Settings.IslandCount);
 
-		// Island centres must be placed far enough from edges that, combined
-		// with their radius, the resulting landmass stays inside the margin.
-		// Use at least 15% inset, but widen when MinEdgePaddingNorm demands it.
+		// Safe zone inset (normalised) — island centres must stay this far from edges
 		const float MinInset = FMath::Max(0.15f, MinEdgePaddingNorm + 0.10f);
 		const float MaxInset = 1.0f - MinInset;
 
-		for (int32 i = 0; i < NumIslands; ++i)
+		// --- Island 0: Main island — large and near the centre ---
 		{
-			FVector2D Center(
-				RandomStream.FRandRange(MinInset, MaxInset),
-				RandomStream.FRandRange(MinInset, MaxInset)
+			// Slight random offset from dead-centre for natural feel
+			FVector2D MainCenter(
+				0.5f + RandomStream.FRandRange(-0.08f, 0.08f),
+				0.5f + RandomStream.FRandRange(-0.08f, 0.08f)
 			);
-			IslandCenters.Add(Center);
+			// Clamp inside safe zone
+			MainCenter.X = FMath::Clamp(MainCenter.X, MinInset, MaxInset);
+			MainCenter.Y = FMath::Clamp(MainCenter.Y, MinInset, MaxInset);
 
-			// Random radius for each island (larger = bigger island)
-			float Radius = RandomStream.FRandRange(0.06f, 0.18f);
+			IslandCenters.Add(MainCenter);
+			IslandRadii.Add(RandomStream.FRandRange(0.18f, 0.28f));
+		}
+
+		// --- Islands 1..N-1: smaller satellites placed via best-candidate sampling ---
+		// For each subsequent island we generate K random candidates and pick the
+		// one that is farthest from every existing island centre AND from all edges.
+		// This produces a well-spaced layout that fills the map.
+		constexpr int32 NumCandidates = 20;
+
+		for (int32 i = 1; i < NumIslands; ++i)
+		{
+			FVector2D BestCandidate(0.5f, 0.5f);
+			float BestMinDist = -1.0f;
+
+			for (int32 C = 0; C < NumCandidates; ++C)
+			{
+				FVector2D Candidate(
+					RandomStream.FRandRange(MinInset, MaxInset),
+					RandomStream.FRandRange(MinInset, MaxInset)
+				);
+
+				// Distance to nearest edge (normalised)
+				const float EdgeDist = FMath::Min(
+					FMath::Min(Candidate.X - 0.0f, 1.0f - Candidate.X),
+					FMath::Min(Candidate.Y - 0.0f, 1.0f - Candidate.Y)
+				);
+
+				// Distance to nearest existing island (accounting for their radii)
+				float MinIslandDist = EdgeDist;
+				for (int32 j = 0; j < IslandCenters.Num(); ++j)
+				{
+					const float Dist = FVector2D::Distance(Candidate, IslandCenters[j]) - IslandRadii[j];
+					MinIslandDist = FMath::Min(MinIslandDist, Dist);
+				}
+
+				if (MinIslandDist > BestMinDist)
+				{
+					BestMinDist = MinIslandDist;
+					BestCandidate = Candidate;
+				}
+			}
+
+			IslandCenters.Add(BestCandidate);
+
+			// Satellite islands are smaller than the main island
+			float Radius = RandomStream.FRandRange(0.06f, 0.15f);
 			IslandRadii.Add(Radius);
 		}
 	}

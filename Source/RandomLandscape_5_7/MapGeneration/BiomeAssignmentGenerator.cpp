@@ -239,6 +239,9 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 	const bool bHasCanyonMask = (CanyonMask.Num() == TotalPixels);
 	const bool bHasWaterfallMap = (WaterfallMap.Num() == TotalPixels);
 
+	// Cache LandMask pointer for use in SmoothBiomeMap (prevents land→Ocean smoothing)
+	CachedLandMask = &LandMask;
+
 	UE_LOG(LogTemp, Log, TEXT("BiomeAssignmentGenerator::Generate – starting (%d pixels, %d volcanic centers, SeaLevel=%.3f)"),
 		TotalPixels, VolcanicCenters.Num(), SeaLevel);
 
@@ -738,6 +741,10 @@ void UBiomeAssignmentGenerator::RemoveSmallClusters()
 //   replace the pixel with the most common biome.  This eliminates thin
 //   stripe artefacts that form along elevation/temperature contour lines.
 //   Repeated for BiomeSmoothingPasses iterations.
+//
+//   IMPORTANT: Land pixels are never smoothed to Ocean. The CachedLandMask
+//   is consulted; if the pixel is land, Ocean votes are excluded from the
+//   majority vote. This prevents blue-colored land patches at coastlines.
 //------------------------------------------------------------------------------
 void UBiomeAssignmentGenerator::SmoothBiomeMap()
 {
@@ -746,6 +753,9 @@ void UBiomeAssignmentGenerator::SmoothBiomeMap()
 
 	const int32 Total = Resolution * Resolution;
 	const int32 R = 2;  // half-window radius → 5×5
+
+	// Check if we have a valid land mask to prevent land→Ocean smoothing
+	const bool bHasLandMask = CachedLandMask && CachedLandMask->Num() == Total;
 
 	TArray<int32> Temp;
 	Temp.SetNumUninitialized(Total);
@@ -778,6 +788,14 @@ void UBiomeAssignmentGenerator::SmoothBiomeMap()
 							Votes[B]++;
 						}
 					}
+				}
+
+				// If this pixel is land, exclude Ocean from the vote to prevent
+				// coastal land pixels from being erroneously classified as Ocean.
+				const bool bIsLand = bHasLandMask && (*CachedLandMask)[Idx] != 0;
+				if (bIsLand)
+				{
+					Votes[static_cast<int32>(EBiomeType::Ocean)] = 0;
 				}
 
 				// Find the biome with the most votes
