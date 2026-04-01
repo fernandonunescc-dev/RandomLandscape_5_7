@@ -817,21 +817,28 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 	// separate peaks.  A gentle centre bias keeps land roughly centred but
 	// does NOT dominate — noise valleys can split the terrain into distinct
 	// landmasses.  Lower LandCoveragePercent = more water = more islands.
+	//
+	// Target island-count distribution (at default 50% coverage):
+	//   ~30% single island, ~35% main + 1-2 small, ~20% 2-3 medium,
+	//   ~10% 3-4 islands, ~4% 5 islands, ~1% 6+ islands.
 
-	// Primary terrain noise: large continent/island shapes (low frequency).
-	// This is the main driver of landmass count and placement.
-	// High amplitude (0.7) so noise peaks can rival centre bias.
+	// Primary terrain noise: large island shapes (frequency 3.0 creates
+	// ~1.5 full oscillations within the land zone, giving valleys that
+	// often split the landmass into 2-3 distinct bodies).
+	// High amplitude (0.8) so noise peaks clearly override centre bias.
 	float PrimaryNoise = FBM(
-		SampleX * 2.0f + ShapeNoiseOffset.X,
-		SampleY * 2.0f + ShapeNoiseOffset.Y,
-		4, 0.55f) * 0.7f;
+		SampleX * 3.0f + ShapeNoiseOffset.X,
+		SampleY * 3.0f + ShapeNoiseOffset.Y,
+		4, 0.55f) * 0.8f;
 
-	// Secondary terrain noise: medium-scale ridges and valleys.
-	// Creates sub-structure within large landmasses (peninsulas, isthmuses).
+	// Secondary terrain noise: medium-scale ridges, isthmuses, and satellite islands.
+	// Higher frequency (5.5) creates small sub-peaks that become tiny islets
+	// when threshold cuts through.  Amplitude 0.4 is strong enough to form
+	// small isolated islands near the main landmass.
 	float SecondaryNoise = FBM(
-		SampleX * 4.0f + DetailNoiseOffset.X,
-		SampleY * 4.0f + DetailNoiseOffset.Y,
-		3, 0.5f) * 0.35f;
+		SampleX * 5.5f + DetailNoiseOffset.X,
+		SampleY * 5.5f + DetailNoiseOffset.Y,
+		3, 0.5f) * 0.4f;
 
 	// Coast noise: higher-frequency coastline irregularity.
 	float CoastNoise = FBM(
@@ -847,12 +854,13 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 
 	// ===== Gentle centre bias =====
 	// Adds a mild preference for land near the centre so that the overall
-	// landscape doesn't drift to map edges.  The bias is weak enough (0.35)
-	// that noise valleys can still cut through and create separate islands.
+	// landscape doesn't drift to map edges.  The bias is deliberately weak
+	// (0.20) relative to noise amplitudes (0.8 primary + 0.4 secondary)
+	// so noise valleys regularly cut through, creating separate islands.
 	float CX = NormX - 0.5f;
 	float CY = NormY - 0.5f;
 	float DistFromCenter = FMath::Sqrt(CX * CX + CY * CY) * 2.0f; // 0 at centre, 1 at edge
-	float CentreBias = (1.0f - DistFromCenter) * 0.35f;
+	float CentreBias = (1.0f - DistFromCenter) * 0.20f;
 
 	// Combine all layers.  Noise dominates; centre bias gently shapes distribution.
 	float IslandValue = CentreBias + PrimaryNoise + SecondaryNoise + CoastNoise + DetailNoise;
