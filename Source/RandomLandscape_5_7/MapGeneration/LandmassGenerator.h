@@ -304,6 +304,21 @@ protected:
 	/** Minimum edge padding in normalised coordinates, computed from MinEdgeMarginMeters in Initialize() */
 	float MinEdgePaddingNorm = 0.02f;
 
+	// === Multi-peak island nucleation points (generated in Initialize) ===
+	// Instead of a single centre bias, multiple peaks scattered across the map
+	// create natural archipelago patterns with a main island + satellites.
+
+	/** Island peak data: position (normalised 0-1), strength, and radius */
+	struct FIslandPeak
+	{
+		FVector2D Position;  // Centre in normalised coords
+		float Strength;      // Bias amplitude (higher = more likely to be land)
+		float Radius;        // Falloff radius in normalised coords
+	};
+
+	/** Seed-derived island peaks for multi-island generation */
+	TArray<FIslandPeak> IslandPeaks;
+
 	/** Land mask - 1 = land, 0 = ocean (uint8 for thread-safe parallel writes) */
 	TArray<uint8> LandMask;
 

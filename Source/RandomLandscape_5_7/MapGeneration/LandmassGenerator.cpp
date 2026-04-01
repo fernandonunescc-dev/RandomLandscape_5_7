@@ -75,6 +75,47 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 		RandomStream.FRandRange(-500.0f, 500.0f)
 	);
 
+	// === Generate island peaks for multi-island archipelago patterns ===
+	// Instead of a single centre bias, we scatter 4-6 peaks across the map.
+	// Peak 0 is a large "main island" near the centre; subsequent peaks are
+	// smaller satellites at random positions within the circular land zone.
+	// This naturally produces archipelago-like layouts with distinct islands.
+	
+	IslandPeaks.Reset();
+	const float LandRadiusNorm = 0.5f - MinEdgePaddingNorm;
+	const int32 NumPeaks = RandomStream.RandRange(4, 6);
+	
+	for (int32 i = 0; i < NumPeaks; ++i)
+	{
+		FIslandPeak Peak;
+		
+		if (i == 0)
+		{
+			// Main island: large, near centre (slight random offset)
+			Peak.Position = FVector2D(
+				0.5f + RandomStream.FRandRange(-0.08f, 0.08f),
+				0.5f + RandomStream.FRandRange(-0.08f, 0.08f)
+			);
+			Peak.Strength = RandomStream.FRandRange(0.28f, 0.35f);
+			Peak.Radius = RandomStream.FRandRange(0.22f, 0.30f);
+		}
+		else
+		{
+			// Satellite islands: smaller, scattered across the land zone
+			// Use polar coordinates from centre for good distribution
+			float Angle = RandomStream.FRandRange(0.0f, 2.0f * PI);
+			float Dist = RandomStream.FRandRange(0.12f, LandRadiusNorm * 0.85f);
+			Peak.Position = FVector2D(
+				0.5f + FMath::Cos(Angle) * Dist,
+				0.5f + FMath::Sin(Angle) * Dist
+			);
+			Peak.Strength = RandomStream.FRandRange(0.15f, 0.25f);
+			Peak.Radius = RandomStream.FRandRange(0.10f, 0.18f);
+		}
+		
+		IslandPeaks.Add(Peak);
+	}
+
 	UE_LOG(LogTemp, Log, TEXT("LandmassGenerator initialized - Resolution: %d, Seed: %d, LandCoverage: %.1f%%, MapSize: %d, MaxHeight: %.0f, DomainWarp: %s"),
 		Settings.TextureResolution, Settings.Seed, Settings.LandCoveragePercent,
 		static_cast<int32>(Settings.MapSize), Settings.MaxMapHeight,
@@ -813,32 +854,27 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 	}
 
 	// ===== Noise-driven terrain field =====
-	// The landscape is built from layered noise that can produce multiple
-	// separate peaks.  A gentle centre bias keeps land roughly centred but
-	// does NOT dominate — noise valleys can split the terrain into distinct
-	// landmasses.  Lower LandCoveragePercent = more water = more islands.
-	//
-	// Target island-count distribution (at default 50% coverage):
-	//   ~30% single island, ~35% main + 1-2 small, ~20% 2-3 medium,
-	//   ~10% 3-4 islands, ~4% 5 islands, ~1% 6+ islands.
+	// The landscape is built from layered noise combined with multiple island
+	// peaks (seed-derived positions in Initialize).  Each peak creates a bias
+	// that nucleates an island; noise adds organic shape.  The adaptive threshold
+	// then determines how much land survives, naturally creating archipelago
+	// patterns with a main island and several satellites.
 
-	// Primary terrain noise: large island shapes (frequency 3.0 creates
-	// ~1.5 full oscillations within the land zone, giving valleys that
-	// often split the landmass into 2-3 distinct bodies).
-	// High amplitude (0.8) so noise peaks clearly override centre bias.
+	// Primary terrain noise: large-scale shape variation that gives each
+	// island an organic, non-circular outline.  Amplitude 0.5 adds significant
+	// irregularity without overwhelming the multi-peak bias (0.15-0.35).
 	float PrimaryNoise = FBM(
 		SampleX * 3.0f + ShapeNoiseOffset.X,
 		SampleY * 3.0f + ShapeNoiseOffset.Y,
-		4, 0.55f) * 0.8f;
+		4, 0.55f) * 0.5f;
 
 	// Secondary terrain noise: medium-scale ridges, isthmuses, and satellite islands.
 	// Higher frequency (5.5) creates small sub-peaks that become tiny islets
-	// when threshold cuts through.  Amplitude 0.4 is strong enough to form
-	// small isolated islands near the main landmass.
+	// when threshold cuts through.
 	float SecondaryNoise = FBM(
 		SampleX * 5.5f + DetailNoiseOffset.X,
 		SampleY * 5.5f + DetailNoiseOffset.Y,
-		3, 0.5f) * 0.4f;
+		3, 0.5f) * 0.25f;
 
 	// Coast noise: higher-frequency coastline irregularity.
 	float CoastNoise = FBM(
@@ -852,18 +888,27 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 		SampleY * 14.0f + DetailNoiseOffset.Y + 200.0f,
 		2, 0.5f) * 0.08f;
 
-	// ===== Gentle centre bias =====
-	// Adds a mild preference for land near the centre so that the overall
-	// landscape doesn't drift to map edges.  The bias is deliberately weak
-	// (0.20) relative to noise amplitudes (0.8 primary + 0.4 secondary)
-	// so noise valleys regularly cut through, creating separate islands.
-	float CX = NormX - 0.5f;
-	float CY = NormY - 0.5f;
-	float DistFromCenter = FMath::Sqrt(CX * CX + CY * CY) * 2.0f; // 0 at centre, 1 at edge
-	float CentreBias = (1.0f - DistFromCenter) * 0.20f;
+	// ===== Multi-peak island bias =====
+	// Instead of a single centre dome, multiple peaks at seed-derived positions
+	// create distinct island nucleation points.  Each peak adds a radial bias
+	// that falls off with distance, creating separate "islands" in the noise field.
+	// The noise can still split or merge peaks depending on the threshold,
+	// producing varied archipelago layouts per seed.
+	float PeakBias = 0.0f;
+	for (const FIslandPeak& Peak : IslandPeaks)
+	{
+		float DX = NormX - Peak.Position.X;
+		float DY = NormY - Peak.Position.Y;
+		float Dist = FMath::Sqrt(DX * DX + DY * DY);
+		float NormDist = FMath::Clamp(Dist / Peak.Radius, 0.0f, 1.0f);
+		// Smooth cosine falloff: 1 at centre, 0 at radius
+		float Falloff = 0.5f * (1.0f + FMath::Cos(NormDist * PI));
+		PeakBias += Peak.Strength * Falloff;
+	}
 
-	// Combine all layers.  Noise dominates; centre bias gently shapes distribution.
-	float IslandValue = CentreBias + PrimaryNoise + SecondaryNoise + CoastNoise + DetailNoise;
+	// Combine all layers.  Multi-peak bias creates distinct island centres;
+	// noise adds organic shape variation and can merge or split peaks.
+	float IslandValue = PeakBias + PrimaryNoise + SecondaryNoise + CoastNoise + DetailNoise;
 
 	// ===== Circular edge falloff: enforce round land zone =====
 	// Uses ORIGINAL coordinates (NormX, NormY) to enforce a circular boundary.
