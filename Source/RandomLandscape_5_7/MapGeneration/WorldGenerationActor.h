@@ -80,7 +80,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global")
 	EMapSize MapSize = EMapSize::Medium;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "5.0", ClampMax = "75.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "5.0", ClampMax = "80.0"))
 	float LandCoveragePercent = 50.0f;
 
 	/** Maximum terrain height in meters */

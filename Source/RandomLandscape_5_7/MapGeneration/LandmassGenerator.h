@@ -57,7 +57,7 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	 * Note: Lower values create more ocean, naturally producing multiple
 	 * separate islands (archipelago-like). Higher values produce single landmasses.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "5.0", ClampMax = "75.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "5.0", ClampMax = "80.0"))
 	float LandCoveragePercent = 50.0f;
 
 	// === Domain Warp Settings ===
@@ -121,14 +121,13 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	// === Edge Margin Settings ===
 
 	/**
-	 * Width of the ocean ring around the circular land zone, in metres.
-	 * Land is constrained to a circle inscribed in the map; this setting
-	 * controls how far from the map edge that circle boundary sits.
-	 * The map appears round — corners are always ocean.
-	 * For a 1 km map with 100 m margin the land circle is ~800 m diameter.
+	 * Width of the ocean border added around the map after generation, in metres.
+	 * The landmass is generated filling the full map area, then this thin
+	 * ocean strip is enforced at the boundary.  Default 30 m gives a clean
+	 * ocean edge without wasting usable land area.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "0.0", ClampMax = "300.0", Tooltip = "Width of the ocean ring around the circular land zone in metres. Land is constrained to a circle inscribed in the map; corners are always ocean. For a 1 km map with 100 m margin the land circle is ~800 m diameter."))
-	float MinEdgeMarginMeters = 100.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "0.0", ClampMax = "300.0", Tooltip = "Width of the ocean border added after generation in metres. Land fills the full map first, then this edge is enforced. Default 30 m."))
+	float MinEdgeMarginMeters = 30.0f;
 
 	/**
 	 * Get the world-space size in centimeters for the current MapSize.

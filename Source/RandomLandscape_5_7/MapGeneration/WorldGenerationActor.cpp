@@ -670,7 +670,10 @@ void AWorldGenerationActor::Randomize()
 {
 	GlobalSeed = FMath::RandRange(1, 0x7FFFFFFF);
 
-	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor::Randomize - New seed: %d"), GlobalSeed);
+	// Randomise land coverage between 50-80% for varied island density
+	LandCoveragePercent = FMath::FRandRange(50.0f, 80.0f);
+
+	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor::Randomize - New seed: %d, LandCoverage: %.1f%%"), GlobalSeed, LandCoveragePercent);
 
 	GenerateAll();
 	GenerateMesh();
