@@ -1040,8 +1040,9 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 //   - Continental submergence (larger irregular shapes from sea-level rise)
 //
 // Each island has its own center and radius (generated in Initialize).
-// Uses quadratic distance falloff for steeper island profiles (realistic
-// underwater volcanic slope), plus noise for organic coastlines.
+// Uses the same additive-noise approach as GetIslandMask: noise is added to
+// the base distance value to push coastlines inward/outward organically.
+// This creates irregular, non-circular island shapes with bays and peninsulas.
 // Includes explicit inter-island channel suppression to ensure water gaps.
 //------------------------------------------------------------------------------
 float ULandmassGenerator::GetArchipelagoMask(float NormX, float NormY) const
@@ -1049,6 +1050,9 @@ float ULandmassGenerator::GetArchipelagoMask(float NormX, float NormY) const
 	float MaxIslandValue = 0.0f;
 
 	// ===== Per-island contribution =====
+	// Uses the same additive-noise approach as GetIslandMask to create organic,
+	// irregular coastlines. Noise perturbs the effective island radius so each
+	// island gets a unique non-circular shape — bays, peninsulas, headlands.
 	for (int32 i = 0; i < IslandCenters.Num(); ++i)
 	{
 		const FVector2D& Center = IslandCenters[i];
@@ -1062,16 +1066,10 @@ float ULandmassGenerator::GetArchipelagoMask(float NormX, float NormY) const
 		// Normalize distance by island radius
 		float NormDist = Dist / FMath::Max(Radius, 0.01f);
 
-		if (NormDist > 1.8f)
+		if (NormDist > 2.2f)
 		{
 			continue; // Too far from this island, skip for performance
 		}
-
-		// Quadratic falloff: steeper than linear, models volcanic island profiles.
-		// Real oceanic islands have steep underwater slopes from their volcanic origin.
-		// f(d) = max(0, 1-d)² — peaks sharply at centre, drops off steeply near edge
-		float BaseFalloff = FMath::Max(0.0f, 1.0f - NormDist);
-		float IslandValue = BaseFalloff * BaseFalloff;
 
 		// Apply domain warping for organic coastlines
 		float SampleX = NormX;
@@ -1092,19 +1090,36 @@ float ULandmassGenerator::GetArchipelagoMask(float NormX, float NormY) const
 			SampleY = NormY + WarpY * Settings.WarpAmplitude;
 		}
 
-		// Add noise for irregular coastlines (each island gets a unique offset)
+		// --- Additive noise to break circular symmetry ---
+		// Same technique as GetIslandMask: noise is ADDED to the base value,
+		// pushing the coastline inward/outward for organic shape.
+		// Each island gets unique noise via per-island offset (i * 100/200).
+
+		// Medium-frequency shape noise: creates large bays and peninsulas
+		// Frequency is relative to the island's own scale (larger islands = smoother shapes)
+		float ShapeFreq = 3.5f / FMath::Max(Radius * 6.0f, 0.5f);
+		ShapeFreq = FMath::Clamp(ShapeFreq, 2.0f, 8.0f);
 		float CoastNoise = FBM(
-			SampleX * 4.0f + ShapeNoiseOffset.X + (float)i * 100.0f,
-			SampleY * 4.0f + ShapeNoiseOffset.Y,
-			3, 0.5f) * 0.25f;
+			SampleX * ShapeFreq + ShapeNoiseOffset.X + (float)i * 100.0f,
+			SampleY * ShapeFreq + ShapeNoiseOffset.Y + (float)i * 71.0f,
+			3, 0.5f) * 0.4f;
 
+		// High-frequency detail noise: creates fine-scale coastal irregularity
 		float DetailNoise = FBM(
-			SampleX * 10.0f + DetailNoiseOffset.X + (float)i * 200.0f,
-			SampleY * 10.0f + DetailNoiseOffset.Y,
-			2, 0.5f) * 0.08f;
+			SampleX * ShapeFreq * 2.5f + DetailNoiseOffset.X + (float)i * 200.0f,
+			SampleY * ShapeFreq * 2.5f + DetailNoiseOffset.Y + (float)i * 137.0f,
+			2, 0.5f) * 0.15f;
 
-		// Scale noise by base falloff so it doesn't extend island beyond its radius
-		IslandValue += (CoastNoise + DetailNoise) * BaseFalloff;
+		// Low-frequency shape warping: makes the overall island shape asymmetric
+		// (elongated, kidney-shaped, etc. rather than circular)
+		float ShapeWarp = FBM(
+			SampleX * 1.5f + ShapeNoiseOffset.X + (float)i * 300.0f + 50.0f,
+			SampleY * 1.5f + ShapeNoiseOffset.Y + (float)i * 400.0f + 50.0f,
+			2, 0.6f) * 0.3f;
+
+		// Combine: same approach as GetIslandMask — additive noise against distance
+		// Base: 1 at centre, 0 at radius boundary. Noise shifts this boundary.
+		float IslandValue = 1.0f - NormDist + CoastNoise + ShapeWarp + DetailNoise;
 		IslandValue = FMath::Max(0.0f, IslandValue);
 
 		// Take the maximum across all islands (smooth union)
