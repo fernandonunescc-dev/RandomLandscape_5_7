@@ -75,15 +75,17 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 		RandomStream.FRandRange(-500.0f, 500.0f)
 	);
 
-	// === Generate island peaks for multi-island archipelago patterns ===
-	// Instead of a single centre bias, we scatter 4-6 peaks across the map.
-	// Peak 0 is a large "main island" near the centre; subsequent peaks are
-	// smaller satellites at random positions within the circular land zone.
-	// This naturally produces archipelago-like layouts with distinct islands.
+	// === Generate island peaks with power-law size distribution ===
+	// Real archipelagos follow a power-law: many small islands, few large ones.
+	// We generate 10-16 peaks using best-candidate placement (Poisson-disk-like)
+	// with minimum separation to ensure distinct, non-overlapping islands.
+	// Peak 0 is a large "main island" near centre; subsequent peaks follow
+	// a power-law size distribution for natural variation.
 	
 	IslandPeaks.Reset();
-	const float LandRadiusNorm = 0.5f - MinEdgePaddingNorm;
-	const int32 NumPeaks = RandomStream.RandRange(4, 6);
+	const float MarginInset = MinEdgePaddingNorm + 0.03f; // Keep peaks away from edges
+	const int32 NumPeaks = RandomStream.RandRange(10, 16);
+	constexpr int32 NumCandidates = 30; // Best-of-N candidate sampling
 	
 	for (int32 i = 0; i < NumPeaks; ++i)
 	{
@@ -93,24 +95,72 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 		{
 			// Main island: large, near centre (slight random offset)
 			Peak.Position = FVector2D(
-				0.5f + RandomStream.FRandRange(-0.08f, 0.08f),
-				0.5f + RandomStream.FRandRange(-0.08f, 0.08f)
+				0.5f + RandomStream.FRandRange(-0.06f, 0.06f),
+				0.5f + RandomStream.FRandRange(-0.06f, 0.06f)
 			);
-			Peak.Strength = RandomStream.FRandRange(0.28f, 0.35f);
-			Peak.Radius = RandomStream.FRandRange(0.22f, 0.30f);
+			Peak.Strength = RandomStream.FRandRange(0.40f, 0.55f);
+			Peak.Radius = RandomStream.FRandRange(0.14f, 0.18f);
 		}
 		else
 		{
-			// Satellite islands: smaller, scattered across the land zone
-			// Use polar coordinates from centre for good distribution
-			float Angle = RandomStream.FRandRange(0.0f, 2.0f * PI);
-			float Dist = RandomStream.FRandRange(0.12f, LandRadiusNorm * 0.85f);
-			Peak.Position = FVector2D(
-				0.5f + FMath::Cos(Angle) * Dist,
-				0.5f + FMath::Sin(Angle) * Dist
-			);
-			Peak.Strength = RandomStream.FRandRange(0.15f, 0.25f);
-			Peak.Radius = RandomStream.FRandRange(0.10f, 0.18f);
+			// Power-law sizing: index determines size tier
+			// i=1,2: medium islands; i=3-5: small islands; i>5: tiny islets
+			float SizeFactor;
+			if (i <= 2)
+			{
+				SizeFactor = RandomStream.FRandRange(0.55f, 0.75f); // Medium
+			}
+			else if (i <= 5)
+			{
+				SizeFactor = RandomStream.FRandRange(0.30f, 0.55f); // Small
+			}
+			else
+			{
+				SizeFactor = RandomStream.FRandRange(0.12f, 0.30f); // Tiny islets
+			}
+			
+			Peak.Strength = SizeFactor * 0.55f; // Scale strength with size
+			Peak.Radius = SizeFactor * 0.18f;   // Scale radius with size
+			
+			// Best-candidate placement: pick candidate farthest from existing peaks
+			// This naturally creates well-separated islands like Poisson disk sampling
+			FVector2D BestPos(0.5f, 0.5f);
+			float BestMinDist = -1.0f;
+			
+			for (int32 c = 0; c < NumCandidates; ++c)
+			{
+				FVector2D CandPos(
+					RandomStream.FRandRange(MarginInset, 1.0f - MarginInset),
+					RandomStream.FRandRange(MarginInset, 1.0f - MarginInset)
+				);
+				
+				// Find minimum distance to any existing peak (accounting for radii)
+				float MinDist = 10.0f;
+				for (const FIslandPeak& Existing : IslandPeaks)
+				{
+					float Dx = CandPos.X - Existing.Position.X;
+					float Dy = CandPos.Y - Existing.Position.Y;
+					float Dist = FMath::Sqrt(Dx * Dx + Dy * Dy);
+					// Subtract radii overlap zone for separation accounting
+					float SepDist = Dist - (Existing.Radius + Peak.Radius) * 0.5f;
+					MinDist = FMath::Min(MinDist, SepDist);
+				}
+				
+				// Also penalise candidates too close to edges
+				float EdgeDist = FMath::Min(
+					FMath::Min(CandPos.X - MarginInset, 1.0f - MarginInset - CandPos.X),
+					FMath::Min(CandPos.Y - MarginInset, 1.0f - MarginInset - CandPos.Y)
+				);
+				MinDist = FMath::Min(MinDist, EdgeDist);
+				
+				if (MinDist > BestMinDist)
+				{
+					BestMinDist = MinDist;
+					BestPos = CandPos;
+				}
+			}
+			
+			Peak.Position = BestPos;
 		}
 		
 		IslandPeaks.Add(Peak);
@@ -540,18 +590,15 @@ void ULandmassGenerator::GenerateLandMask()
 		}
 	}
 
-	// ===== PASS 5: Circular edge margin enforcement =====
-	// Enforces a circular land zone: all land outside a noise-modulated circle
-	// centred on the map is eroded to ocean. This creates a "round map" appearance
-	// with guaranteed ocean at all edges and corners.
+	// ===== PASS 5: Rectangular edge margin enforcement =====
+	// Enforces a thin ocean border at all map edges.  Land can extend to near
+	// edges (including corners), using the full square map area.
+	// Uses noise-modulated erosion for organic coastlines at the boundary.
 	if (MinEdgePaddingNorm > 0.0f)
 	{
 		int32 EdgePixelsCleared = 0;
 		const float InvWidthMinus1 = (Width > 1) ? 1.0f / static_cast<float>(Width - 1) : 0.0f;
 		const float InvHeightMinus1 = (Height > 1) ? 1.0f / static_cast<float>(Height - 1) : 0.0f;
-
-		// Circular land zone radius (from map centre)
-		const float LandRadiusNorm = 0.5f - MinEdgePaddingNorm;
 
 		// Soft transition zone width for organic erosion at the boundary
 		constexpr float SoftMarginFraction = 1.5f; // transition extends this × margin inward
@@ -571,15 +618,12 @@ void ULandmassGenerator::GenerateLandMask()
 
 				const float NormX = static_cast<float>(X) * InvWidthMinus1;
 
-				// Circular distance from map centre
-				const float CDX = NormX - 0.5f;
-				const float CDY = NormY - 0.5f;
-				const float DistFromCenter = FMath::Sqrt(CDX * CDX + CDY * CDY);
+				// Distance from nearest edge (rectangular)
+				const float EdgeDistX = FMath::Min(NormX, 1.0f - NormX);
+				const float EdgeDistY = FMath::Min(NormY, 1.0f - NormY);
+				const float MarginDist = FMath::Min(EdgeDistX, EdgeDistY) - MinEdgePaddingNorm;
 
-				// How far inside the land circle boundary are we?
-				const float MarginDist = LandRadiusNorm - DistFromCenter;
-
-				// Hard guarantee: outside the land circle → always ocean
+				// Hard guarantee: within the margin → always ocean
 				if (MarginDist <= 0.0f)
 				{
 					LandMask[Index] = 0;
@@ -600,7 +644,7 @@ void ULandmassGenerator::GenerateLandMask()
 						3, 0.5f) * 0.5f + 0.5f; // Remap to [0, 1]
 
 					// Combine transition distance with noise: land survives if TransitionT > noise threshold
-					// This creates irregular, natural-looking coastlines at the circular boundary
+					// This creates irregular, natural-looking coastlines at the boundary
 					constexpr float ErodeNoiseScale = 0.85f;
 					constexpr float ErodeMinThreshold = 0.05f;
 					const float SurvivalThreshold = ErodeNoise * ErodeNoiseScale + ErodeMinThreshold;
@@ -795,25 +839,22 @@ float ULandmassGenerator::FBM(float X, float Y, int32 Octaves, float Persistence
 //------------------------------------------------------------------------------
 // GetIslandMask: Computes how "land-like" a point is.
 // 
-// Generates a noise-based landscape where the shape emerges from layered
-// FBM noise with a gentle centre preference.  The noise field can produce
-// multiple peaks — whether the final result is a single island or an
-// archipelago depends on the LandCoveragePercent threshold chosen later.
+// Uses multi-peak bias with power-law size distribution to create
+// distinct islands.  Each peak nucleates an island with sharp quadratic
+// falloff (1-d²)² to prevent neighbouring peaks from merging.  Peaks
+// are combined via MAX (not sum) for clean separation.
+// Layered FBM noise adds organic coastline shape and can create
+// additional small islets independently.
 // 
 // Components:
-//   1. Primary terrain noise: large-scale landmass shapes (low frequency)
-//   2. Secondary terrain noise: medium ridges and valleys
-//   3. Coast noise: irregular coastline details (medium-high frequency)
-//   4. Detail noise: fine bumps and indentations (high frequency)
-//   5. Centre bias: gentle preference for land near the map centre
-//   6. Edge falloff: enforces circular ocean ring at map boundary
-// 
-// If domain warping is enabled, coordinates are displaced before noise sampling
-// to create large-scale bends, peninsulas, and bays for more realistic coastlines.
+//   1. Multi-peak bias: seed-derived island centres with sharp falloff
+//   2. Primary terrain noise: large-scale organic shape variation
+//   3. Secondary terrain noise: medium ridges and isthmuses
+//   4. Coast noise: irregular coastline details
+//   5. Detail noise: fine bumps and indentations
+//   6. Edge falloff: thin rectangular ocean border at map edges
 // 
 // Returns 0.0 (definitely ocean) to ~1.0 (definitely land).
-// The actual land/ocean threshold is determined by GenerateLandMask()
-// based on target land coverage percentage.
 //------------------------------------------------------------------------------
 float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 {
@@ -854,46 +895,43 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 	}
 
 	// ===== Noise-driven terrain field =====
-	// The landscape is built from layered noise combined with multiple island
-	// peaks (seed-derived positions in Initialize).  Each peak creates a bias
-	// that nucleates an island; noise adds organic shape.  The adaptive threshold
-	// then determines how much land survives, naturally creating archipelago
-	// patterns with a main island and several satellites.
+	// Layered noise + multi-peak bias creates distinct islands.  Peak strengths
+	// are high (0.12-0.55) with sharp quadratic falloff so each peak nucleates
+	// a separate island.  Noise adds organic coastline shape and can create
+	// additional small islets when its amplitude exceeds the threshold.
 
-	// Primary terrain noise: large-scale shape variation that gives each
-	// island an organic, non-circular outline.  Amplitude 0.5 adds significant
-	// irregularity without overwhelming the multi-peak bias (0.15-0.35).
+	// Primary terrain noise: large-scale shape variation that breaks circular
+	// symmetry around each peak, giving organic island outlines.
 	float PrimaryNoise = FBM(
 		SampleX * 3.0f + ShapeNoiseOffset.X,
 		SampleY * 3.0f + ShapeNoiseOffset.Y,
-		4, 0.55f) * 0.5f;
+		4, 0.55f) * 0.35f;
 
-	// Secondary terrain noise: medium-scale ridges, isthmuses, and satellite islands.
-	// Higher frequency (5.5) creates small sub-peaks that become tiny islets
-	// when threshold cuts through.
+	// Secondary terrain noise: medium-scale ridges and isthmuses.
+	// Can independently form small islets when combined with weak peak bias.
 	float SecondaryNoise = FBM(
 		SampleX * 5.5f + DetailNoiseOffset.X,
 		SampleY * 5.5f + DetailNoiseOffset.Y,
-		3, 0.5f) * 0.25f;
+		3, 0.5f) * 0.18f;
 
 	// Coast noise: higher-frequency coastline irregularity.
 	float CoastNoise = FBM(
 		SampleX * 8.0f + ShapeNoiseOffset.X + 100.0f,
 		SampleY * 8.0f + ShapeNoiseOffset.Y + 100.0f,
-		2, 0.5f) * 0.15f;
+		2, 0.5f) * 0.12f;
 
 	// Detail noise: fine-scale coastal indentations.
 	float DetailNoise = FBM(
 		SampleX * 14.0f + DetailNoiseOffset.X + 200.0f,
 		SampleY * 14.0f + DetailNoiseOffset.Y + 200.0f,
-		2, 0.5f) * 0.08f;
+		2, 0.5f) * 0.06f;
 
-	// ===== Multi-peak island bias =====
-	// Instead of a single centre dome, multiple peaks at seed-derived positions
-	// create distinct island nucleation points.  Each peak adds a radial bias
-	// that falls off with distance, creating separate "islands" in the noise field.
-	// The noise can still split or merge peaks depending on the threshold,
-	// producing varied archipelago layouts per seed.
+	// ===== Multi-peak island bias with sharp falloff =====
+	// Each peak uses QUADRATIC falloff (1-d²) which drops steeply,
+	// preventing neighbouring peaks from merging into one blob.
+	// Only the nearest peak contributes significantly at any point;
+	// we take the MAX of all peaks (not sum) so overlapping peaks
+	// don't pile up their biases and create a single merged mass.
 	float PeakBias = 0.0f;
 	for (const FIslandPeak& Peak : IslandPeaks)
 	{
@@ -901,50 +939,37 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 		float DY = NormY - Peak.Position.Y;
 		float Dist = FMath::Sqrt(DX * DX + DY * DY);
 		float NormDist = FMath::Clamp(Dist / Peak.Radius, 0.0f, 1.0f);
-		// Smooth cosine falloff: 1 at centre, 0 at radius
-		float Falloff = 0.5f * (1.0f + FMath::Cos(NormDist * PI));
-		PeakBias += Peak.Strength * Falloff;
+		// Quadratic falloff: steep drop-off creates distinct island boundaries
+		float Falloff = (1.0f - NormDist * NormDist);
+		Falloff = Falloff * Falloff; // (1-d²)² — even steeper for better separation
+		float PeakValue = Peak.Strength * Falloff;
+		// MAX operation: prevents overlapping peaks from merging
+		PeakBias = FMath::Max(PeakBias, PeakValue);
 	}
 
-	// Combine all layers.  Multi-peak bias creates distinct island centres;
-	// noise adds organic shape variation and can merge or split peaks.
+	// Combine: peak bias dominates island placement; noise adds organic shape.
+	// Noise is additive so it can create small islets where peak bias is zero.
 	float IslandValue = PeakBias + PrimaryNoise + SecondaryNoise + CoastNoise + DetailNoise;
 
-	// ===== Circular edge falloff: enforce round land zone =====
-	// Uses ORIGINAL coordinates (NormX, NormY) to enforce a circular boundary.
-	// Land is constrained to a circle inscribed in the map; corners are always ocean.
-	// This creates a "round map" appearance with a guaranteed ocean ring.
+	// ===== Rectangular edge falloff: thin border only =====
+	// Uses original coordinates (NormX, NormY) to enforce a thin ocean border
+	// at map edges.  Land can extend to near all edges, using the full square
+	// map area (no circular constraint — corners can have land).
 
-	// Radial distance from map centre (0 at centre, 0.5 at mid-edge, ~0.707 at corner)
-	float RadDistX = NormX - 0.5f;
-	float RadDistY = NormY - 0.5f;
-	float RadialDist = FMath::Sqrt(RadDistX * RadDistX + RadDistY * RadDistY);
+	// Distance from nearest edge in normalised space
+	float EdgeDistX = FMath::Min(NormX, 1.0f - NormX);
+	float EdgeDistY = FMath::Min(NormY, 1.0f - NormY);
+	float EdgeDist = FMath::Min(EdgeDistX, EdgeDistY);
 
-	// Land zone radius: half the map minus the ocean margin
-	float LandRadius = 0.5f - MinEdgePaddingNorm;
+	// Transition width: 3% of map or the margin width, whichever is larger
+	constexpr float MinTransitionWidth = 0.03f;
+	float TransitionWidth = FMath::Max(MinTransitionWidth, MinEdgePaddingNorm);
 
-	// Add noise for organic, non-perfectly-circular coastline at the boundary
-	// Edge noise uses WARPED coordinates for consistency with other noise layers
-	float EdgeNoise = FBM(
-		SampleX * 6.0f + EdgeNoiseOffset.X,
-		SampleY * 6.0f + EdgeNoiseOffset.Y,
-		3, 0.5f) * 0.5f + 0.5f;
-
-	// Noise modulates the land radius slightly for organic coastline shape
-	float NoisyRadius = LandRadius * (0.88f + 0.12f * EdgeNoise);
-
-	// Transition width for smooth falloff (proportional to margin, minimum 6%
-	// so that even small margins like 30 m produce a natural fade zone)
-	constexpr float MinTransitionWidth = 0.06f; // 6% of map width
-	float TransitionWidth = FMath::Max(MinTransitionWidth, MinEdgePaddingNorm * 0.5f);
-
-	// Smooth falloff: 1 inside the land circle, 0 outside
-	float EdgeFalloff = FMath::Clamp((NoisyRadius - RadialDist) / TransitionWidth, 0.0f, 1.0f);
-
-	// Apply smoothstep curve for gradual transition (avoids harsh cutoff)
+	// Smooth falloff: 1 well inside, 0 at edge
+	float EdgeFalloff = FMath::Clamp(EdgeDist / TransitionWidth, 0.0f, 1.0f);
+	// Smoothstep for gradual transition
 	EdgeFalloff = EdgeFalloff * EdgeFalloff * (3.0f - 2.0f * EdgeFalloff);
 
-	// Apply edge falloff — multiplies the noise field to zero near edges
 	IslandValue *= EdgeFalloff;
 
 	// Clamp to valid range (noise can push slightly negative)

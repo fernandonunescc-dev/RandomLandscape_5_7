@@ -670,8 +670,9 @@ void AWorldGenerationActor::Randomize()
 {
 	GlobalSeed = FMath::RandRange(1, 0x7FFFFFFF);
 
-	// Randomise land coverage between 50-80% for varied island density
-	LandCoveragePercent = FMath::FRandRange(50.0f, 80.0f);
+	// Randomise land coverage between 35-65% for varied archipelago density
+	// Lower values create more ocean, producing more distinct separated islands
+	LandCoveragePercent = FMath::FRandRange(35.0f, 65.0f);
 
 	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor::Randomize - New seed: %d, LandCoverage: %.1f%%"), GlobalSeed, LandCoveragePercent);
 
