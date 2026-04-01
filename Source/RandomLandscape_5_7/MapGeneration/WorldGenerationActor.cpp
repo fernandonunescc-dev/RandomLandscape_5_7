@@ -27,7 +27,6 @@ void AWorldGenerationActor::SyncLandmassSettings()
 {
 	LandmassSettings.Seed = GlobalSeed;
 	LandmassSettings.TextureResolution = TextureResolution;
-	LandmassSettings.MapType = MapType;
 	LandmassSettings.MapSize = MapSize;
 	LandmassSettings.LandCoveragePercent = LandCoveragePercent;
 }
@@ -932,7 +931,6 @@ void AWorldGenerationActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 
 	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, GlobalSeed)
 		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TextureResolution)
-		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MapType)
 		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MapSize)
 		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, LandCoveragePercent))
 	{

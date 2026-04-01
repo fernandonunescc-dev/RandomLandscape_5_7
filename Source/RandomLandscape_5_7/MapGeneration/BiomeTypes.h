@@ -8,16 +8,6 @@
 #include "BiomeTypes.generated.h"
 
 /**
- * Map generation type — controls overall land/ocean distribution pattern.
- */
-UENUM(BlueprintType)
-enum class EMapType : uint8
-{
-	Island      UMETA(DisplayName = "Island"),
-	Archipelago UMETA(DisplayName = "Archipelago")
-};
-
-/**
  * Map physical size in world space.
  */
 UENUM(BlueprintType)

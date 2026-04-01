@@ -19,14 +19,6 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 {
 	GENERATED_BODY()
 
-	/** 
-	 * Map type controls the overall land/ocean distribution pattern.
-	 * Island: Single landmass surrounded by ocean.
-	 * Archipelago: Multiple islands scattered across the map.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass")
-	EMapType MapType = EMapType::Island;
-
 	/**
 	 * Map physical size in world space.
 	 * Large: 2x2 km, Medium: 1x1 km, Small: 500x500 m.
@@ -62,7 +54,8 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	 * Target percentage of pixels that should be classified as land.
 	 * The algorithm guarantees this exact coverage by computing an adaptive threshold.
 	 * Clamped to 5-75% to ensure meaningful land/ocean distribution.
-	 * Note: For Island/Archipelago map types, lower values are recommended.
+	 * Note: Lower values create more ocean, naturally producing multiple
+	 * separate islands (archipelago-like). Higher values produce single landmasses.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "5.0", ClampMax = "75.0"))
 	float LandCoveragePercent = 50.0f;
@@ -109,13 +102,13 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 
 	// === Post-Processing Settings ===
 
-	/** 
+	/**
 	 * If true, only the largest connected land component is kept.
 	 * All other land components (islands) are converted to ocean.
-	 * Ensures a single contiguous landmass in the final mask.
+	 * Disable to allow multiple separate landmasses (archipelago-like results).
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Post-Processing")
-	bool bKeepOnlyLargestLandmass = true;
+	bool bKeepOnlyLargestLandmass = false;
 
 	/** 
 	 * If true, fills enclosed ocean areas (holes/lakes) inside the landmass.
@@ -123,16 +116,7 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	 * Applied after bKeepOnlyLargestLandmass if both are enabled.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Post-Processing")
-	bool bFillEnclosedHoles = true;
-
-	// === Archipelago Settings ===
-
-	/**
-	 * Number of islands to generate in Archipelago mode.
-	 * Each island is a separate landmass with organic shape.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Archipelago", meta = (ClampMin = "2", ClampMax = "20", EditCondition = "MapType == EMapType::Archipelago"))
-	int32 IslandCount = 5;
+	bool bFillEnclosedHoles = false;
 
 	// === Edge Margin Settings ===
 
@@ -287,15 +271,6 @@ protected:
 	 */
 	float GetIslandMask(float NormX, float NormY) const;
 
-	/**
-	 * Compute the "island-ness" value for Archipelago mode.
-	 * Generates multiple island centers and computes a combined mask.
-	 * 
-	 * @param NormX, NormY - Normalized coordinates (0.0 to 1.0)
-	 * @return Island mask value (0.0 to 1.0, higher = more land-like)
-	 */
-	float GetArchipelagoMask(float NormX, float NormY) const;
-
 protected:
 	/** Generation settings */
 	FLandmassSettings Settings;
@@ -324,12 +299,6 @@ protected:
 	
 	/** Offset for warp Y-component noise sampling */
 	FVector2D WarpOffsetY;
-
-	/** Island center positions for Archipelago mode (generated in Initialize) */
-	TArray<FVector2D> IslandCenters;
-
-	/** Island radii for Archipelago mode (generated in Initialize) */
-	TArray<float> IslandRadii;
 
 	/** Minimum edge padding in normalised coordinates, computed from MinEdgeMarginMeters in Initialize() */
 	float MinEdgePaddingNorm = 0.02f;

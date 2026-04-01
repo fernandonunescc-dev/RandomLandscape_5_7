@@ -28,23 +28,9 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 		if (Settings.Seed == 0) Settings.Seed = 1; // Ensure non-zero after auto-seed
 	}
 
-	// Adjust land coverage based on MapType
-	switch (Settings.MapType)
-	{
-	case EMapType::Island:
-		// Single landmass surrounded by ocean - keep user setting
-		Settings.bKeepOnlyLargestLandmass = true;
-		break;
-	case EMapType::Archipelago:
-		// Multiple islands - don't keep only largest, let all islands through.
-		// Disable hole-filling to preserve water channels between islands.
-		// Geologically, archipelagos always have clear water passages between
-		// islands, whether formed by volcanic hotspots, tectonic arcs, or
-		// continental fragmentation (sea-level rise isolating landmasses).
-		Settings.bKeepOnlyLargestLandmass = false;
-		Settings.bFillEnclosedHoles = false;
-		break;
-	}
+	// The landscape is generated as a unified noise field.
+	// Land coverage and ocean level determine whether the result
+	// looks like a single island or an archipelago.
 
 	// Compute minimum edge padding in normalised 0-1 space from world-metres setting.
 	// WorldSize is in cm; convert MinEdgeMarginMeters to cm then normalise.
@@ -89,113 +75,9 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 		RandomStream.FRandRange(-500.0f, 500.0f)
 	);
 
-	// === Generate island centers for Archipelago mode ===
-	// Geologically inspired island placement modelling three real-world processes:
-	//   1. Volcanic hotspot chains (e.g. Hawaii, Galápagos) — linear island chains
-	//   2. Tectonic island arcs (e.g. Japan, Aleutians) — curved chains at subduction zones
-	//   3. Continental fragmentation (e.g. British Isles) — irregular clusters from submergence
-	//
-	// Strategy: one moderate "main island" near centre + smaller satellite islands
-	// distributed across the circular land zone. Each island is a distinct peak with
-	// clear water channels between them (the defining feature of archipelagos).
-	if (Settings.MapType == EMapType::Archipelago)
-	{
-		IslandCenters.Reset();
-		IslandRadii.Reset();
-		const int32 NumIslands = FMath::Max(2, Settings.IslandCount);
-
-		// Circular land zone: islands must be placed within this radius from centre
-		const float LandRadius = 0.5f - MinEdgePaddingNorm;
-
-		// Scale island sizes inversely with count so they fit without overlapping.
-		// Budget: total island area should be ~60% of the circular land zone area
-		// to guarantee visible water channels between islands.
-		const float CircleArea = PI * LandRadius * LandRadius;
-		const float TotalIslandAreaBudget = CircleArea * 0.55f;
-		const float PerIslandAreaBudget = TotalIslandAreaBudget / static_cast<float>(NumIslands);
-		const float AvgIslandRadius = FMath::Sqrt(PerIslandAreaBudget / PI);
-
-		// Maximum radius for island centres (keep island body inside boundary)
-		const float CenterMaxRadius = FMath::Max(0.05f, LandRadius * 0.85f);
-
-		// --- Island 0: Main island — moderately larger than average ---
-		{
-			// Main island is slightly larger to serve as the archipelago's "big island"
-			// (e.g. Big Island of Hawaii, Borneo in Malay Archipelago)
-			constexpr float MainIslandSizeFactor = 1.4f;  // Main island is 1.4× average
-			constexpr float MinIslandRadius = 0.06f;       // Floor: prevents invisibly tiny islands
-			constexpr float MaxMainIslandRadius = 0.18f;   // Ceiling: prevents one island dominating
-			const float MainRadius = FMath::Clamp(AvgIslandRadius * MainIslandSizeFactor, MinIslandRadius, MaxMainIslandRadius);
-
-			// Slight random offset from dead-centre for natural feel
-			float Angle = RandomStream.FRandRange(0.0f, 2.0f * PI);
-			float R = RandomStream.FRandRange(0.0f, 0.06f);
-			FVector2D MainCenter(
-				0.5f + R * FMath::Cos(Angle),
-				0.5f + R * FMath::Sin(Angle)
-			);
-
-			IslandCenters.Add(MainCenter);
-			IslandRadii.Add(MainRadius);
-		}
-
-		// --- Islands 1..N-1: smaller satellites placed via best-candidate sampling ---
-		// For each subsequent island we generate K random candidates within the
-		// circular land zone and pick the one farthest from existing islands
-		// AND the circular boundary. This fills available space well and ensures
-		// clear water channels (geologically: separate volcanic peaks or land fragments).
-		constexpr int32 NumCandidates = 30;
-
-		for (int32 i = 1; i < NumIslands; ++i)
-		{
-			FVector2D BestCandidate(0.5f, 0.5f);
-			float BestMinDist = -1.0f;
-
-			for (int32 C = 0; C < NumCandidates; ++C)
-			{
-				// Generate candidate within the circular land zone
-				float Angle = RandomStream.FRandRange(0.0f, 2.0f * PI);
-				float CandR = RandomStream.FRandRange(0.0f, CenterMaxRadius);
-				FVector2D Candidate(
-					0.5f + CandR * FMath::Cos(Angle),
-					0.5f + CandR * FMath::Sin(Angle)
-				);
-
-				// Distance to the circular boundary
-				const float CDist = FVector2D::Distance(Candidate, FVector2D(0.5f, 0.5f));
-				const float CircularEdgeDist = LandRadius - CDist;
-
-				// Distance to nearest existing island (accounting for their radii + minimum gap)
-				// MinGapBetweenIslands ensures visible water channels at all resolutions.
-				// 0.04 in normalised space ≈ 40m on a 1km map — enough for a visible strait.
-				constexpr float MinGapBetweenIslands = 0.04f;
-				float MinIslandDist = CircularEdgeDist;
-				for (int32 j = 0; j < IslandCenters.Num(); ++j)
-				{
-					const float Dist = FVector2D::Distance(Candidate, IslandCenters[j]) - IslandRadii[j] - MinGapBetweenIslands;
-					MinIslandDist = FMath::Min(MinIslandDist, Dist);
-				}
-
-				if (MinIslandDist > BestMinDist)
-				{
-					BestMinDist = MinIslandDist;
-					BestCandidate = Candidate;
-				}
-			}
-
-			IslandCenters.Add(BestCandidate);
-
-			// Satellite islands: 0.6–1.0× average radius (natural size variation)
-			const float SatRadius = FMath::Clamp(
-				AvgIslandRadius * RandomStream.FRandRange(0.6f, 1.0f),
-				0.04f, 0.14f);
-			IslandRadii.Add(SatRadius);
-		}
-	}
-
-	UE_LOG(LogTemp, Log, TEXT("LandmassGenerator initialized - Resolution: %d, Seed: %d, LandCoverage: %.1f%%, MapType: %d, MapSize: %d, MaxHeight: %.0f, DomainWarp: %s"),
+	UE_LOG(LogTemp, Log, TEXT("LandmassGenerator initialized - Resolution: %d, Seed: %d, LandCoverage: %.1f%%, MapSize: %d, MaxHeight: %.0f, DomainWarp: %s"),
 		Settings.TextureResolution, Settings.Seed, Settings.LandCoveragePercent,
-		static_cast<int32>(Settings.MapType), static_cast<int32>(Settings.MapSize), Settings.MaxMapHeight,
+		static_cast<int32>(Settings.MapSize), Settings.MaxMapHeight,
 		Settings.bEnableDomainWarp ? TEXT("ON") : TEXT("OFF"));
 }
 
@@ -256,15 +138,8 @@ void ULandmassGenerator::GenerateLandMask()
 		float NormX = (Width > 1) ? static_cast<float>(X) / static_cast<float>(Width - 1) : 0.5f;
 		float NormY = (Height > 1) ? static_cast<float>(Y) / static_cast<float>(Height - 1) : 0.5f;
 
-		// Use the appropriate mask function based on MapType
-		if (Settings.MapType == EMapType::Archipelago)
-		{
-			MaskValues[Index] = GetArchipelagoMask(NormX, NormY);
-		}
-		else
-		{
-			MaskValues[Index] = GetIslandMask(NormX, NormY);
-		}
+		// Compute island mask for every pixel — a unified noise landscape
+		MaskValues[Index] = GetIslandMask(NormX, NormY);
 	});
 
 	// ===== Calculate adaptive threshold for exact land coverage =====
@@ -275,31 +150,6 @@ void ULandmassGenerator::GenerateLandMask()
 	// Calculate target land pixel count (clamped to valid range)
 	float TargetLandPercent = FMath::Clamp(Settings.LandCoveragePercent, 5.0f, 75.0f) / 100.0f;
 
-	// For Archipelago mode, auto-cap land coverage to prevent filling the entire
-	// circular zone (which would merge all islands into one blob).
-	// The cap is based on the total island area: we allow up to 1.3× that area
-	// so coastline noise can expand the islands naturally without merging them.
-	if (Settings.MapType == EMapType::Archipelago && IslandCenters.Num() > 0)
-	{
-		const float LandRadius = 0.5f - MinEdgePaddingNorm;
-		const float CircleAreaFraction = PI * LandRadius * LandRadius; // fraction of unit square
-
-		// Sum of individual island areas (πR² each)
-		float TotalIslandArea = 0.0f;
-		for (int32 i = 0; i < IslandRadii.Num(); ++i)
-		{
-			TotalIslandArea += PI * IslandRadii[i] * IslandRadii[i];
-		}
-
-		// Cap at 1.3× total island area to leave water channels
-		const float MaxArchipelagoPercent = FMath::Min(TotalIslandArea * 1.3f, CircleAreaFraction * 0.85f);
-		if (TargetLandPercent > MaxArchipelagoPercent)
-		{
-			UE_LOG(LogTemp, Log, TEXT("Archipelago: auto-capping land coverage from %.1f%% to %.1f%% to preserve water channels"),
-				TargetLandPercent * 100.0f, MaxArchipelagoPercent * 100.0f);
-			TargetLandPercent = MaxArchipelagoPercent;
-		}
-	}
 	int32 TargetLandPixels = FMath::RoundToInt(TotalPixels * TargetLandPercent);
 	TargetLandPixels = FMath::Clamp(TargetLandPixels, 1, TotalPixels - 1);
 
@@ -1028,171 +878,4 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 
 	// Clamp to valid range
 	return FMath::Clamp(IslandValue, 0.0f, 1.0f);
-}
-
-//------------------------------------------------------------------------------
-// GetArchipelagoMask: Generates multiple island shapes for Archipelago mode.
-//
-// Geologically, archipelagos are groups of islands separated by water channels.
-// This function models three real-world formation processes:
-//   - Volcanic hotspot chains (peaked islands with steep underwater slopes)
-//   - Tectonic arc fragmentation (irregular shapes along a curved boundary)
-//   - Continental submergence (larger irregular shapes from sea-level rise)
-//
-// Each island has its own center and radius (generated in Initialize).
-// Uses the same additive-noise approach as GetIslandMask: noise is added to
-// the base distance value to push coastlines inward/outward organically.
-// This creates irregular, non-circular island shapes with bays and peninsulas.
-// Includes explicit inter-island channel suppression to ensure water gaps.
-//------------------------------------------------------------------------------
-float ULandmassGenerator::GetArchipelagoMask(float NormX, float NormY) const
-{
-	float MaxIslandValue = 0.0f;
-
-	// ===== Per-island contribution =====
-	// Uses the same additive-noise approach as GetIslandMask to create organic,
-	// irregular coastlines. Noise perturbs the effective island radius so each
-	// island gets a unique non-circular shape — bays, peninsulas, headlands.
-	for (int32 i = 0; i < IslandCenters.Num(); ++i)
-	{
-		const FVector2D& Center = IslandCenters[i];
-		const float Radius = IslandRadii[i];
-
-		// Distance from this island's center
-		float DX = NormX - Center.X;
-		float DY = NormY - Center.Y;
-		float Dist = FMath::Sqrt(DX * DX + DY * DY);
-
-		// Normalize distance by island radius
-		float NormDist = Dist / FMath::Max(Radius, 0.01f);
-
-		if (NormDist > 2.2f)
-		{
-			continue; // Too far from this island, skip for performance
-		}
-
-		// Apply domain warping for organic coastlines
-		float SampleX = NormX;
-		float SampleY = NormY;
-
-		if (Settings.bEnableDomainWarp)
-		{
-			float WarpX = FBM(
-				NormX * Settings.WarpFrequency + WarpOffsetX.X + (float)i * 37.0f,
-				NormY * Settings.WarpFrequency + WarpOffsetX.Y,
-				Settings.WarpOctaves, Settings.WarpPersistence);
-			float WarpY = FBM(
-				NormX * Settings.WarpFrequency + WarpOffsetY.X,
-				NormY * Settings.WarpFrequency + WarpOffsetY.Y + (float)i * 53.0f,
-				Settings.WarpOctaves, Settings.WarpPersistence);
-
-			SampleX = NormX + WarpX * Settings.WarpAmplitude;
-			SampleY = NormY + WarpY * Settings.WarpAmplitude;
-		}
-
-		// --- Additive noise to break circular symmetry ---
-		// Same technique as GetIslandMask: noise is ADDED to the base value,
-		// pushing the coastline inward/outward for organic shape.
-		// Each island gets unique noise via per-island offset (i * 100/200).
-
-		// Medium-frequency shape noise: creates large bays and peninsulas
-		// Frequency is relative to the island's own scale (larger islands = smoother shapes)
-		float ShapeFreq = 3.5f / FMath::Max(Radius * 6.0f, 0.5f);
-		ShapeFreq = FMath::Clamp(ShapeFreq, 2.0f, 8.0f);
-		float CoastNoise = FBM(
-			SampleX * ShapeFreq + ShapeNoiseOffset.X + (float)i * 100.0f,
-			SampleY * ShapeFreq + ShapeNoiseOffset.Y + (float)i * 71.0f,
-			3, 0.5f) * 0.4f;
-
-		// High-frequency detail noise: creates fine-scale coastal irregularity
-		float DetailNoise = FBM(
-			SampleX * ShapeFreq * 2.5f + DetailNoiseOffset.X + (float)i * 200.0f,
-			SampleY * ShapeFreq * 2.5f + DetailNoiseOffset.Y + (float)i * 137.0f,
-			2, 0.5f) * 0.15f;
-
-		// Low-frequency shape warping: makes the overall island shape asymmetric
-		// (elongated, kidney-shaped, etc. rather than circular)
-		float ShapeWarp = FBM(
-			SampleX * 1.5f + ShapeNoiseOffset.X + (float)i * 300.0f + 50.0f,
-			SampleY * 1.5f + ShapeNoiseOffset.Y + (float)i * 400.0f + 50.0f,
-			2, 0.6f) * 0.3f;
-
-		// Combine: same approach as GetIslandMask — additive noise against distance
-		// Base: 1 at centre, 0 at radius boundary. Noise shifts this boundary.
-		float IslandValue = 1.0f - NormDist + CoastNoise + ShapeWarp + DetailNoise;
-		IslandValue = FMath::Max(0.0f, IslandValue);
-
-		// Take the maximum across all islands (smooth union)
-		MaxIslandValue = FMath::Max(MaxIslandValue, IslandValue);
-	}
-
-	// ===== Inter-island channel suppression =====
-	// Ensure water channels remain between islands by suppressing mask values
-	// at locations that are roughly equidistant between two island centres.
-	// This models the deep water channels found between real archipelago islands.
-	if (MaxIslandValue > 0.0f && IslandCenters.Num() >= 2)
-	{
-		// Find the two closest islands to this pixel
-		float Closest1 = MAX_FLT;
-		float Closest2 = MAX_FLT;
-
-		for (int32 i = 0; i < IslandCenters.Num(); ++i)
-		{
-			const float Dist = FVector2D::Distance(FVector2D(NormX, NormY), IslandCenters[i]);
-			// Normalise by radius so we compare in "island-relative" space
-			const float NormDist = Dist / FMath::Max(IslandRadii[i], 0.01f);
-			if (NormDist < Closest1)
-			{
-				Closest2 = Closest1;
-				Closest1 = NormDist;
-			}
-			else if (NormDist < Closest2)
-			{
-				Closest2 = NormDist;
-			}
-		}
-
-		// If pixel is near the boundary between two islands (both relatively close),
-		// suppress the value. The closer the two distances are, the stronger the suppression.
-		if (Closest1 > 0.5f && Closest2 < 2.5f)
-		{
-			// Ratio: 1.0 when equidistant, 0.0 when clearly closer to one island
-			const float Ratio = Closest1 / FMath::Max(Closest2, 0.001f);
-			// Suppression is strongest when ratio → 1 (equidistant) and both distances > 0.7
-			const float ChannelStrength = FMath::Clamp((Ratio - 0.4f) / 0.6f, 0.0f, 1.0f);
-			const float DistanceFactor = FMath::Clamp((Closest1 - 0.5f) / 0.5f, 0.0f, 1.0f);
-			const float Suppression = ChannelStrength * DistanceFactor * 0.7f;
-			MaxIslandValue *= (1.0f - Suppression);
-		}
-	}
-
-	// ===== Circular edge falloff: enforce round land zone =====
-	// Uses ORIGINAL coordinates (NormX, NormY) to enforce a circular boundary.
-	// Land is constrained to a circle inscribed in the map; corners are always ocean.
-	float RadDistX = NormX - 0.5f;
-	float RadDistY = NormY - 0.5f;
-	float RadialDist = FMath::Sqrt(RadDistX * RadDistX + RadDistY * RadDistY);
-
-	// Land zone radius: half the map minus the ocean margin
-	float LandRadius = 0.5f - MinEdgePaddingNorm;
-
-	// Add noise for organic, non-perfectly-circular coastline at the boundary
-	float EdgeNoise = FBM(
-		NormX * 6.0f + EdgeNoiseOffset.X,
-		NormY * 6.0f + EdgeNoiseOffset.Y,
-		3, 0.5f) * 0.5f + 0.5f;
-
-	// Noise modulates the land radius slightly for organic coastline shape
-	float NoisyRadius = LandRadius * (0.93f + 0.07f * EdgeNoise);
-
-	// Transition width for smooth falloff (proportional to margin, minimum 3%)
-	float TransitionWidth = FMath::Max(0.03f, MinEdgePaddingNorm * 0.4f);
-
-	// Smooth falloff: 1 inside the land circle, 0 outside
-	float EdgeFalloff = FMath::Clamp((NoisyRadius - RadialDist) / TransitionWidth, 0.0f, 1.0f);
-	EdgeFalloff = EdgeFalloff * EdgeFalloff * (3.0f - 2.0f * EdgeFalloff);
-
-	MaxIslandValue *= EdgeFalloff;
-
-	return FMath::Clamp(MaxIslandValue, 0.0f, 1.0f);
 }

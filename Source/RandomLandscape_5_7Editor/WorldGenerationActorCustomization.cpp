@@ -128,7 +128,6 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, GlobalSeed), "Global Seed");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TextureResolution), "Texture Resolution");
-	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MapType), "Map Type");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MapSize), "Map Size");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, LandCoveragePercent), "Land Coverage %");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MaxMapHeight), "Max Map Height (m)");
