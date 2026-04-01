@@ -664,6 +664,19 @@ void AWorldGenerationActor::GenerateAll()
 }
 
 // ------------------------------------------------------------
+// Randomize: new random seed → full pipeline → mesh
+// ------------------------------------------------------------
+void AWorldGenerationActor::Randomize()
+{
+	GlobalSeed = FMath::RandRange(1, 0x7FFFFFFF);
+
+	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor::Randomize - New seed: %d"), GlobalSeed);
+
+	GenerateAll();
+	GenerateMesh();
+}
+
+// ------------------------------------------------------------
 // Generate Mesh
 // ------------------------------------------------------------
 void AWorldGenerationActor::GenerateMesh()

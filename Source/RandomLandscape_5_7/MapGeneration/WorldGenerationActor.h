@@ -232,6 +232,10 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Pipeline|Actions")
 	void GenerateMesh();
 
+	/** Pick a new random seed, run all pipeline stages, and build the mesh. */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Pipeline|Actions")
+	void Randomize();
+
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Pipeline|Actions")
 	void ClearAll();
 
