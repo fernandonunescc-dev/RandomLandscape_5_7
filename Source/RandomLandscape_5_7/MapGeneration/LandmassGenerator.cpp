@@ -86,37 +86,38 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 
 	// === Generate island centers for Archipelago mode ===
 	// Strategy: one large "main island" near the centre + smaller satellite
-	// islands placed to maximise distance from existing islands AND edges.
-	// This avoids clustering near borders and fills the available ocean.
+	// islands placed to maximise distance from existing islands AND the
+	// circular boundary. All islands are confined within the circular land zone.
 	if (Settings.MapType == EMapType::Archipelago)
 	{
 		IslandCenters.Reset();
 		IslandRadii.Reset();
 		const int32 NumIslands = FMath::Max(2, Settings.IslandCount);
 
-		// Safe zone inset (normalised) — island centres must stay this far from edges
-		const float MinInset = FMath::Max(0.15f, MinEdgePaddingNorm + 0.10f);
-		const float MaxInset = 1.0f - MinInset;
+		// Circular land zone: islands must be placed within this radius from centre
+		const float LandRadius = 0.5f - MinEdgePaddingNorm;
+
+		// Maximum radius for island centres (keep some padding from boundary)
+		const float CenterMaxRadius = FMath::Max(0.05f, LandRadius - 0.10f);
 
 		// --- Island 0: Main island — large and near the centre ---
 		{
 			// Slight random offset from dead-centre for natural feel
+			float Angle = RandomStream.FRandRange(0.0f, 2.0f * PI);
+			float R = RandomStream.FRandRange(0.0f, 0.08f);
 			FVector2D MainCenter(
-				0.5f + RandomStream.FRandRange(-0.08f, 0.08f),
-				0.5f + RandomStream.FRandRange(-0.08f, 0.08f)
+				0.5f + R * FMath::Cos(Angle),
+				0.5f + R * FMath::Sin(Angle)
 			);
-			// Clamp inside safe zone
-			MainCenter.X = FMath::Clamp(MainCenter.X, MinInset, MaxInset);
-			MainCenter.Y = FMath::Clamp(MainCenter.Y, MinInset, MaxInset);
 
 			IslandCenters.Add(MainCenter);
 			IslandRadii.Add(RandomStream.FRandRange(0.18f, 0.28f));
 		}
 
 		// --- Islands 1..N-1: smaller satellites placed via best-candidate sampling ---
-		// For each subsequent island we generate K random candidates and pick the
-		// one that is farthest from every existing island centre AND from all edges.
-		// This produces a well-spaced layout that fills the map.
+		// For each subsequent island we generate K random candidates within the
+		// circular land zone and pick the one farthest from existing islands
+		// AND the circular boundary. This fills available space well.
 		constexpr int32 NumCandidates = 20;
 
 		for (int32 i = 1; i < NumIslands; ++i)
@@ -126,19 +127,20 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 
 			for (int32 C = 0; C < NumCandidates; ++C)
 			{
+				// Generate candidate within the circular land zone
+				float Angle = RandomStream.FRandRange(0.0f, 2.0f * PI);
+				float CandR = RandomStream.FRandRange(0.0f, CenterMaxRadius);
 				FVector2D Candidate(
-					RandomStream.FRandRange(MinInset, MaxInset),
-					RandomStream.FRandRange(MinInset, MaxInset)
+					0.5f + CandR * FMath::Cos(Angle),
+					0.5f + CandR * FMath::Sin(Angle)
 				);
 
-				// Distance to nearest edge (normalised)
-				const float EdgeDist = FMath::Min(
-					FMath::Min(Candidate.X - 0.0f, 1.0f - Candidate.X),
-					FMath::Min(Candidate.Y - 0.0f, 1.0f - Candidate.Y)
-				);
+				// Distance to the circular boundary
+				const float CDist = FVector2D::Distance(Candidate, FVector2D(0.5f, 0.5f));
+				const float CircularEdgeDist = LandRadius - CDist;
 
 				// Distance to nearest existing island (accounting for their radii)
-				float MinIslandDist = EdgeDist;
+				float MinIslandDist = CircularEdgeDist;
 				for (int32 j = 0; j < IslandCenters.Num(); ++j)
 				{
 					const float Dist = FVector2D::Distance(Candidate, IslandCenters[j]) - IslandRadii[j];
@@ -590,27 +592,26 @@ void ULandmassGenerator::GenerateLandMask()
 		}
 	}
 
-	// ===== PASS 5: Smooth edge margin enforcement =====
-	// Instead of a hard rectangular cutoff (which creates ugly straight lines),
-	// this pass uses noise-modulated edge erosion to gradually remove land
-	// near borders, creating organic curved coastlines.
+	// ===== PASS 5: Circular edge margin enforcement =====
+	// Enforces a circular land zone: all land outside a noise-modulated circle
+	// centred on the map is eroded to ocean. This creates a "round map" appearance
+	// with guaranteed ocean at all edges and corners.
 	if (MinEdgePaddingNorm > 0.0f)
 	{
 		int32 EdgePixelsCleared = 0;
 		const float InvWidthMinus1 = (Width > 1) ? 1.0f / static_cast<float>(Width - 1) : 0.0f;
 		const float InvHeightMinus1 = (Height > 1) ? 1.0f / static_cast<float>(Height - 1) : 0.0f;
 
-		// Use a wider transition zone for natural-looking erosion
-		// The transition zone extends from MinEdgePaddingNorm to SoftMarginMultiplier× that distance
-		constexpr float SoftMarginMultiplier = 2.5f;
-		const float HardMargin = MinEdgePaddingNorm;
-		const float SoftMargin = MinEdgePaddingNorm * SoftMarginMultiplier;
+		// Circular land zone radius (from map centre)
+		const float LandRadiusNorm = 0.5f - MinEdgePaddingNorm;
+
+		// Soft transition zone width for organic erosion at the boundary
+		constexpr float SoftMarginFraction = 1.5f; // transition extends this × margin inward
+		const float SoftTransitionWidth = MinEdgePaddingNorm * SoftMarginFraction;
 
 		for (int32 Y = 0; Y < Height; ++Y)
 		{
 			const float NormY = static_cast<float>(Y) * InvHeightMinus1;
-			const float DistTop = NormY;
-			const float DistBottom = 1.0f - NormY;
 
 			for (int32 X = 0; X < Width; ++X)
 			{
@@ -621,25 +622,28 @@ void ULandmassGenerator::GenerateLandMask()
 				}
 
 				const float NormX = static_cast<float>(X) * InvWidthMinus1;
-				const float DistLeft = NormX;
-				const float DistRight = 1.0f - NormX;
 
-				const float MinEdgeDist = FMath::Min(FMath::Min(DistLeft, DistRight),
-				                                     FMath::Min(DistTop, DistBottom));
+				// Circular distance from map centre
+				const float CDX = NormX - 0.5f;
+				const float CDY = NormY - 0.5f;
+				const float DistFromCenter = FMath::Sqrt(CDX * CDX + CDY * CDY);
 
-				// Hard guarantee: pixels within the hard margin are always ocean
-				if (MinEdgeDist < HardMargin)
+				// How far inside the land circle boundary are we?
+				const float MarginDist = LandRadiusNorm - DistFromCenter;
+
+				// Hard guarantee: outside the land circle → always ocean
+				if (MarginDist <= 0.0f)
 				{
 					LandMask[Index] = 0;
 					++EdgePixelsCleared;
 					continue;
 				}
 
-				// Soft transition zone: use noise to probabilistically erode land
-				if (MinEdgeDist < SoftMargin)
+				// Soft transition zone: noise-modulated erosion for organic coastlines
+				if (MarginDist < SoftTransitionWidth)
 				{
-					// Normalised position within the transition band: 0 at hard margin, 1 at soft margin
-					const float TransitionT = (MinEdgeDist - HardMargin) / (SoftMargin - HardMargin);
+					// Normalised position within the transition band: 0 at hard boundary, 1 deep inside
+					const float TransitionT = MarginDist / SoftTransitionWidth;
 
 					// Sample noise for organic erosion pattern
 					const float ErodeNoise = FBM(
@@ -648,9 +652,9 @@ void ULandmassGenerator::GenerateLandMask()
 						3, 0.5f) * 0.5f + 0.5f; // Remap to [0, 1]
 
 					// Combine transition distance with noise: land survives if TransitionT > noise threshold
-					// This creates irregular, natural-looking coastlines at the border
-					constexpr float ErodeNoiseScale = 0.85f;   // How much noise influences the erosion
-					constexpr float ErodeMinThreshold = 0.05f;  // Minimum survival threshold (ensures some erosion)
+					// This creates irregular, natural-looking coastlines at the circular boundary
+					constexpr float ErodeNoiseScale = 0.85f;
+					constexpr float ErodeMinThreshold = 0.05f;
 					const float SurvivalThreshold = ErodeNoise * ErodeNoiseScale + ErodeMinThreshold;
 					if (TransitionT < SurvivalThreshold)
 					{
@@ -930,34 +934,34 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 		2, 0.5f) * 0.15f;
 	IslandValue += DetailNoise;
 
-	// ===== Edge falloff: enforce minimum margin from texture borders =====
-	// Uses ORIGINAL coordinates (NormX, NormY) to enforce border padding
-	// regardless of warp displacement—land must not touch texture edges.
-	// MinEdgePaddingNorm is derived from MinEdgeMarginMeters in Initialize().
-	
-	// Calculate distance from each edge (0 at edge, 0.5 at centre)
-	float DistFromLeft = NormX;
-	float DistFromRight = 1.0f - NormX;
-	float DistFromTop = NormY;
-	float DistFromBottom = 1.0f - NormY;
+	// ===== Circular edge falloff: enforce round land zone =====
+	// Uses ORIGINAL coordinates (NormX, NormY) to enforce a circular boundary.
+	// Land is constrained to a circle inscribed in the map; corners are always ocean.
+	// This creates a "round map" appearance with a guaranteed ocean ring.
 
-	// Use the minimum distance to any edge
-	float MinEdgeDist = FMath::Min(FMath::Min(DistFromLeft, DistFromRight), 
-	                              FMath::Min(DistFromTop, DistFromBottom));
+	// Radial distance from map centre (0 at centre, 0.5 at mid-edge, ~0.707 at corner)
+	float RadDistX = NormX - 0.5f;
+	float RadDistY = NormY - 0.5f;
+	float RadialDist = FMath::Sqrt(RadDistX * RadDistX + RadDistY * RadDistY);
 
-	// Add noise to the falloff zone for irregular (non-rectangular) borders
+	// Land zone radius: half the map minus the ocean margin
+	float LandRadius = 0.5f - MinEdgePaddingNorm;
+
+	// Add noise for organic, non-perfectly-circular coastline at the boundary
 	// Edge noise uses WARPED coordinates for consistency with other noise layers
 	float EdgeNoise = FBM(
 		SampleX * 6.0f + EdgeNoiseOffset.X, 
 		SampleY * 6.0f + EdgeNoiseOffset.Y, 
 		3, 0.5f) * 0.5f + 0.5f;
 
-	// Noisy padding zone: base varies between 2.5% and 7.5%, but never below the
-	// configured minimum edge margin (MinEdgePaddingNorm, default 20 m).
-	float NoisyPadding = FMath::Max(MinEdgePaddingNorm, 0.05f * (0.5f + EdgeNoise));
+	// Noise modulates the land radius slightly for organic coastline shape
+	float NoisyRadius = LandRadius * (0.93f + 0.07f * EdgeNoise);
 
-	// Smooth falloff: 0 at edge, 1 when past the padding zone
-	float EdgeFalloff = FMath::Clamp(MinEdgeDist / FMath::Max(NoisyPadding, 0.001f), 0.0f, 1.0f);
+	// Transition width for smooth falloff (proportional to margin, minimum 3%)
+	float TransitionWidth = FMath::Max(0.03f, MinEdgePaddingNorm * 0.4f);
+
+	// Smooth falloff: 1 inside the land circle, 0 outside
+	float EdgeFalloff = FMath::Clamp((NoisyRadius - RadialDist) / TransitionWidth, 0.0f, 1.0f);
 
 	// Apply smoothstep curve for gradual transition (avoids harsh cutoff)
 	EdgeFalloff = EdgeFalloff * EdgeFalloff * (3.0f - 2.0f * EdgeFalloff);
@@ -1038,28 +1042,30 @@ float ULandmassGenerator::GetArchipelagoMask(float NormX, float NormY) const
 		MaxIslandValue = FMath::Max(MaxIslandValue, IslandValue);
 	}
 
-	// ===== Edge falloff: enforce minimum margin from texture borders =====
-	// Uses ORIGINAL coordinates (NormX, NormY) to enforce border padding
-	// regardless of warp displacement—land must not touch texture edges.
-	float DistFromLeft = NormX;
-	float DistFromRight = 1.0f - NormX;
-	float DistFromTop = NormY;
-	float DistFromBottom = 1.0f - NormY;
-	float MinEdgeDist = FMath::Min(FMath::Min(DistFromLeft, DistFromRight),
-	                              FMath::Min(DistFromTop, DistFromBottom));
+	// ===== Circular edge falloff: enforce round land zone =====
+	// Uses ORIGINAL coordinates (NormX, NormY) to enforce a circular boundary.
+	// Land is constrained to a circle inscribed in the map; corners are always ocean.
+	float RadDistX = NormX - 0.5f;
+	float RadDistY = NormY - 0.5f;
+	float RadialDist = FMath::Sqrt(RadDistX * RadDistX + RadDistY * RadDistY);
 
-	// Add noise to the falloff zone for irregular (non-rectangular) borders
+	// Land zone radius: half the map minus the ocean margin
+	float LandRadius = 0.5f - MinEdgePaddingNorm;
+
+	// Add noise for organic, non-perfectly-circular coastline at the boundary
 	float EdgeNoise = FBM(
 		NormX * 6.0f + EdgeNoiseOffset.X,
 		NormY * 6.0f + EdgeNoiseOffset.Y,
 		3, 0.5f) * 0.5f + 0.5f;
 
-	// Noisy padding zone: base varies between 2.5% and 7.5%, but never below the
-	// configured minimum edge margin (MinEdgePaddingNorm, default 20 m).
-	float NoisyPadding = FMath::Max(MinEdgePaddingNorm, 0.05f * (0.5f + EdgeNoise));
+	// Noise modulates the land radius slightly for organic coastline shape
+	float NoisyRadius = LandRadius * (0.93f + 0.07f * EdgeNoise);
 
-	// Smooth falloff: 0 at edge, 1 when past the padding zone
-	float EdgeFalloff = FMath::Clamp(MinEdgeDist / FMath::Max(NoisyPadding, 0.001f), 0.0f, 1.0f);
+	// Transition width for smooth falloff (proportional to margin, minimum 3%)
+	float TransitionWidth = FMath::Max(0.03f, MinEdgePaddingNorm * 0.4f);
+
+	// Smooth falloff: 1 inside the land circle, 0 outside
+	float EdgeFalloff = FMath::Clamp((NoisyRadius - RadialDist) / TransitionWidth, 0.0f, 1.0f);
 	EdgeFalloff = EdgeFalloff * EdgeFalloff * (3.0f - 2.0f * EdgeFalloff);
 
 	MaxIslandValue *= EdgeFalloff;

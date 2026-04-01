@@ -137,11 +137,14 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	// === Edge Margin Settings ===
 
 	/**
-	 * Minimum distance in metres from the map edge where land may appear.
-	 * Guarantees an ocean border around the entire map.
+	 * Width of the ocean ring around the circular land zone, in metres.
+	 * Land is constrained to a circle inscribed in the map; this setting
+	 * controls how far from the map edge that circle boundary sits.
+	 * The map appears round — corners are always ocean.
+	 * For a 1 km map with 100 m margin the land circle is ~800 m diameter.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "0.0", ClampMax = "200.0", Tooltip = "Minimum distance in metres from the map edge where land may appear. Land is forced to ocean within this margin. Ensures an ocean border around the entire map."))
-	float MinEdgeMarginMeters = 20.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "0.0", ClampMax = "300.0", Tooltip = "Width of the ocean ring around the circular land zone in metres. Land is constrained to a circle inscribed in the map; corners are always ocean. For a 1 km map with 100 m margin the land circle is ~800 m diameter."))
+	float MinEdgeMarginMeters = 100.0f;
 
 	/**
 	 * Get the world-space size in centimeters for the current MapSize.
