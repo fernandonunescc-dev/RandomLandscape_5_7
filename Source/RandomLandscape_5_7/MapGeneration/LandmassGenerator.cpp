@@ -754,17 +754,23 @@ float ULandmassGenerator::FBM(float X, float Y, int32 Octaves, float Persistence
 //------------------------------------------------------------------------------
 // GetIslandMask: Computes how "land-like" a point is.
 // 
-// Combines multiple factors to create organic island shapes:
-//   1. Distance from centre: land more likely near texture centre
-//   2. Coast noise: irregular coastline details (medium frequency)
-//   3. Shape noise: large-scale island shape variation (low frequency)
+// Generates a noise-based landscape where the shape emerges from layered
+// FBM noise with a gentle centre preference.  The noise field can produce
+// multiple peaks — whether the final result is a single island or an
+// archipelago depends on the LandCoveragePercent threshold chosen later.
+// 
+// Components:
+//   1. Primary terrain noise: large-scale landmass shapes (low frequency)
+//   2. Secondary terrain noise: medium ridges and valleys
+//   3. Coast noise: irregular coastline details (medium-high frequency)
 //   4. Detail noise: fine bumps and indentations (high frequency)
-//   5. Edge falloff: enforces minimum margin from texture borders
+//   5. Centre bias: gentle preference for land near the map centre
+//   6. Edge falloff: enforces circular ocean ring at map boundary
 // 
 // If domain warping is enabled, coordinates are displaced before noise sampling
 // to create large-scale bends, peninsulas, and bays for more realistic coastlines.
 // 
-// Returns 0.0 (definitely ocean) to 1.0 (definitely land).
+// Returns 0.0 (definitely ocean) to ~1.0 (definitely land).
 // The actual land/ocean threshold is determined by GenerateLandMask()
 // based on target land coverage percentage.
 //------------------------------------------------------------------------------
@@ -806,40 +812,50 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 		// The edge falloff logic below still uses original NormX/NormY for border enforcement.
 	}
 
-	// ===== Center-based base shape =====
-	// Transform to centered coordinates: (0,0) at center, ±0.5 at edges
-	// Use ORIGINAL coordinates for centre distance to maintain island centering
+	// ===== Noise-driven terrain field =====
+	// The landscape is built from layered noise that can produce multiple
+	// separate peaks.  A gentle centre bias keeps land roughly centred but
+	// does NOT dominate — noise valleys can split the terrain into distinct
+	// landmasses.  Lower LandCoveragePercent = more water = more islands.
+
+	// Primary terrain noise: large continent/island shapes (low frequency).
+	// This is the main driver of landmass count and placement.
+	// High amplitude (0.7) so noise peaks can rival centre bias.
+	float PrimaryNoise = FBM(
+		SampleX * 2.0f + ShapeNoiseOffset.X,
+		SampleY * 2.0f + ShapeNoiseOffset.Y,
+		4, 0.55f) * 0.7f;
+
+	// Secondary terrain noise: medium-scale ridges and valleys.
+	// Creates sub-structure within large landmasses (peninsulas, isthmuses).
+	float SecondaryNoise = FBM(
+		SampleX * 4.0f + DetailNoiseOffset.X,
+		SampleY * 4.0f + DetailNoiseOffset.Y,
+		3, 0.5f) * 0.35f;
+
+	// Coast noise: higher-frequency coastline irregularity.
+	float CoastNoise = FBM(
+		SampleX * 8.0f + ShapeNoiseOffset.X + 100.0f,
+		SampleY * 8.0f + ShapeNoiseOffset.Y + 100.0f,
+		2, 0.5f) * 0.15f;
+
+	// Detail noise: fine-scale coastal indentations.
+	float DetailNoise = FBM(
+		SampleX * 14.0f + DetailNoiseOffset.X + 200.0f,
+		SampleY * 14.0f + DetailNoiseOffset.Y + 200.0f,
+		2, 0.5f) * 0.08f;
+
+	// ===== Gentle centre bias =====
+	// Adds a mild preference for land near the centre so that the overall
+	// landscape doesn't drift to map edges.  The bias is weak enough (0.35)
+	// that noise valleys can still cut through and create separate islands.
 	float CX = NormX - 0.5f;
 	float CY = NormY - 0.5f;
+	float DistFromCenter = FMath::Sqrt(CX * CX + CY * CY) * 2.0f; // 0 at centre, 1 at edge
+	float CentreBias = (1.0f - DistFromCenter) * 0.35f;
 
-	// Distance from center, scaled so corners are at distance 1.0
-	// This creates a radial gradient: high in center, low at edges
-	float DistFromCenter = FMath::Sqrt(CX * CX + CY * CY) * 2.0f;
-
-	// ===== Layered noise for organic coastlines =====
-	// All FBM calls use warped coordinates (SampleX, SampleY) for consistent deformation
-	
-	// Medium-frequency noise for irregular coastline shape
-	float NoiseScale = 3.0f;
-	float CoastNoise = FBM(SampleX * NoiseScale, SampleY * NoiseScale, 4, 0.5f) * 0.4f;
-
-	// Low-frequency noise for overall island shape variation
-	// Uses seed-derived ShapeNoiseOffset to decorrelate from coast noise
-	float ShapeNoise = FBM(
-		SampleX * 1.5f + ShapeNoiseOffset.X, 
-		SampleY * 1.5f + ShapeNoiseOffset.Y, 
-		3, 0.6f) * 0.3f;
-
-	// Combine: start with inverted distance (1 at centre, 0 at corners) + noise
-	float IslandValue = 1.0f - DistFromCenter + CoastNoise + ShapeNoise;
-
-	// High-frequency noise for fine coastal details (bays, peninsulas)
-	// Uses seed-derived DetailNoiseOffset to decorrelate from other layers
-	float DetailNoise = FBM(
-		SampleX * 8.0f + DetailNoiseOffset.X, 
-		SampleY * 8.0f + DetailNoiseOffset.Y, 
-		2, 0.5f) * 0.15f;
-	IslandValue += DetailNoise;
+	// Combine all layers.  Noise dominates; centre bias gently shapes distribution.
+	float IslandValue = CentreBias + PrimaryNoise + SecondaryNoise + CoastNoise + DetailNoise;
 
 	// ===== Circular edge falloff: enforce round land zone =====
 	// Uses ORIGINAL coordinates (NormX, NormY) to enforce a circular boundary.
@@ -857,15 +873,15 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 	// Add noise for organic, non-perfectly-circular coastline at the boundary
 	// Edge noise uses WARPED coordinates for consistency with other noise layers
 	float EdgeNoise = FBM(
-		SampleX * 6.0f + EdgeNoiseOffset.X, 
-		SampleY * 6.0f + EdgeNoiseOffset.Y, 
+		SampleX * 6.0f + EdgeNoiseOffset.X,
+		SampleY * 6.0f + EdgeNoiseOffset.Y,
 		3, 0.5f) * 0.5f + 0.5f;
 
 	// Noise modulates the land radius slightly for organic coastline shape
-	float NoisyRadius = LandRadius * (0.93f + 0.07f * EdgeNoise);
+	float NoisyRadius = LandRadius * (0.88f + 0.12f * EdgeNoise);
 
 	// Transition width for smooth falloff (proportional to margin, minimum 3%)
-	float TransitionWidth = FMath::Max(0.03f, MinEdgePaddingNorm * 0.4f);
+	float TransitionWidth = FMath::Max(0.03f, MinEdgePaddingNorm * 0.5f);
 
 	// Smooth falloff: 1 inside the land circle, 0 outside
 	float EdgeFalloff = FMath::Clamp((NoisyRadius - RadialDist) / TransitionWidth, 0.0f, 1.0f);
@@ -873,9 +889,9 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 	// Apply smoothstep curve for gradual transition (avoids harsh cutoff)
 	EdgeFalloff = EdgeFalloff * EdgeFalloff * (3.0f - 2.0f * EdgeFalloff);
 
-	// Apply edge falloff to island value
+	// Apply edge falloff — multiplies the noise field to zero near edges
 	IslandValue *= EdgeFalloff;
 
-	// Clamp to valid range
+	// Clamp to valid range (noise can push slightly negative)
 	return FMath::Clamp(IslandValue, 0.0f, 1.0f);
 }
