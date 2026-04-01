@@ -890,7 +890,8 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 
 	// Transition width for smooth falloff (proportional to margin, minimum 6%
 	// so that even small margins like 30 m produce a natural fade zone)
-	float TransitionWidth = FMath::Max(0.06f, MinEdgePaddingNorm * 0.5f);
+	constexpr float MinTransitionWidth = 0.06f; // 6% of map width
+	float TransitionWidth = FMath::Max(MinTransitionWidth, MinEdgePaddingNorm * 0.5f);
 
 	// Smooth falloff: 1 inside the land circle, 0 outside
 	float EdgeFalloff = FMath::Clamp((NoisyRadius - RadialDist) / TransitionWidth, 0.0f, 1.0f);
