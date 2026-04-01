@@ -541,53 +541,69 @@ void ULandmassGenerator::GenerateLandMask()
 		}
 	}
 
-	// ===== PASS 5: Hard edge margin enforcement =====
-	// The soft smoothstep falloff in GetIslandMask/GetArchipelagoMask reduces
-	// mask values near edges but doesn't guarantee zero. The adaptive threshold
-	// can still classify reduced values as land. This pass forces ALL pixels
-	// within MinEdgePaddingNorm of any edge to ocean, providing a hard guarantee.
+	// ===== PASS 5: Smooth edge margin enforcement =====
+	// Instead of a hard rectangular cutoff (which creates ugly straight lines),
+	// this pass uses noise-modulated edge erosion to gradually remove land
+	// near borders, creating organic curved coastlines.
 	if (MinEdgePaddingNorm > 0.0f)
 	{
 		int32 EdgePixelsCleared = 0;
 		const float InvWidthMinus1 = (Width > 1) ? 1.0f / static_cast<float>(Width - 1) : 0.0f;
 		const float InvHeightMinus1 = (Height > 1) ? 1.0f / static_cast<float>(Height - 1) : 0.0f;
 
+		// Use a wider transition zone for natural-looking erosion
+		// The transition zone extends from MinEdgePaddingNorm to SoftMarginMultiplier× that distance
+		constexpr float SoftMarginMultiplier = 2.5f;
+		const float HardMargin = MinEdgePaddingNorm;
+		const float SoftMargin = MinEdgePaddingNorm * SoftMarginMultiplier;
+
 		for (int32 Y = 0; Y < Height; ++Y)
 		{
 			const float NormY = static_cast<float>(Y) * InvHeightMinus1;
 			const float DistTop = NormY;
 			const float DistBottom = 1.0f - NormY;
-			const float MinVertical = FMath::Min(DistTop, DistBottom);
 
-			// Early-out: entire row is safely inside the margin
-			if (MinVertical >= MinEdgePaddingNorm)
+			for (int32 X = 0; X < Width; ++X)
 			{
-				// Still need to check left/right edges for this row
-				for (int32 X = 0; X < Width; ++X)
+				const int32 Index = Y * Width + X;
+				if (LandMask[Index] == 0)
 				{
-					const float NormX = static_cast<float>(X) * InvWidthMinus1;
-					const float DistLeft = NormX;
-					const float DistRight = 1.0f - NormX;
-					const float MinHorizontal = FMath::Min(DistLeft, DistRight);
-
-					if (MinHorizontal < MinEdgePaddingNorm)
-					{
-						const int32 Index = Y * Width + X;
-						if (LandMask[Index] != 0)
-						{
-							LandMask[Index] = 0;
-							++EdgePixelsCleared;
-						}
-					}
+					continue; // Already ocean, skip
 				}
-			}
-			else
-			{
-				// This row is within the vertical margin — clear ALL land pixels
-				for (int32 X = 0; X < Width; ++X)
+
+				const float NormX = static_cast<float>(X) * InvWidthMinus1;
+				const float DistLeft = NormX;
+				const float DistRight = 1.0f - NormX;
+
+				const float MinEdgeDist = FMath::Min(FMath::Min(DistLeft, DistRight),
+				                                     FMath::Min(DistTop, DistBottom));
+
+				// Hard guarantee: pixels within the hard margin are always ocean
+				if (MinEdgeDist < HardMargin)
 				{
-					const int32 Index = Y * Width + X;
-					if (LandMask[Index] != 0)
+					LandMask[Index] = 0;
+					++EdgePixelsCleared;
+					continue;
+				}
+
+				// Soft transition zone: use noise to probabilistically erode land
+				if (MinEdgeDist < SoftMargin)
+				{
+					// Normalised position within the transition band: 0 at hard margin, 1 at soft margin
+					const float TransitionT = (MinEdgeDist - HardMargin) / (SoftMargin - HardMargin);
+
+					// Sample noise for organic erosion pattern
+					const float ErodeNoise = FBM(
+						NormX * 8.0f + EdgeNoiseOffset.X + 300.0f,
+						NormY * 8.0f + EdgeNoiseOffset.Y + 300.0f,
+						3, 0.5f) * 0.5f + 0.5f; // Remap to [0, 1]
+
+					// Combine transition distance with noise: land survives if TransitionT > noise threshold
+					// This creates irregular, natural-looking coastlines at the border
+					constexpr float ErodeNoiseScale = 0.85f;   // How much noise influences the erosion
+					constexpr float ErodeMinThreshold = 0.05f;  // Minimum survival threshold (ensures some erosion)
+					const float SurvivalThreshold = ErodeNoise * ErodeNoiseScale + ErodeMinThreshold;
+					if (TransitionT < SurvivalThreshold)
 					{
 						LandMask[Index] = 0;
 						++EdgePixelsCleared;
@@ -612,7 +628,7 @@ void ULandmassGenerator::GenerateLandMask()
 				}
 			}
 
-			UE_LOG(LogTemp, Log, TEXT("Edge margin enforcement: cleared %d land pixels within %.1fm margin"),
+			UE_LOG(LogTemp, Log, TEXT("Smooth edge erosion: cleared %d land pixels within %.1fm margin"),
 				EdgePixelsCleared, Settings.MinEdgeMarginMeters);
 		}
 	}
@@ -973,16 +989,28 @@ float ULandmassGenerator::GetArchipelagoMask(float NormX, float NormY) const
 		MaxIslandValue = FMath::Max(MaxIslandValue, IslandValue);
 	}
 
-	// Edge falloff to enforce minimum margin from texture borders
+	// ===== Edge falloff: enforce minimum margin from texture borders =====
+	// Uses ORIGINAL coordinates (NormX, NormY) to enforce border padding
+	// regardless of warp displacement—land must not touch texture edges.
 	float DistFromLeft = NormX;
 	float DistFromRight = 1.0f - NormX;
 	float DistFromTop = NormY;
 	float DistFromBottom = 1.0f - NormY;
 	float MinEdgeDist = FMath::Min(FMath::Min(DistFromLeft, DistFromRight),
 	                              FMath::Min(DistFromTop, DistFromBottom));
-	// Use whichever is larger: the fixed 5% base padding or the metres-based minimum
-	float Padding = FMath::Max(MinEdgePaddingNorm, 0.05f);
-	float EdgeFalloff = FMath::Clamp(MinEdgeDist / Padding, 0.0f, 1.0f);
+
+	// Add noise to the falloff zone for irregular (non-rectangular) borders
+	float EdgeNoise = FBM(
+		NormX * 6.0f + EdgeNoiseOffset.X,
+		NormY * 6.0f + EdgeNoiseOffset.Y,
+		3, 0.5f) * 0.5f + 0.5f;
+
+	// Noisy padding zone: base varies between 2.5% and 7.5%, but never below the
+	// configured minimum edge margin (MinEdgePaddingNorm, default 20 m).
+	float NoisyPadding = FMath::Max(MinEdgePaddingNorm, 0.05f * (0.5f + EdgeNoise));
+
+	// Smooth falloff: 0 at edge, 1 when past the padding zone
+	float EdgeFalloff = FMath::Clamp(MinEdgeDist / FMath::Max(NoisyPadding, 0.001f), 0.0f, 1.0f);
 	EdgeFalloff = EdgeFalloff * EdgeFalloff * (3.0f - 2.0f * EdgeFalloff);
 
 	MaxIslandValue *= EdgeFalloff;
