@@ -91,12 +91,17 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 		IslandRadii.Reset();
 		const int32 NumIslands = FMath::Max(2, Settings.IslandCount);
 
+		// Island centres must be placed far enough from edges that, combined
+		// with their radius, the resulting landmass stays inside the margin.
+		// Use at least 15% inset, but widen when MinEdgePaddingNorm demands it.
+		const float MinInset = FMath::Max(0.15f, MinEdgePaddingNorm + 0.10f);
+		const float MaxInset = 1.0f - MinInset;
+
 		for (int32 i = 0; i < NumIslands; ++i)
 		{
-			// Place islands within the inner 70% of the map to avoid edge clipping
 			FVector2D Center(
-				RandomStream.FRandRange(0.15f, 0.85f),
-				RandomStream.FRandRange(0.15f, 0.85f)
+				RandomStream.FRandRange(MinInset, MaxInset),
+				RandomStream.FRandRange(MinInset, MaxInset)
 			);
 			IslandCenters.Add(Center);
 
@@ -533,6 +538,82 @@ void ULandmassGenerator::GenerateLandMask()
 			}
 			
 			UE_LOG(LogTemp, Log, TEXT("Filled %d enclosed hole pixels (lakes)"), HolePixelsFilled);
+		}
+	}
+
+	// ===== PASS 5: Hard edge margin enforcement =====
+	// The soft smoothstep falloff in GetIslandMask/GetArchipelagoMask reduces
+	// mask values near edges but doesn't guarantee zero. The adaptive threshold
+	// can still classify reduced values as land. This pass forces ALL pixels
+	// within MinEdgePaddingNorm of any edge to ocean, providing a hard guarantee.
+	if (MinEdgePaddingNorm > 0.0f)
+	{
+		int32 EdgePixelsCleared = 0;
+		const float InvWidthMinus1 = (Width > 1) ? 1.0f / static_cast<float>(Width - 1) : 0.0f;
+		const float InvHeightMinus1 = (Height > 1) ? 1.0f / static_cast<float>(Height - 1) : 0.0f;
+
+		for (int32 Y = 0; Y < Height; ++Y)
+		{
+			const float NormY = static_cast<float>(Y) * InvHeightMinus1;
+			const float DistTop = NormY;
+			const float DistBottom = 1.0f - NormY;
+			const float MinVertical = FMath::Min(DistTop, DistBottom);
+
+			// Early-out: entire row is safely inside the margin
+			if (MinVertical >= MinEdgePaddingNorm)
+			{
+				// Still need to check left/right edges for this row
+				for (int32 X = 0; X < Width; ++X)
+				{
+					const float NormX = static_cast<float>(X) * InvWidthMinus1;
+					const float DistLeft = NormX;
+					const float DistRight = 1.0f - NormX;
+					const float MinHorizontal = FMath::Min(DistLeft, DistRight);
+
+					if (MinHorizontal < MinEdgePaddingNorm)
+					{
+						const int32 Index = Y * Width + X;
+						if (LandMask[Index] != 0)
+						{
+							LandMask[Index] = 0;
+							++EdgePixelsCleared;
+						}
+					}
+				}
+			}
+			else
+			{
+				// This row is within the vertical margin — clear ALL land pixels
+				for (int32 X = 0; X < Width; ++X)
+				{
+					const int32 Index = Y * Width + X;
+					if (LandMask[Index] != 0)
+					{
+						LandMask[Index] = 0;
+						++EdgePixelsCleared;
+					}
+				}
+			}
+		}
+
+		// Rebuild LandPixels if we cleared anything
+		if (EdgePixelsCleared > 0)
+		{
+			LandPixels.Reset();
+			for (int32 Y = 0; Y < Height; ++Y)
+			{
+				for (int32 X = 0; X < Width; ++X)
+				{
+					const int32 Index = Y * Width + X;
+					if (LandMask[Index] != 0)
+					{
+						LandPixels.Add(FIntPoint(X, Y));
+					}
+				}
+			}
+
+			UE_LOG(LogTemp, Log, TEXT("Edge margin enforcement: cleared %d land pixels within %.1fm margin"),
+				EdgePixelsCleared, Settings.MinEdgeMarginMeters);
 		}
 	}
 
