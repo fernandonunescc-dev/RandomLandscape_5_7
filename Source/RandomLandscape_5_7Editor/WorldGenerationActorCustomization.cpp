@@ -69,6 +69,8 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 			[](AWorldGenerationActor* A) { A->Step6_GenerateBiomes(); });
 		AddButtonRow(FallbackCategory, "Step 7: Generate Refinement",
 			[](AWorldGenerationActor* A) { A->Step7_GenerateRefinement(); });
+		AddButtonRow(FallbackCategory, "Randomize",
+			[](AWorldGenerationActor* A) { A->Randomize(); });
 		AddButtonRow(FallbackCategory, "Generate All",
 			[](AWorldGenerationActor* A) { A->GenerateAll(); });
 		AddButtonRow(FallbackCategory, "Generate Mesh",
@@ -294,6 +296,24 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 
 	IDetailGroup& ActionsGroup = PipelineCategory.AddGroup(
 		"ActionsGroup", FText::FromString("Batch Actions"), true, true);
+
+	// Randomize
+	ActionsGroup.AddWidgetRow()
+		.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(FText::FromString("Randomize"))
+			.Font(IDetailLayoutBuilder::GetDetailFont())
+		]
+		.ValueContent()
+		.MinDesiredWidth(200.0f)
+		[
+			MakeButtonWidget(
+				FText::FromString("Randomize"),
+				[](AWorldGenerationActor* A) { A->Randomize(); },
+				SelectedActors
+			)
+		];
 
 	// Generate All
 	ActionsGroup.AddWidgetRow()
