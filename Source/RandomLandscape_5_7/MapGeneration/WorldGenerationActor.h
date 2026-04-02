@@ -77,11 +77,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "64", ClampMax = "4096"))
 	int32 TextureResolution = 512;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global")
-	EMapSize MapSize = EMapSize::Medium;
+	/** Target land area in square kilometres. The world dimensions adapt to fit the land + ocean padding. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "0.01", ClampMax = "64.0", UIMin = "0.01", UIMax = "16.0"))
+	float TargetLandAreaSqKm = 0.25f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "5.0", ClampMax = "80.0"))
-	float LandCoveragePercent = 45.0f;
+	/** Minimum ocean border around all land in metres. The world expands to guarantee this. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "100.0", ClampMax = "2000.0"))
+	float OceanPaddingMeters = 200.0f;
 
 	/** Maximum terrain height in meters */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "10.0", ClampMax = "2000.0"))
@@ -198,6 +200,10 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "Debug|Info")
 	int32 ResolutionUsed = 0;
 
+	/** Final map size in metres (side length) after generation, including ocean padding. */
+	UPROPERTY(VisibleAnywhere, Category = "Debug|Info")
+	float FinalMapSizeMeters = 0.0f;
+
 	// ==================== Mesh Component ====================
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Mesh")
@@ -235,6 +241,10 @@ public:
 	/** Pick a new random seed, run all pipeline stages, and build the mesh. */
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Pipeline|Actions")
 	void Randomize();
+
+	/** Pick a new random seed only (keeps all other settings), then regenerate. */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Pipeline|Actions")
+	void RandomizeSeed();
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Pipeline|Actions")
 	void ClearAll();
@@ -281,6 +291,9 @@ private:
 	/** Flat array: pixel i → [i*8 .. i*8+7], one weight per EBiomeType. */
 	TArray<float> CachedBiomeBlendWeights;
 	TArray<FVector2D> CachedVolcanicCenters;
+
+	/** World size in centimeters computed by the landmass generator */
+	float CachedWorldSizeCm = 100000.0f;
 
 	// ==================== Helpers ====================
 

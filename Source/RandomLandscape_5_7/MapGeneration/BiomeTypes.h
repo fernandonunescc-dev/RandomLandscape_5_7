@@ -8,19 +8,6 @@
 #include "BiomeTypes.generated.h"
 
 /**
- * Map physical size in world space.
- */
-UENUM(BlueprintType)
-enum class EMapSize : uint8
-{
-	Gigantic   UMETA(DisplayName = "Gigantic (8x8 km)"),
-	ExtraLarge UMETA(DisplayName = "Extra Large (4x4 km)"),
-	Large      UMETA(DisplayName = "Large (2x2 km)"),
-	Medium     UMETA(DisplayName = "Medium (1x1 km)"),
-	Small      UMETA(DisplayName = "Small (500x500 m)")
-};
-
-/**
  * Biome types derived from climate, elevation, and geology.
  * Assigned by the climate/terrain classification stage — NOT placed randomly.
  */

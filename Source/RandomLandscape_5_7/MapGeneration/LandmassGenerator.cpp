@@ -29,14 +29,39 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 	}
 
 	// The landscape is generated as a unified noise field.
-	// Land coverage and ocean level determine whether the result
-	// looks like a single island or an archipelago.
+	// Canvas size is derived from the target land area + ocean padding.
+	// Land grows freely from peaks — no rectangular edge constraints.
 
-	// Compute minimum edge padding in normalised 0-1 space from world-metres setting.
-	// WorldSize is in cm; convert MinEdgeMarginMeters to cm then normalise.
-	const float WorldSizeCm = Settings.GetWorldSizeCm();
-	MinEdgePaddingNorm = (Settings.MinEdgeMarginMeters * 100.0f) / WorldSizeCm;
-	MinEdgePaddingNorm = FMath::Clamp(MinEdgePaddingNorm, 0.0f, 0.45f);
+	// === Compute canvas world size from target land area + ocean padding ===
+	// Assume roughly circular land: land radius = sqrt(TargetArea / π)
+	// Add ocean padding and a safety factor for non-circular shapes.
+	// 1.3× is empirically chosen: noise-driven generation can create
+	// elongated or multi-island shapes that extend ~30% beyond a circle.
+	// Post-generation Pass 6 will expand further if this estimate is too small.
+	const float TargetAreaSqM = FMath::Max(Settings.TargetLandAreaSqKm, 0.01f) * 1.0e6f;
+	const float LandRadiusM = FMath::Sqrt(TargetAreaSqM / PI);
+	constexpr float SafetyFactor = 1.3f;
+	const float TotalRadiusM = LandRadiusM * SafetyFactor + FMath::Max(Settings.OceanPaddingMeters, 100.0f);
+	const float CanvasSideM = 2.0f * TotalRadiusM;
+	Settings.ComputedWorldSizeCm = CanvasSideM * 100.0f;
+
+	// Derive internal land coverage % so that the correct number of pixels equals the target area.
+	// Use TextureResolution (not -1) for pixel area: N×N pixels tile the canvas into N×N equal cells.
+	const float PixelSizeM = CanvasSideM / FMath::Max(static_cast<float>(Settings.TextureResolution), 1.0f);
+	const float PixelAreaSqM = PixelSizeM * PixelSizeM;
+	const int32 TotalPixels = Settings.TextureResolution * Settings.TextureResolution;
+	const int32 TargetLandPixels = FMath::RoundToInt(TargetAreaSqM / PixelAreaSqM);
+	const float RawCoveragePercent = static_cast<float>(TargetLandPixels) / static_cast<float>(TotalPixels) * 100.0f;
+
+	// Clamp coverage to a sane range.  Log a warning if clamping changed the value,
+	// since the actual generated land area will differ from TargetLandAreaSqKm.
+	Settings.ComputedLandCoveragePercent = FMath::Clamp(RawCoveragePercent, 5.0f, 80.0f);
+	if (FMath::Abs(Settings.ComputedLandCoveragePercent - RawCoveragePercent) > 0.1f)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("LandmassGenerator: target land area implies %.1f%% coverage, clamped to %.1f%%. "
+			"Actual land area will differ from TargetLandAreaSqKm=%.3f."),
+			RawCoveragePercent, Settings.ComputedLandCoveragePercent, Settings.TargetLandAreaSqKm);
+	}
 
 	// Initialize random stream with seed for deterministic noise generation
 	RandomStream.Initialize(Settings.Seed);
@@ -83,7 +108,11 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 	// a power-law size distribution for natural variation.
 	
 	IslandPeaks.Reset();
-	const float MarginInset = MinEdgePaddingNorm + 0.03f; // Keep peaks away from edges
+	// Keep peaks well inside the canvas.  With the 1.3× safety factor and
+	// ocean padding the land zone is roughly the central 50-70% of the canvas,
+	// so 15% from edges keeps all peaks within the usable area regardless of
+	// target land area.
+	constexpr float MarginInset = 0.15f;
 	const int32 NumPeaks = RandomStream.RandRange(10, 16);
 	constexpr int32 NumCandidates = 30; // Best-of-N candidate sampling
 	
@@ -166,9 +195,9 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 		IslandPeaks.Add(Peak);
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("LandmassGenerator initialized - Resolution: %d, Seed: %d, LandCoverage: %.1f%%, MapSize: %d, MaxHeight: %.0f, DomainWarp: %s"),
-		Settings.TextureResolution, Settings.Seed, Settings.LandCoveragePercent,
-		static_cast<int32>(Settings.MapSize), Settings.MaxMapHeight,
+	UE_LOG(LogTemp, Log, TEXT("LandmassGenerator initialized - Resolution: %d, Seed: %d, TargetLandArea: %.3f sq km, ComputedCoverage: %.1f%%, WorldSize: %.0f cm, MaxHeight: %.0f, DomainWarp: %s"),
+		Settings.TextureResolution, Settings.Seed, Settings.TargetLandAreaSqKm,
+		Settings.ComputedLandCoveragePercent, Settings.ComputedWorldSizeCm, Settings.MaxMapHeight,
 		Settings.bEnableDomainWarp ? TEXT("ON") : TEXT("OFF"));
 }
 
@@ -239,7 +268,7 @@ void ULandmassGenerator::GenerateLandMask()
 	// MaskValues must remain pixel-aligned for Pass 2 threshold comparison.
 	
 	// Calculate target land pixel count (clamped to valid range)
-	float TargetLandPercent = FMath::Clamp(Settings.LandCoveragePercent, 5.0f, 80.0f) / 100.0f;
+	float TargetLandPercent = FMath::Clamp(Settings.ComputedLandCoveragePercent, 5.0f, 80.0f) / 100.0f;
 
 	int32 TargetLandPixels = FMath::RoundToInt(TotalPixels * TargetLandPercent);
 	TargetLandPixels = FMath::Clamp(TargetLandPixels, 1, TotalPixels - 1);
@@ -254,7 +283,7 @@ void ULandmassGenerator::GenerateLandMask()
 	float LandThreshold = ScratchValues[ThresholdIndex];
 
 	UE_LOG(LogTemp, Log, TEXT("Land coverage target: %.1f%% (%d pixels), threshold: %.3f"),
-		Settings.LandCoveragePercent, TargetLandPixels, LandThreshold);
+		Settings.ComputedLandCoveragePercent, TargetLandPixels, LandThreshold);
 
 	// ===== PASS 2: Apply threshold to create EXACT land coverage =====
 	// Problem: using >= threshold may overshoot if many pixels equal threshold.
@@ -590,65 +619,20 @@ void ULandmassGenerator::GenerateLandMask()
 		}
 	}
 
-	// ===== PASS 5: Rectangular edge margin enforcement =====
-	// Enforces a thin ocean border at all map edges.  Land can extend to near
-	// edges (including corners), using the full square map area.
-	// Uses noise-modulated erosion for organic coastlines at the boundary.
-	if (MinEdgePaddingNorm > 0.0f)
+	// ===== PASS 5: Minimal 1-pixel safety border =====
+	// Since land grows freely with no rectangular constraints, we only
+	// enforce that the outermost pixel ring is always ocean.  This prevents
+	// artifacts from land touching the absolute canvas edge.
 	{
 		int32 EdgePixelsCleared = 0;
-		const float InvWidthMinus1 = (Width > 1) ? 1.0f / static_cast<float>(Width - 1) : 0.0f;
-		const float InvHeightMinus1 = (Height > 1) ? 1.0f / static_cast<float>(Height - 1) : 0.0f;
-
-		// Soft transition zone width for organic erosion at the boundary
-		constexpr float SoftMarginFraction = 1.5f; // transition extends this × margin inward
-		const float SoftTransitionWidth = MinEdgePaddingNorm * SoftMarginFraction;
-
 		for (int32 Y = 0; Y < Height; ++Y)
 		{
-			const float NormY = static_cast<float>(Y) * InvHeightMinus1;
-
 			for (int32 X = 0; X < Width; ++X)
 			{
-				const int32 Index = Y * Width + X;
-				if (LandMask[Index] == 0)
+				if (X == 0 || X == Width - 1 || Y == 0 || Y == Height - 1)
 				{
-					continue; // Already ocean, skip
-				}
-
-				const float NormX = static_cast<float>(X) * InvWidthMinus1;
-
-				// Distance from nearest edge (rectangular)
-				const float EdgeDistX = FMath::Min(NormX, 1.0f - NormX);
-				const float EdgeDistY = FMath::Min(NormY, 1.0f - NormY);
-				const float MarginDist = FMath::Min(EdgeDistX, EdgeDistY) - MinEdgePaddingNorm;
-
-				// Hard guarantee: within the margin → always ocean
-				if (MarginDist <= 0.0f)
-				{
-					LandMask[Index] = 0;
-					++EdgePixelsCleared;
-					continue;
-				}
-
-				// Soft transition zone: noise-modulated erosion for organic coastlines
-				if (MarginDist < SoftTransitionWidth)
-				{
-					// Normalised position within the transition band: 0 at hard boundary, 1 deep inside
-					const float TransitionT = MarginDist / SoftTransitionWidth;
-
-					// Sample noise for organic erosion pattern
-					const float ErodeNoise = FBM(
-						NormX * 8.0f + EdgeNoiseOffset.X + 300.0f,
-						NormY * 8.0f + EdgeNoiseOffset.Y + 300.0f,
-						3, 0.5f) * 0.5f + 0.5f; // Remap to [0, 1]
-
-					// Combine transition distance with noise: land survives if TransitionT > noise threshold
-					// This creates irregular, natural-looking coastlines at the boundary
-					constexpr float ErodeNoiseScale = 0.85f;
-					constexpr float ErodeMinThreshold = 0.05f;
-					const float SurvivalThreshold = ErodeNoise * ErodeNoiseScale + ErodeMinThreshold;
-					if (TransitionT < SurvivalThreshold)
+					const int32 Index = Y * Width + X;
+					if (LandMask[Index] != 0)
 					{
 						LandMask[Index] = 0;
 						++EdgePixelsCleared;
@@ -657,7 +641,6 @@ void ULandmassGenerator::GenerateLandMask()
 			}
 		}
 
-		// Rebuild LandPixels if we cleared anything
 		if (EdgePixelsCleared > 0)
 		{
 			LandPixels.Reset();
@@ -673,8 +656,69 @@ void ULandmassGenerator::GenerateLandMask()
 				}
 			}
 
-			UE_LOG(LogTemp, Log, TEXT("Smooth edge erosion: cleared %d land pixels within %.1fm margin"),
-				EdgePixelsCleared, Settings.MinEdgeMarginMeters);
+			UE_LOG(LogTemp, Log, TEXT("Safety border: cleared %d edge pixels"), EdgePixelsCleared);
+		}
+	}
+
+	// ===== PASS 6: Expand world size to guarantee ocean padding =====
+	// After land has been generated freely, measure the actual bounding box
+	// of all land pixels.  Then expand ComputedWorldSizeCm so that every
+	// side of the map has at least OceanPaddingMeters of ocean.
+	// Land is NEVER cut — the world just gets bigger if needed.
+	// Expansion is capped at 2× the initial estimate to prevent absurd
+	// blowups when land happens to be very close to a canvas edge.
+	// (The soft edge fade in GetIslandMask should prevent that, but
+	// this cap is a safety net.)
+	if (LandPixels.Num() > 0)
+	{
+		// Find land bounding box in pixel space
+		int32 LandMinX = Width;
+		int32 LandMaxX = 0;
+		int32 LandMinY = Height;
+		int32 LandMaxY = 0;
+
+		for (const FIntPoint& P : LandPixels)
+		{
+			LandMinX = FMath::Min(LandMinX, P.X);
+			LandMaxX = FMath::Max(LandMaxX, P.X);
+			LandMinY = FMath::Min(LandMinY, P.Y);
+			LandMaxY = FMath::Max(LandMaxY, P.Y);
+		}
+
+		// Convert to normalised [0,1] coords
+		const float InvW = (Width > 1)  ? 1.0f / static_cast<float>(Width - 1)  : 1.0f;
+		const float InvH = (Height > 1) ? 1.0f / static_cast<float>(Height - 1) : 1.0f;
+
+		// Margins: distance from land bbox to canvas edge in normalised space
+		const float MarginLeft   = static_cast<float>(LandMinX) * InvW;
+		const float MarginRight  = 1.0f - static_cast<float>(LandMaxX) * InvW;
+		const float MarginTop    = static_cast<float>(LandMinY) * InvH;
+		const float MarginBottom = 1.0f - static_cast<float>(LandMaxY) * InvH;
+
+		// Smallest margin constrains the required world size
+		const float MinMarginNorm = FMath::Max(
+			FMath::Min(FMath::Min(MarginLeft, MarginRight), FMath::Min(MarginTop, MarginBottom)),
+			1.0f / static_cast<float>(FMath::Max(Width, Height))  // Floor: at least 1 pixel
+		);
+
+		// Defensive floor: UPROPERTY ClampMin enforces 100 in the editor, but code
+		// paths (e.g. SyncLandmassSettings) may bypass it.
+		const float OceanPaddingCm = FMath::Max(Settings.OceanPaddingMeters, 100.0f) * 100.0f;
+		const float RequiredWorldSizeCm = OceanPaddingCm / MinMarginNorm;
+
+		// Cap expansion at 2× to prevent absurd world sizes (the soft edge fade
+		// in GetIslandMask is the primary mechanism; this is just a safety net).
+		const float MaxWorldSizeCm = Settings.ComputedWorldSizeCm * 2.0f;
+		const float ClampedRequiredCm = FMath::Min(RequiredWorldSizeCm, MaxWorldSizeCm);
+
+		if (ClampedRequiredCm > Settings.ComputedWorldSizeCm)
+		{
+			UE_LOG(LogTemp, Log, TEXT("Ocean padding: expanding world from %.0f cm to %.0f cm  "
+				"(land bbox pixels [%d,%d]-[%d,%d], min margin norm %.4f, uncapped %.0f cm)"),
+				Settings.ComputedWorldSizeCm, ClampedRequiredCm,
+				LandMinX, LandMinY, LandMaxX, LandMaxY, MinMarginNorm, RequiredWorldSizeCm);
+
+			Settings.ComputedWorldSizeCm = ClampedRequiredCm;
 		}
 	}
 
@@ -852,7 +896,7 @@ float ULandmassGenerator::FBM(float X, float Y, int32 Octaves, float Persistence
 //   3. Secondary terrain noise: medium ridges and isthmuses
 //   4. Coast noise: irregular coastline details
 //   5. Detail noise: fine bumps and indentations
-//   6. Edge falloff: thin rectangular ocean border at map edges
+//   6. Edge fade: soft smoothstep in ocean padding zone
 // 
 // Returns 0.0 (definitely ocean) to ~1.0 (definitely land).
 //------------------------------------------------------------------------------
@@ -891,7 +935,6 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 		
 		// Note: We intentionally do NOT clamp SampleX/SampleY to [0,1].
 		// Allowing slight out-of-bounds sampling creates natural edge variation.
-		// The edge falloff logic below still uses original NormX/NormY for border enforcement.
 	}
 
 	// ===== Noise-driven terrain field =====
@@ -951,26 +994,22 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 	// Noise is additive so it can create small islets where peak bias is zero.
 	float IslandValue = PeakBias + PrimaryNoise + SecondaryNoise + CoastNoise + DetailNoise;
 
-	// ===== Rectangular edge falloff: thin border only =====
-	// Uses original coordinates (NormX, NormY) to enforce a thin ocean border
-	// at map edges.  Land can extend to near all edges, using the full square
-	// map area (no circular constraint — corners can have land).
-
-	// Distance from nearest edge in normalised space
-	float EdgeDistX = FMath::Min(NormX, 1.0f - NormX);
-	float EdgeDistY = FMath::Min(NormY, 1.0f - NormY);
-	float EdgeDist = FMath::Min(EdgeDistX, EdgeDistY);
-
-	// Transition width: 3% of map or the margin width, whichever is larger
-	constexpr float MinTransitionWidth = 0.03f;
-	float TransitionWidth = FMath::Max(MinTransitionWidth, MinEdgePaddingNorm);
-
-	// Smooth falloff: 1 well inside, 0 at edge
-	float EdgeFalloff = FMath::Clamp(EdgeDist / TransitionWidth, 0.0f, 1.0f);
-	// Smoothstep for gradual transition
-	EdgeFalloff = EdgeFalloff * EdgeFalloff * (3.0f - 2.0f * EdgeFalloff);
-
-	IslandValue *= EdgeFalloff;
+	// ===== Soft edge fade: keep land out of the ocean padding zone =====
+	// The canvas was sized to include OceanPaddingMeters on every side.
+	// A smooth fade in that zone prevents land from reaching the canvas
+	// edge, which would otherwise cause Pass 6 to blow up the world size.
+	// The transition is gradual (full padding width) so coastlines near
+	// the edge still look organic, not hard-cut.
+	const float WorldSizeM = Settings.ComputedWorldSizeCm / 100.0f;
+	const float PaddingNorm = FMath::Clamp(
+		FMath::Max(Settings.OceanPaddingMeters, 100.0f) / FMath::Max(WorldSizeM, 1.0f),
+		0.02f, 0.30f);
+	const float EdgeDist = FMath::Min(
+		FMath::Min(NormX, 1.0f - NormX),
+		FMath::Min(NormY, 1.0f - NormY));
+	// SmoothStep: 0 at canvas edge → 1 at PaddingNorm inward
+	const float EdgeFade = FMath::SmoothStep(0.0f, PaddingNorm, EdgeDist);
+	IslandValue *= EdgeFade;
 
 	// Clamp to valid range (noise can push slightly negative)
 	return FMath::Clamp(IslandValue, 0.0f, 1.0f);

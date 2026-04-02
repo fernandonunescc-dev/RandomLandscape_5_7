@@ -130,8 +130,8 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, GlobalSeed), "Global Seed");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TextureResolution), "Texture Resolution");
-	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MapSize), "Map Size");
-	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, LandCoveragePercent), "Land Coverage %");
+	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TargetLandAreaSqKm), "Target Land Area (sq km)");
+	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, OceanPaddingMeters), "Ocean Padding (m)");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MaxMapHeight), "Max Map Height (m)");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, OceanLevel), "Ocean Level (m)");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, SeaLevel), "Sea Level (normalized)");
@@ -315,6 +315,24 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 			)
 		];
 
+	// Randomize Seed Only
+	ActionsGroup.AddWidgetRow()
+		.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(FText::FromString("Randomize Seed"))
+			.Font(IDetailLayoutBuilder::GetDetailFont())
+		]
+		.ValueContent()
+		.MinDesiredWidth(200.0f)
+		[
+			MakeButtonWidget(
+				FText::FromString("Randomize Seed Only"),
+				[](AWorldGenerationActor* A) { A->RandomizeSeed(); },
+				SelectedActors
+			)
+		];
+
 	// Generate All
 	ActionsGroup.AddWidgetRow()
 		.NameContent()
@@ -404,6 +422,13 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 	if (ResUsedHandle->IsValidHandle())
 	{
 		DebugInfoGroup.AddPropertyRow(ResUsedHandle).DisplayName(FText::FromString("Resolution Used"));
+	}
+
+	TSharedRef<IPropertyHandle> MapSizeHandle = DetailBuilder.GetProperty(
+		GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, FinalMapSizeMeters));
+	if (MapSizeHandle->IsValidHandle())
+	{
+		DebugInfoGroup.AddPropertyRow(MapSizeHandle).DisplayName(FText::FromString("Final Map Size (m)"));
 	}
 
 	TSharedRef<IPropertyHandle> ValidationHandle = DetailBuilder.GetProperty(
