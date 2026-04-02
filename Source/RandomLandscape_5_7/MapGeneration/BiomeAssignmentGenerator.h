@@ -23,15 +23,14 @@
  *   Generated features (water):    Rivers, Lakes, Waterfalls
  *   Surface overlays (content):    Forest, Grassland, Snow, Wetlands, DesertScrub
  *
- * Legacy biome classification priority (unchanged for backward compatibility):
+ * Climate-first biome classification priority:
  *   1. Ocean        (LandMask == 0)
- *   2. Volcanic     (near volcanic center AND Elevation > 0.3)
- *   3. Mountain     (Elevation > threshold OR slope > steep-slope threshold)
- *   4. Ice          (Temperature < threshold AND Moisture > threshold)
- *   5. Snow         (Temperature < threshold)
- *   6. Desert       (Temperature > threshold AND effective moisture < threshold)
- *   7. Forest       (Moisture > threshold AND Temperature > threshold AND Precipitation > threshold)
- *   8. Land         (default grassland)
+ *   2. Ice          (Temperature < threshold AND Moisture > threshold)
+ *   3. Snow         (Temperature < threshold)
+ *   4. Desert       (Temperature > threshold AND effective moisture < threshold)
+ *   5. Mountain     (Elevation > threshold OR slope > steep-slope threshold, only in temperate climate)
+ *   6. Forest       (Moisture > threshold AND Temperature > threshold AND Precipitation > threshold)
+ *   7. Land         (default grassland)
  */
 UCLASS(BlueprintType)
 class RANDOMLANDSCAPE_5_7_API UBiomeAssignmentGenerator : public UObject

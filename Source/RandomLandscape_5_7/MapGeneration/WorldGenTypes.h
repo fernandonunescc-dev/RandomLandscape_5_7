@@ -241,7 +241,7 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 
 	/** Number of volcanic hotspots to place */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volcanic", meta = (ClampMin = "0", ClampMax = "10", Tooltip = "How many volcanic cones to scatter across the landmass. Set to 0 to disable volcanoes entirely. Each volcano is placed randomly on land and generates a cone with an optional crater."))
-	int32 VolcanicHotspotCount = 1;
+	int32 VolcanicHotspotCount = 0;
 
 	/** Radius of volcanic influence (normalized 0-1) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volcanic", meta = (ClampMin = "0.02", ClampMax = "0.3", Tooltip = "Size of each volcano's influence area as a fraction of the total map width. A value of 0.08 means the volcano affects roughly 8 percent of the map. Larger values create massive shield-style volcanoes."))
