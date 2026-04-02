@@ -52,7 +52,12 @@ bool UTerrainRefinementGenerator::Generate(const TArray<float>& ErodedElevation,
 	UE_LOG(LogTemp, Log, TEXT("TerrainRefinementGenerator::Generate – starting (%d pixels)"), TotalPixels);
 
 	// Step 2: add biome-specific detail noise to each land pixel
+	//         Also blend in mountain ridged-detail for high-elevation pixels so
+	//         peaks retain craggy micro-detail even though biome is climate-driven.
 	const float InvRes = 1.0f / static_cast<float>(Resolution);
+	const float MountainDetailBlendStart = 0.55f;   // start blending at 55% elevation
+	const float MountainDetailBlendEnd   = 0.75f;   // full mountain detail at 75% elevation
+	const float MountainDetailBlendRange = MountainDetailBlendEnd - MountainDetailBlendStart;
 
 	for (int32 i = 0; i < TotalPixels; ++i)
 	{
@@ -67,7 +72,19 @@ bool UTerrainRefinementGenerator::Generate(const TArray<float>& ErodedElevation,
 		const float NormX = static_cast<float>(X) * InvRes;
 		const float NormY = static_cast<float>(Y) * InvRes;
 
-		const float Detail = ComputeBiomeDetail(NormX, NormY, Biome);
+		float Detail = ComputeBiomeDetail(NormX, NormY, Biome);
+
+		// Blend in mountain ridged-detail based on elevation so high-altitude
+		// terrain gets craggy micro-detail regardless of its climate biome.
+		if (Biome != EBiomeType::Mountain && ErodedElevation[i] > MountainDetailBlendStart)
+		{
+			const float MountainDetail = ComputeBiomeDetail(NormX, NormY, EBiomeType::Mountain);
+			const float Blend = FMath::Clamp(
+				(ErodedElevation[i] - MountainDetailBlendStart) / MountainDetailBlendRange,
+				0.0f, 1.0f);
+			Detail = FMath::Lerp(Detail, MountainDetail, Blend);
+		}
+
 		FinalElevation[i] = FMath::Clamp(FinalElevation[i] + Detail, 0.0f, 1.0f);
 	}
 

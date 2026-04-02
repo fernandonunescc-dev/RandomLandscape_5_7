@@ -23,15 +23,16 @@
  *   Generated features (water):    Rivers, Lakes, Waterfalls
  *   Surface overlays (content):    Forest, Grassland, Snow, Wetlands, DesertScrub
  *
- * Legacy biome classification priority (unchanged for backward compatibility):
+ * Purely climate-driven biome classification priority:
  *   1. Ocean        (LandMask == 0)
- *   2. Volcanic     (near volcanic center AND Elevation > 0.3)
- *   3. Mountain     (Elevation > threshold OR slope > steep-slope threshold)
- *   4. Ice          (Temperature < threshold AND Moisture > threshold)
- *   5. Snow         (Temperature < threshold)
- *   6. Desert       (Temperature > threshold AND effective moisture < threshold)
- *   7. Forest       (Moisture > threshold AND Temperature > threshold AND Precipitation > threshold)
- *   8. Land         (default grassland)
+ *   2. Ice          (Temperature < threshold AND Moisture > threshold)
+ *   3. Snow         (Temperature < threshold)
+ *   4. Desert       (Temperature > threshold AND effective moisture < threshold)
+ *   5. Forest       (Moisture > threshold AND Temperature > threshold AND Precipitation > threshold)
+ *   6. Land         (default grassland)
+ *
+ * NOTE: Mountain is NOT a biome — it is a terrain archetype (shape).
+ * Mountains take the color of whatever climate zone they are in.
  */
 UCLASS(BlueprintType)
 class RANDOMLANDSCAPE_5_7_API UBiomeAssignmentGenerator : public UObject
@@ -41,12 +42,13 @@ class RANDOMLANDSCAPE_5_7_API UBiomeAssignmentGenerator : public UObject
 public:
 
 	/**
-	 * Store settings and allocate output buffers.
+	 * Store settings, derive seed, and allocate output buffers.
 	 *
 	 * @param InSettings        Biome classification thresholds
+	 * @param GlobalSeed        Global world seed for deterministic randomisation
 	 * @param TextureResolution Width/height of the square map in pixels
 	 */
-	void Initialize(const FBiomeAssignmentSettings& InSettings, int32 TextureResolution);
+	void Initialize(const FBiomeAssignmentSettings& InSettings, int32 GlobalSeed, int32 TextureResolution);
 
 	/**
 	 * Classify every pixel into a biome type, compute slope, water distance,
@@ -99,6 +101,7 @@ private:
 
 	FBiomeAssignmentSettings Settings;
 	int32 Resolution = 0;
+	int32 ActualSeed = 0;
 
 	TArray<int32> BiomeMap;
 	TArray<int32> TerrainArchetypeMap;

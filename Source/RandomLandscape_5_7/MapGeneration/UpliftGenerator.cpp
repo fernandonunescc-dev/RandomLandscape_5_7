@@ -192,6 +192,11 @@ void UUpliftGenerator::GenerateUpliftMap(const TArray<uint8>& LandMask)
 	const float Amplitude  = Settings.MountainRidgeAmplitude;
 	const float Sharpness  = Settings.MountainSharpness;
 	const int32 Octaves    = Settings.MountainOctaves;
+	// MountainCoverage: power curve on base elevation fade.
+	// Low values confine mountains to high-elevation interior.
+	// High values let ridges extend toward the coast.
+	const float CoverageExponent = FMath::Lerp(3.0f, 0.3f,
+		FMath::Clamp(Settings.MountainCoverage, 0.1f, 2.0f) / 2.0f);
 	// Offset seed by a fixed amount to decorrelate mountain noise from base elevation noise
 	const int32 Seed       = ActualSeed + 100;
 	const float InvRes     = 1.0f / FMath::Max(Resolution - 1, 1);
@@ -210,12 +215,14 @@ void UUpliftGenerator::GenerateUpliftMap(const TArray<uint8>& LandMask)
 		float Ridge = WorldNoise::RidgedFBM(NormX * Freq, NormY * Freq, Octaves, 0.5f, Sharpness, Seed);
 		Ridge *= Amplitude;
 
-		// Fade mountains near coastline by multiplying with base elevation
-		UpliftMap[i] = Ridge * BaseElevation[i];
+		// Fade mountains near coastline by multiplying with base elevation,
+		// shaped by the MountainCoverage power curve
+		const float ElevFade = FMath::Pow(FMath::Max(BaseElevation[i], 0.0f), CoverageExponent);
+		UpliftMap[i] = Ridge * ElevFade;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator – UpliftMap generated (freq %.2f, amp %.2f)"),
-		Freq, Amplitude);
+	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator – UpliftMap generated (freq %.2f, amp %.2f, coverage %.2f)"),
+		Freq, Amplitude, Settings.MountainCoverage);
 }
 
 //------------------------------------------------------------------------------

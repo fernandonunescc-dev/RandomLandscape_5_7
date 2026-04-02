@@ -57,7 +57,7 @@ bool UErosionGenerator::Generate(const TArray<float>& InputElevation, const TArr
 	UE_LOG(LogTemp, Log, TEXT("ErosionGenerator::Generate – starting (%d pixels)"), TotalPixels);
 
 	ApplyRiverIncision(RiverMap, UpliftMap, LandMask);
-	ApplyThermalErosion(LandMask);
+	ApplyThermalErosion(LandMask, InputElevation);
 
 	// Compute erosion delta: original minus final (positive = removed)
 	for (int32 i = 0; i < TotalPixels; ++i)
@@ -215,13 +215,14 @@ void UErosionGenerator::ApplyRiverIncision(const TArray<float>& RiverMap,
 //   CanyonMask have their effective erosion rate reduced, preserving steep
 //   canyon walls from being smoothed away.
 //------------------------------------------------------------------------------
-void UErosionGenerator::ApplyThermalErosion(const TArray<uint8>& LandMask)
+void UErosionGenerator::ApplyThermalErosion(const TArray<uint8>& LandMask, const TArray<float>& InputElevation)
 {
 	const int32 TotalPixels = Resolution * Resolution;
 	const int32 Passes = Settings.ThermalErosionPasses;
 	const float Threshold = Settings.ThermalErosionThreshold;
 	const float Rate = Settings.ThermalErosionRate;
 	const float WallProtection = FMath::Clamp(Settings.CanyonWallSteepness, 0.0f, 1.0f);
+	const float MinElev = FMath::Clamp(Settings.ThermalErosionMinElevation, 0.0f, 0.5f);
 
 	if (Passes <= 0)
 	{
@@ -240,6 +241,13 @@ void UErosionGenerator::ApplyThermalErosion(const TArray<uint8>& LandMask)
 		for (int32 i = 0; i < TotalPixels; ++i)
 		{
 			if (LandMask[i] == 0)
+			{
+				continue;
+			}
+
+			// Skip pixels below the minimum elevation threshold so thermal
+			// erosion only affects mountainous terrain, not lowlands.
+			if (MinElev > 0.0f && InputElevation[i] < MinElev)
 			{
 				continue;
 			}
@@ -289,6 +297,6 @@ void UErosionGenerator::ApplyThermalErosion(const TArray<uint8>& LandMask)
 	}
 
 	UE_LOG(LogTemp, Log,
-		TEXT("ErosionGenerator – Thermal erosion complete (%d passes, threshold: %.4f, rate: %.2f, wall protection: %.2f)"),
-		Passes, Threshold, Rate, WallProtection);
+		TEXT("ErosionGenerator – Thermal erosion complete (%d passes, threshold: %.4f, rate: %.2f, wall protection: %.2f, min elevation: %.2f)"),
+		Passes, Threshold, Rate, WallProtection, MinElev);
 }

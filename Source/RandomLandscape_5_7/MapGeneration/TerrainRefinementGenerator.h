@@ -28,7 +28,8 @@
  *   - Desert:   sinusoidal dune pattern modulated by noise
  *   - Snow:     moderate FBM (similar to forest)
  *   - Ice:      very subtle flat noise
- *   - Mountain: ridged FBM for sharper peaks
+ *   - Mountain: ridged FBM for sharper peaks (also blended into any climate
+ *              biome at high elevation so peaks retain craggy micro-detail)
  *   - Volcanic: gentle noise (volcano shape comes from uplift)
  *
  * After detail is applied, a configurable number of 3×3 box-blur passes
@@ -56,8 +57,11 @@ public:
 	 * Algorithm:
 	 *   1. Copy ErodedElevation into FinalElevation
 	 *   2. For each land pixel, add biome-specific detail noise
-	 *   3. Clamp result to [0, 1]
-	 *   4. Apply smoothing passes
+	 *   3. Blend in mountain ridged-detail for high-elevation pixels (based on
+	 *      elevation, not biome) so peaks retain craggy micro-detail even though
+	 *      their biome is now purely climate-driven
+	 *   4. Clamp result to [0, 1]
+	 *   5. Apply smoothing passes
 	 *
 	 * @param ErodedElevation Elevation map [0,1] from Stage 4
 	 * @param BiomeMap        Per-pixel biome ID map from Stage 6

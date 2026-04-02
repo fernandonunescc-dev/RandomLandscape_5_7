@@ -486,7 +486,12 @@ void AWorldGenerationActor::Step6_GenerateBiomes()
 		return;
 	}
 
-	Generator->Initialize(BiomeAssignmentSettings, TextureResolution);
+	// Sync top-level Quick Presets → nested struct
+	BiomeAssignmentSettings.TargetSnowPercent = TargetSnowPercent;
+	BiomeAssignmentSettings.TargetDesertPercent = TargetDesertPercent;
+	BiomeAssignmentSettings.TargetForestPercent = TargetForestPercent;
+
+	Generator->Initialize(BiomeAssignmentSettings, GlobalSeed, TextureResolution);
 
 	if (!Generator->Generate(CachedErodedElevation, CachedTemperature, CachedMoisture,
 		CachedPrecipitation, CachedLandMask, CachedRiverMap, CachedLakeMap, CachedVolcanicCenters,
@@ -676,7 +681,13 @@ void AWorldGenerationActor::Randomize()
 	// Randomise target land area for varied island sizes
 	TargetLandAreaSqKm = FMath::FRandRange(0.1f, 1.0f);
 
-	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor::Randomize - New seed: %d, TargetLandArea: %.3f sq km"), GlobalSeed, TargetLandAreaSqKm);
+	// Randomise biome target percentages
+	TargetSnowPercent = FMath::FRandRange(2.0f, 20.0f);
+	TargetDesertPercent = FMath::FRandRange(5.0f, 30.0f);
+	TargetForestPercent = FMath::FRandRange(10.0f, 45.0f);
+
+	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor::Randomize - New seed: %d, TargetLandArea: %.3f sq km, Snow: %.1f%%, Desert: %.1f%%, Forest: %.1f%%"),
+		GlobalSeed, TargetLandAreaSqKm, TargetSnowPercent, TargetDesertPercent, TargetForestPercent);
 
 	GenerateAll();
 	GenerateMesh();

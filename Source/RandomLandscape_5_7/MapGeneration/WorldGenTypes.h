@@ -205,6 +205,10 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "1", ClampMax = "8", Tooltip = "Number of ridged-noise layers for mountain generation. More octaves add smaller-scale ridge detail on top of the main mountain shape."))
 	int32 MountainOctaves = 4;
 
+	/** How much of the island interior is covered by mountains (lower = confined to center, higher = spread everywhere) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "0.1", ClampMax = "2.0", Tooltip = "Controls the footprint of mountain ridges across the landmass. Low values (e.g. 0.2) confine mountains to the highest central peaks. High values (e.g. 1.5-2.0) let ridges extend all the way to the coast. At the default (0.5) mountains fade through the mid-elevation band."))
+	float MountainCoverage = 0.5f;
+
 	// --- Hills (rolling FBM terrain) ---
 
 	/** Frequency of hill features */
@@ -241,7 +245,7 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 
 	/** Number of volcanic hotspots to place */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volcanic", meta = (ClampMin = "0", ClampMax = "10", Tooltip = "How many volcanic cones to scatter across the landmass. Set to 0 to disable volcanoes entirely. Each volcano is placed randomly on land and generates a cone with an optional crater."))
-	int32 VolcanicHotspotCount = 1;
+	int32 VolcanicHotspotCount = 0;
 
 	/** Radius of volcanic influence (normalized 0-1) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Volcanic", meta = (ClampMin = "0.02", ClampMax = "0.3", Tooltip = "Size of each volcano's influence area as a fraction of the total map width. A value of 0.08 means the volcano affects roughly 8 percent of the map. Larger values create massive shield-style volcanoes."))
@@ -333,6 +337,10 @@ struct RANDOMLANDSCAPE_5_7_API FErosionSettings
 	/** How much material moves per thermal pass */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thermal Erosion", meta = (ClampMin = "0.01", ClampMax = "1.0", Tooltip = "Fraction of excess slope material moved per erosion pass. Higher rates produce faster, more dramatic smoothing; lower rates give subtle weathering over many passes."))
 	float ThermalErosionRate = 0.3f;
+
+	/** Minimum elevation for thermal erosion to apply (0 = erode everywhere, 0.3 = only above 30% elevation) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thermal Erosion", meta = (ClampMin = "0.0", ClampMax = "0.5", Tooltip = "Normalised elevation floor below which thermal erosion is skipped. At 0, erosion smooths the entire landscape. Increase this value to confine weathering to high-altitude mountain terrain, preventing lowlands and coastal areas from being affected."))
+	float ThermalErosionMinElevation = 0.0f;
 };
 
 /**
@@ -481,30 +489,38 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Blending", meta = (ClampMin = "0", ClampMax = "32", Tooltip = "Radius in pixels over which biome boundaries are blended. Larger values produce smoother, more gradual biome transitions; 0 creates hard biome edges."))
 	int32 BiomeBlendRadius = 8;
 
-	// --- Target Percentage Control ---
+	// --- Target Percentage Control (Voronoi Cell Based) ---
 
-	/** Enable target-percentage biome distribution. Overrides threshold-based
-	    classification so each biome covers approximately its target share of
-	    land area. Volcanic and Ocean assignments are not affected.
-	    Land not claimed by any target becomes Grassland. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (Tooltip = "Enable percentage-based biome distribution. When enabled, the system ranks pixels by affinity and assigns biomes to achieve the configured target coverage percentages. When disabled, raw threshold-based classification is used. Volcanic and Ocean are always unaffected. Land not claimed by any biome target becomes Grassland."))
-	bool bEnableBiomeTargets = false;
+	/** Enable target-percentage biome distribution using Voronoi cells.
+	    Scatters BiomeCellCount random seed points on land, partitions land into
+	    compact Voronoi regions via multi-source BFS, then assigns each cell a
+	    biome type based on average climate to achieve the target coverage.
+	    Ocean assignments are not affected.  Unclaimed land becomes Grassland. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (Tooltip = "Enable Voronoi-cell-based biome distribution. Scatters random seed points on land to create compact blob-shaped regions, then assigns biome types to each cell based on its average climate. Target percentages control how many cells of each biome exist. When disabled, raw threshold-based classification is used."))
+	bool bEnableBiomeTargets = true;
+
+	/** Number of Voronoi cells to scatter on land. More cells = smaller biome patches. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "8", ClampMax = "200", EditCondition = "bEnableBiomeTargets", Tooltip = "Number of random seed points scattered on land. Each seed becomes the center of a Voronoi cell — a compact blob-shaped region. More cells produce smaller, more numerous biome patches; fewer cells produce fewer, larger patches."))
+	int32 BiomeCellCount = 40;
 
 	/** Target Forest coverage as a percentage of total land area */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "60.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Forest coverage as a percentage of total land pixels. The most forest-suitable pixels (high moisture, warm temperature, adequate precipitation) are selected up to this target. Remaining land becomes Grassland."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "60.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Forest coverage as a percentage of total land pixels. Voronoi cells whose average climate is most forest-suitable are assigned Forest until this target is reached. Remaining land becomes Grassland."))
 	float TargetForestPercent = 25.0f;
 
 	/** Target Desert coverage as a percentage of total land area */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "40.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Desert coverage as a percentage of total land pixels. The hottest and driest pixels are selected up to this target."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "40.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Desert coverage as a percentage of total land pixels. Voronoi cells in the hottest/driest areas are assigned Desert until this target is reached."))
 	float TargetDesertPercent = 15.0f;
 
 	/** Target Snow/Tundra coverage as a percentage of total land area (includes Ice) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "30.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Snow and Tundra coverage as a percentage of total land pixels. The coldest pixels are selected. Within this budget, pixels that are cold and moist enough are promoted to Ice/Glacier."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "30.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Snow and Tundra coverage as a percentage of total land pixels. Voronoi cells in the coldest areas are assigned Snow. Within those cells, the coldest/wettest pixels are promoted to Ice/Glacier."))
 	float TargetSnowPercent = 10.0f;
 
-	/** Target Mountain coverage as a percentage of total land area */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "30.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Mountain coverage as a percentage of total land pixels. The highest-elevation and steepest-slope pixels are selected up to this target."))
-	float TargetMountainPercent = 10.0f;
+	/** How much randomness to mix into biome cell scoring.
+	    0.0 = pure climate (deterministic — deserts always center, snow always poles).
+	    1.0 = heavily randomised placement (any climate-viable cell may be picked).
+	    Intermediate values blend climate preference with random jitter. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Controls how much randomness is mixed into the biome cell scoring. At 0.0, biome placement is purely climate-driven (desert always in the hottest spot, snow always at the coldest). At 1.0, biome placement is heavily randomised — any cell with some climate affinity may be selected. Default 0.5 gives a good balance of climate-awareness and variety across different seeds."))
+	float BiomePlacementRandomness = 0.5f;
 
 	// --- Spatial Smoothing ---
 
@@ -513,14 +529,14 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 	    neighbourhood, eliminating thin stripe artefacts along threshold
 	    boundaries. 0 = no smoothing. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spatial Smoothing", meta = (ClampMin = "0", ClampMax = "8", Tooltip = "Number of majority-vote smoothing passes applied to the biome map after classification. Each pass replaces every pixel with the most common biome in a 5×5 neighbourhood window, eliminating thin stripe artefacts that form along elevation or temperature contour lines. Higher values produce broader, more cohesive biome regions. 0 disables smoothing."))
-	int32 BiomeSmoothingPasses = 2;
+	int32 BiomeSmoothingPasses = 4;
 
 	// --- Cluster Filtering ---
 
 	/** Minimum contiguous biome region size in pixels. Patches smaller than this
 	    are absorbed into the most common surrounding biome. 0 = no filtering. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cluster Filtering", meta = (ClampMin = "0", ClampMax = "512", Tooltip = "Minimum contiguous area in pixels for a biome patch to survive. Smaller patches are absorbed into the dominant neighbouring biome, producing cleaner, more readable biome boundaries. Set to 0 to disable."))
-	int32 MinBiomeClusterSize = 64;
+	int32 MinBiomeClusterSize = 200;
 
 	/** Per-biome material & foliage spawn rules (8 entries, indexed by EBiomeType) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material Rules", meta = (Tooltip = "Array of material and foliage spawn rules, one per biome type (indexed by EBiomeType). Controls the visual appearance and vegetation of each biome."))
