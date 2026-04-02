@@ -67,7 +67,7 @@ public:
 
 	/** Overall terrain roughness: 0 = mostly flat with gentle hills, 1 = heavily mountainous. Adjusts mountain amplitude, hill amplitude, and base elevation noise in the background. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Master slider controlling how flat or mountainous the terrain is. At 0 the island is mostly flat coastal plains with gentle hills. At 1 the terrain is dominated by tall mountain ridges. This adjusts MountainRidgeAmplitude, HillAmplitude, BaseNoisePersistence, and CoastlineGradientWidth behind the scenes."))
-	float TerrainRoughness = 0.5f;
+	float TerrainRoughness = 0.3f;
 
 	// ==================== Pipeline Global Settings ====================
 
@@ -78,21 +78,26 @@ public:
 	int32 TextureResolution = 512;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global")
-	EMapType MapType = EMapType::Continent;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global")
 	EMapSize MapSize = EMapSize::Medium;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "5.0", ClampMax = "75.0"))
-	float LandCoveragePercent = 50.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "5.0", ClampMax = "80.0"))
+	float LandCoveragePercent = 45.0f;
 
 	/** Maximum terrain height in meters */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "10.0", ClampMax = "2000.0"))
-	float MaxMapHeight = 500.0f;
+	float MaxMapHeight = 100.0f;
 
 	/** Ocean depth in meters — ocean pixels are placed this far below sea level */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "0.0", ClampMax = "100.0"))
 	float OceanLevel = 15.0f;
+
+	/** Configurable sea level as a normalised elevation threshold [0,1].
+	 *  Land pixels below this value are treated as near- or below-sea-level
+	 *  terrain during classification.  Does NOT change the land/ocean mask —
+	 *  that is determined by Stage 1 (Landmass).  Default 0 means the
+	 *  land/ocean boundary IS sea level (traditional behaviour). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "0.0", ClampMax = "0.5", Tooltip = "Normalised sea-level elevation threshold. Land pixels below this elevation are considered near sea level for classification purposes. 0 means the land/ocean boundary is sea level (default behaviour)."))
+	float SeaLevel = 0.0f;
 
 	// ==================== Per-Stage Settings ====================
 
@@ -173,6 +178,15 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|6-Biomes")
 	TObjectPtr<UTexture2D> Debug_BiomeBlendWeights = nullptr;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|6-Biomes")
+	TObjectPtr<UTexture2D> Debug_TerrainArchetypeMap = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|6-Biomes")
+	TObjectPtr<UTexture2D> Debug_SurfaceOverlayMap = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|6-Biomes")
+	TObjectPtr<UTexture2D> Debug_GeneratedFeatureMap = nullptr;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Debug|7-Refinement")
 	TObjectPtr<UTexture2D> Debug_FinalElevation = nullptr;
 
@@ -218,6 +232,10 @@ public:
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Pipeline|Actions")
 	void GenerateMesh();
 
+	/** Pick a new random seed, run all pipeline stages, and build the mesh. */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Pipeline|Actions")
+	void Randomize();
+
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Pipeline|Actions")
 	void ClearAll();
 
@@ -256,6 +274,9 @@ private:
 	TArray<int32> CachedFlowDirection;
 	TArray<float> CachedPlateauMap;
 	TArray<int32> CachedBiomeMap;
+	TArray<int32> CachedTerrainArchetypeMap;
+	TArray<int32> CachedSurfaceOverlayMap;
+	TArray<int32> CachedGeneratedFeatureMap;
 	TArray<float> CachedSlopeMap;
 	/** Flat array: pixel i → [i*8 .. i*8+7], one weight per EBiomeType. */
 	TArray<float> CachedBiomeBlendWeights;

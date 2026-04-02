@@ -27,7 +27,6 @@ void AWorldGenerationActor::SyncLandmassSettings()
 {
 	LandmassSettings.Seed = GlobalSeed;
 	LandmassSettings.TextureResolution = TextureResolution;
-	LandmassSettings.MapType = MapType;
 	LandmassSettings.MapSize = MapSize;
 	LandmassSettings.LandCoveragePercent = LandCoveragePercent;
 }
@@ -487,13 +486,17 @@ void AWorldGenerationActor::Step6_GenerateBiomes()
 	Generator->Initialize(BiomeAssignmentSettings, TextureResolution);
 
 	if (!Generator->Generate(CachedErodedElevation, CachedTemperature, CachedMoisture,
-		CachedPrecipitation, CachedLandMask, CachedRiverMap, CachedLakeMap, CachedVolcanicCenters))
+		CachedPrecipitation, CachedLandMask, CachedRiverMap, CachedLakeMap, CachedVolcanicCenters,
+		CachedPlateauMap, CachedCanyonMask, CachedWaterfallMap, SeaLevel))
 	{
 		UE_LOG(LogTemp, Error, TEXT("AWorldGenerationActor: Biome assignment failed"));
 		return;
 	}
 
 	CachedBiomeMap = Generator->GetBiomeMap();
+	CachedTerrainArchetypeMap = Generator->GetTerrainArchetypeMap();
+	CachedSurfaceOverlayMap = Generator->GetSurfaceOverlayMap();
+	CachedGeneratedFeatureMap = Generator->GetGeneratedFeatureMap();
 	CachedSlopeMap = Generator->GetSlopeMap();
 	CachedBiomeBlendWeights = Generator->GetBiomeBlendWeights();
 
@@ -544,6 +547,59 @@ void AWorldGenerationActor::Step6_GenerateBiomes()
 		}
 
 		Debug_BiomeBlendWeights = CreateColorDebugTexture(TextureResolution, BlendPixels);
+	}
+
+	// Debug_TerrainArchetypeMap: color each pixel by terrain archetype
+	{
+		const int32 TotalPixels = TextureResolution * TextureResolution;
+		TArray<FColor> ArchetypePixels;
+		ArchetypePixels.SetNumUninitialized(TotalPixels);
+
+		for (int32 i = 0; i < TotalPixels; ++i)
+		{
+			const ETerrainArchetype Archetype = static_cast<ETerrainArchetype>(CachedTerrainArchetypeMap[i]);
+			const FLinearColor ArchetypeColor = GetArchetypeDebugColor(Archetype);
+			ArchetypePixels[i] = ArchetypeColor.ToFColor(false);
+		}
+
+		Debug_TerrainArchetypeMap = CreateColorDebugTexture(TextureResolution, ArchetypePixels);
+	}
+
+	// Debug_SurfaceOverlayMap: color each pixel by surface overlay
+	{
+		const int32 TotalPixels = TextureResolution * TextureResolution;
+		TArray<FColor> OverlayPixels;
+		OverlayPixels.SetNumUninitialized(TotalPixels);
+
+		for (int32 i = 0; i < TotalPixels; ++i)
+		{
+			const ESurfaceOverlay Overlay = static_cast<ESurfaceOverlay>(CachedSurfaceOverlayMap[i]);
+			const FLinearColor OverlayColor = GetSurfaceOverlayDebugColor(Overlay);
+			OverlayPixels[i] = OverlayColor.ToFColor(false);
+		}
+
+		Debug_SurfaceOverlayMap = CreateColorDebugTexture(TextureResolution, OverlayPixels);
+	}
+
+	// Debug_GeneratedFeatureMap: highlight water features
+	{
+		const int32 TotalPixels = TextureResolution * TextureResolution;
+		TArray<FColor> FeaturePixels;
+		FeaturePixels.SetNumUninitialized(TotalPixels);
+
+		for (int32 i = 0; i < TotalPixels; ++i)
+		{
+			const EGeneratedFeature Feature = static_cast<EGeneratedFeature>(CachedGeneratedFeatureMap[i]);
+			switch (Feature)
+			{
+			case EGeneratedFeature::River:     FeaturePixels[i] = FColor(30, 80, 200, 255); break;
+			case EGeneratedFeature::Lake:      FeaturePixels[i] = FColor(20, 60, 160, 255); break;
+			case EGeneratedFeature::Waterfall: FeaturePixels[i] = FColor(100, 180, 255, 255); break;
+			default:                           FeaturePixels[i] = FColor(0, 0, 0, 255); break;
+			}
+		}
+
+		Debug_GeneratedFeatureMap = CreateColorDebugTexture(TextureResolution, FeaturePixels);
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor: Stage 6 Biomes complete"));
@@ -605,6 +661,23 @@ void AWorldGenerationActor::GenerateAll()
 	if (CachedBiomeMap.Num() == 0) return;
 
 	Step7_GenerateRefinement();
+}
+
+// ------------------------------------------------------------
+// Randomize: new random seed → full pipeline → mesh
+// ------------------------------------------------------------
+void AWorldGenerationActor::Randomize()
+{
+	GlobalSeed = FMath::RandRange(1, 0x7FFFFFFF);
+
+	// Randomise land coverage between 35-65% for varied archipelago density
+	// Lower values create more ocean, producing more distinct separated islands
+	LandCoveragePercent = FMath::FRandRange(35.0f, 65.0f);
+
+	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor::Randomize - New seed: %d, LandCoverage: %.1f%%"), GlobalSeed, LandCoveragePercent);
+
+	GenerateAll();
+	GenerateMesh();
 }
 
 // ------------------------------------------------------------
@@ -674,6 +747,9 @@ void AWorldGenerationActor::ClearAll()
 	Debug_BiomeMap = nullptr;
 	Debug_SlopeMap = nullptr;
 	Debug_BiomeBlendWeights = nullptr;
+	Debug_TerrainArchetypeMap = nullptr;
+	Debug_SurfaceOverlayMap = nullptr;
+	Debug_GeneratedFeatureMap = nullptr;
 	Debug_FinalElevation = nullptr;
 
 	CachedLandMask.Empty();
@@ -694,6 +770,9 @@ void AWorldGenerationActor::ClearAll()
 	CachedFlowDirection.Empty();
 	CachedPlateauMap.Empty();
 	CachedBiomeMap.Empty();
+	CachedTerrainArchetypeMap.Empty();
+	CachedSurfaceOverlayMap.Empty();
+	CachedGeneratedFeatureMap.Empty();
 	CachedSlopeMap.Empty();
 	CachedBiomeBlendWeights.Empty();
 	CachedVolcanicCenters.Empty();
@@ -869,7 +948,6 @@ void AWorldGenerationActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 
 	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, GlobalSeed)
 		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TextureResolution)
-		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MapType)
 		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MapSize)
 		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, LandCoveragePercent))
 	{
@@ -883,6 +961,13 @@ void AWorldGenerationActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, OceanLevel))
 	{
 		GenerateMesh();
+		return;
+	}
+
+	// Sea level affects biome classification (stage 6)
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, SeaLevel))
+	{
+		RegenerateFromStage(6);
 		return;
 	}
 }
@@ -905,9 +990,9 @@ void AWorldGenerationActor::ApplyPreset_Volcano(bool bEnable)
 	{
 		UpliftSettings.VolcanicHotspotCount = 1;
 		UpliftSettings.VolcanicRadius = 0.08f;
-		UpliftSettings.VolcanicPeakHeight = 0.85f;
+		UpliftSettings.VolcanicPeakHeight = 0.65f;
 		UpliftSettings.CraterDepth = 0.3f;
-		UpliftSettings.CraterRadiusFraction = 0.2f;
+		UpliftSettings.CraterRadiusFraction = 0.3f;
 	}
 	else
 	{
@@ -920,9 +1005,9 @@ void AWorldGenerationActor::ApplyPreset_Mountains(bool bEnable)
 	if (bEnable)
 	{
 		UpliftSettings.MountainRidgeFrequency = 2.5f;
-		UpliftSettings.MountainRidgeAmplitude = 0.6f;
-		UpliftSettings.MountainSharpness = 2.0f;
-		UpliftSettings.MountainOctaves = 5;
+		UpliftSettings.MountainRidgeAmplitude = 0.35f;
+		UpliftSettings.MountainSharpness = 1.5f;
+		UpliftSettings.MountainOctaves = 4;
 	}
 	else
 	{
@@ -935,7 +1020,7 @@ void AWorldGenerationActor::ApplyPreset_Hills(bool bEnable)
 	if (bEnable)
 	{
 		UpliftSettings.HillFrequency = 3.0f;
-		UpliftSettings.HillAmplitude = 0.15f;
+		UpliftSettings.HillAmplitude = 0.2f;
 		UpliftSettings.HillOctaves = 3;
 	}
 	else
@@ -994,22 +1079,22 @@ void AWorldGenerationActor::ApplyTerrainRoughness(float Roughness)
 	// Clamp just in case
 	Roughness = FMath::Clamp(Roughness, 0.0f, 1.0f);
 
-	// Mountain ridge amplitude: 0 at roughness=0, up to 0.8 at roughness=1
-	UpliftSettings.MountainRidgeAmplitude = FMath::Lerp(0.0f, 0.8f, Roughness);
+	// Mountain ridge amplitude: 0 at roughness=0, up to 0.6 at roughness=1
+	UpliftSettings.MountainRidgeAmplitude = FMath::Lerp(0.0f, 0.6f, Roughness);
 
 	// Mountain sharpness: softer at low roughness, sharper at high
-	UpliftSettings.MountainSharpness = FMath::Lerp(1.0f, 3.5f, Roughness);
+	UpliftSettings.MountainSharpness = FMath::Lerp(1.0f, 2.5f, Roughness);
 
 	// Hill amplitude: gentle at low roughness, moderate at mid, reduced at extreme high (mountains dominate)
 	// Peaks at roughness ~0.4
 	const float HillCurve = FMath::Clamp(1.0f - FMath::Abs(Roughness - 0.4f) * 2.0f, 0.0f, 1.0f);
-	UpliftSettings.HillAmplitude = FMath::Lerp(0.02f, 0.25f, HillCurve);
+	UpliftSettings.HillAmplitude = FMath::Lerp(0.05f, 0.3f, HillCurve);
 
 	// Base noise persistence: flatter terrain uses smoother noise
-	UpliftSettings.BaseNoisePersistence = FMath::Lerp(0.25f, 0.55f, Roughness);
+	UpliftSettings.BaseNoisePersistence = FMath::Lerp(0.25f, 0.5f, Roughness);
 
 	// Coastline gradient: flat terrain gets wider coastal plains
-	UpliftSettings.CoastlineGradientWidth = FMath::RoundToInt32(FMath::Lerp(120.0f, 50.0f, Roughness));
+	UpliftSettings.CoastlineGradientWidth = FMath::RoundToInt32(FMath::Lerp(140.0f, 50.0f, Roughness));
 
 	// Plateau flatness: more prominent in mid-range, reduced at extremes
 	const float PlateauCurve = FMath::Clamp(1.0f - FMath::Abs(Roughness - 0.5f) * 3.0f, 0.0f, 1.0f);
@@ -1038,10 +1123,12 @@ void AWorldGenerationActor::BuildTerrainMesh(const TArray<float>& Elevation, con
 	float WorldSizeCm;
 	switch (MapSize)
 	{
-	case EMapSize::Large:  WorldSizeCm = 200000.0f; break;
-	case EMapSize::Medium: WorldSizeCm = 100000.0f; break;
-	case EMapSize::Small:  WorldSizeCm = 50000.0f;  break;
-	default:               WorldSizeCm = 100000.0f; break;
+	case EMapSize::Gigantic:   WorldSizeCm = 800000.0f; break;
+	case EMapSize::ExtraLarge: WorldSizeCm = 400000.0f; break;
+	case EMapSize::Large:      WorldSizeCm = 200000.0f; break;
+	case EMapSize::Medium:     WorldSizeCm = 100000.0f; break;
+	case EMapSize::Small:      WorldSizeCm = 50000.0f;  break;
+	default:                   WorldSizeCm = 100000.0f; break;
 	}
 
 	// Prepare mesh arrays

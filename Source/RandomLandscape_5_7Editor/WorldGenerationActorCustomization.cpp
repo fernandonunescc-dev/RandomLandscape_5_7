@@ -69,6 +69,8 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 			[](AWorldGenerationActor* A) { A->Step6_GenerateBiomes(); });
 		AddButtonRow(FallbackCategory, "Step 7: Generate Refinement",
 			[](AWorldGenerationActor* A) { A->Step7_GenerateRefinement(); });
+		AddButtonRow(FallbackCategory, "Randomize",
+			[](AWorldGenerationActor* A) { A->Randomize(); });
 		AddButtonRow(FallbackCategory, "Generate All",
 			[](AWorldGenerationActor* A) { A->GenerateAll(); });
 		AddButtonRow(FallbackCategory, "Generate Mesh",
@@ -128,11 +130,11 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, GlobalSeed), "Global Seed");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TextureResolution), "Texture Resolution");
-	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MapType), "Map Type");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MapSize), "Map Size");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, LandCoveragePercent), "Land Coverage %");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MaxMapHeight), "Max Map Height (m)");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, OceanLevel), "Ocean Level (m)");
+	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, SeaLevel), "Sea Level (normalized)");
 
 	// ==================== STAGE GROUPS ====================
 
@@ -230,6 +232,9 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 		S.DebugTextureProps.Add(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, Debug_BiomeMap));
 		S.DebugTextureProps.Add(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, Debug_SlopeMap));
 		S.DebugTextureProps.Add(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, Debug_BiomeBlendWeights));
+		S.DebugTextureProps.Add(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, Debug_TerrainArchetypeMap));
+		S.DebugTextureProps.Add(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, Debug_SurfaceOverlayMap));
+		S.DebugTextureProps.Add(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, Debug_GeneratedFeatureMap));
 		Stages.Add(MoveTemp(S));
 	}
 
@@ -291,6 +296,24 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 
 	IDetailGroup& ActionsGroup = PipelineCategory.AddGroup(
 		"ActionsGroup", FText::FromString("Batch Actions"), true, true);
+
+	// Randomize
+	ActionsGroup.AddWidgetRow()
+		.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(FText::FromString("Randomize"))
+			.Font(IDetailLayoutBuilder::GetDetailFont())
+		]
+		.ValueContent()
+		.MinDesiredWidth(200.0f)
+		[
+			MakeButtonWidget(
+				FText::FromString("Randomize"),
+				[](AWorldGenerationActor* A) { A->Randomize(); },
+				SelectedActors
+			)
+		];
 
 	// Generate All
 	ActionsGroup.AddWidgetRow()

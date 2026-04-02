@@ -19,15 +19,6 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 {
 	GENERATED_BODY()
 
-	/** 
-	 * Map type controls the overall land/ocean distribution pattern.
-	 * Continent: Large landmass, small ocean.
-	 * Island: Small landmass, large ocean.
-	 * Archipelago: Multiple islands scattered across the map.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass")
-	EMapType MapType = EMapType::Continent;
-
 	/**
 	 * Map physical size in world space.
 	 * Large: 2x2 km, Medium: 1x1 km, Small: 500x500 m.
@@ -41,7 +32,7 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	 * This is the absolute ceiling - individual biome HeightScale is relative to this.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "10.0", ClampMax = "2000.0", UIMin = "10.0", UIMax = "2000.0"))
-	float MaxMapHeight = 500.0f;
+	float MaxMapHeight = 100.0f;
 
 	/** 
 	 * Random seed for landmass shape generation.
@@ -63,10 +54,11 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	 * Target percentage of pixels that should be classified as land.
 	 * The algorithm guarantees this exact coverage by computing an adaptive threshold.
 	 * Clamped to 5-75% to ensure meaningful land/ocean distribution.
-	 * Note: For Island/Archipelago map types, lower values are recommended.
+	 * Note: Lower values create more ocean, naturally producing multiple
+	 * separate islands (archipelago-like). Higher values produce single landmasses.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "5.0", ClampMax = "75.0"))
-	float LandCoveragePercent = 50.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "5.0", ClampMax = "80.0"))
+	float LandCoveragePercent = 45.0f;
 
 	// === Domain Warp Settings ===
 	// Domain warping offsets sampling coordinates before noise evaluation,
@@ -110,43 +102,50 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 
 	// === Post-Processing Settings ===
 
-	/** 
+	/**
 	 * If true, only the largest connected land component is kept.
 	 * All other land components (islands) are converted to ocean.
-	 * Ensures a single contiguous continent in the final mask.
+	 * Disable to allow multiple separate landmasses (archipelago-like results).
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Post-Processing")
-	bool bKeepOnlyLargestLandmass = true;
+	bool bKeepOnlyLargestLandmass = false;
 
 	/** 
-	 * If true, fills enclosed ocean areas (holes/lakes) inside the continent.
+	 * If true, fills enclosed ocean areas (holes/lakes) inside the landmass.
 	 * Works by flood-filling ocean from borders and converting unreachable ocean to land.
 	 * Applied after bKeepOnlyLargestLandmass if both are enabled.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Post-Processing")
-	bool bFillEnclosedHoles = true;
+	bool bFillEnclosedHoles = false;
 
-	// === Archipelago Settings ===
+	// === Edge Margin Settings ===
 
 	/**
-	 * Number of islands to generate in Archipelago mode.
-	 * Each island is a separate landmass with organic shape.
+	 * Width of the guaranteed ocean border at all map edges, in metres.
+	 * Land can extend to near the edges (including corners), but this
+	 * minimum ocean strip is always enforced. A noise-modulated transition
+	 * creates organic coastlines at the boundary.
+	 * Default 30 m keeps a thin guaranteed ocean border while maximising
+	 * usable land area.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Archipelago", meta = (ClampMin = "2", ClampMax = "20", EditCondition = "MapType == EMapType::Archipelago"))
-	int32 IslandCount = 5;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "0.0", ClampMax = "300.0", Tooltip = "Width of the guaranteed ocean border at all map edges in metres. Default 30 m."))
+	float MinEdgeMarginMeters = 30.0f;
 
 	/**
 	 * Get the world-space size in centimeters for the current MapSize.
+	 * Gigantic: 800000 (8km), ExtraLarge: 400000 (4km),
 	 * Large: 200000 (2km), Medium: 100000 (1km), Small: 50000 (500m).
 	 */
 	float GetWorldSizeCm() const
 	{
 		switch (MapSize)
 		{
-		case EMapSize::Large:  return 200000.0f;
-		case EMapSize::Medium: return 100000.0f;
-		case EMapSize::Small:  return 50000.0f;
-		default:               return 100000.0f;
+		case EMapSize::Gigantic:   return 800000.0f;
+		case EMapSize::ExtraLarge: return 400000.0f;
+		case EMapSize::Large:      return 200000.0f;
+		case EMapSize::Medium:     return 100000.0f;
+		case EMapSize::Small:      return 50000.0f;
+		default:                   return 100000.0f;
 		}
 	}
 };
@@ -155,17 +154,17 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
  * Generates land/ocean mask for procedural map generation.
  * 
  * This class creates a binary land mask using layered FBM (Fractal Brownian Motion) noise
- * to produce organic, natural-looking continent shapes with irregular coastlines.
+ * to produce organic, natural-looking island shapes with irregular coastlines.
  * 
  * Generation Pipeline:
  *   1. Initialize() - Store settings and seed the random stream
  *   2. Generate()   - Run the full generation pipeline
- *      a. GenerateLandMask()      - Compute per-pixel continent values and threshold to binary mask
+ *      a. GenerateLandMask()      - Compute per-pixel island mask values and threshold to binary mask
  *      b. GeneratePreviewTexture() - Convert mask to black/white texture for visualization
  * 
  * The algorithm uses distance-from-center combined with multi-octave noise to create
- * continent shapes that are roughly centered but have organic, irregular edges.
- * Edge falloff ensures land doesn't touch texture borders.
+ * island shapes that are roughly centered but have organic, irregular edges.
+ * Edge falloff enforces a minimum margin from texture borders.
  */
 UCLASS(BlueprintType)
 class RANDOMLANDSCAPE_5_7_API ULandmassGenerator : public UObject
@@ -220,10 +219,10 @@ public:
 
 protected:
 	/**
-	 * Generate the binary land mask from noise-based continent values.
+	 * Generate the binary land mask from noise-based island mask values.
 	 * 
 	 * Algorithm:
-	 *   1. For each pixel, compute GetContinentMask() value (0.0 to 1.0)
+	 *   1. For each pixel, compute GetIslandMask() value (0.0 to 1.0)
 	 *   2. Sort all values to find the threshold that achieves target land coverage
 	 *   3. Apply threshold: pixels >= threshold become land
 	 * 
@@ -261,29 +260,20 @@ protected:
 	float FBM(float X, float Y, int32 Octaves, float Persistence) const;
 
 	/**
-	 * Compute the "continent-ness" value for a normalized texture coordinate.
+	 * Compute the "island-ness" value for a normalised texture coordinate.
 	 * Higher values are more likely to be land.
 	 * 
 	 * Components:
-	 *   - Distance from center: land concentrated toward middle
+	 *   - Distance from centre: land concentrated toward middle
 	 *   - Coast noise: irregular coastline detail
-	 *   - Shape noise: large-scale continent shape variation
+	 *   - Shape noise: large-scale island shape variation
 	 *   - Detail noise: fine bumps and indentations
-	 *   - Edge falloff: prevents land from touching texture borders
+	 *   - Edge falloff: enforces minimum margin from texture borders
 	 * 
-	 * @param NormX, NormY - Normalized coordinates (0.0 to 1.0)
-	 * @return Continent mask value (0.0 to 1.0, higher = more land-like)
-	 */
-	float GetContinentMask(float NormX, float NormY) const;
-
-	/**
-	 * Compute the "island-ness" value for Archipelago mode.
-	 * Generates multiple island centers and computes a combined mask.
-	 * 
-	 * @param NormX, NormY - Normalized coordinates (0.0 to 1.0)
+	 * @param NormX, NormY - Normalised coordinates (0.0 to 1.0)
 	 * @return Island mask value (0.0 to 1.0, higher = more land-like)
 	 */
-	float GetArchipelagoMask(float NormX, float NormY) const;
+	float GetIslandMask(float NormX, float NormY) const;
 
 protected:
 	/** Generation settings */
@@ -296,7 +286,7 @@ protected:
 	// Each layer samples noise at a different offset to decorrelate patterns.
 	// These replace hard-coded offsets (+50, +100, +200) for better variety per seed.
 	
-	/** Offset for shape noise layer (low-frequency continent shape) */
+	/** Offset for shape noise layer (low-frequency island shape) */
 	FVector2D ShapeNoiseOffset;
 	
 	/** Offset for detail noise layer (high-frequency coastal details) */
@@ -314,11 +304,23 @@ protected:
 	/** Offset for warp Y-component noise sampling */
 	FVector2D WarpOffsetY;
 
-	/** Island center positions for Archipelago mode (generated in Initialize) */
-	TArray<FVector2D> IslandCenters;
+	/** Minimum edge padding in normalised coordinates, computed from MinEdgeMarginMeters in Initialize() */
+	float MinEdgePaddingNorm = 0.02f;
 
-	/** Island radii for Archipelago mode (generated in Initialize) */
-	TArray<float> IslandRadii;
+	// === Multi-peak island nucleation points (generated in Initialize) ===
+	// Instead of a single centre bias, multiple peaks scattered across the map
+	// create natural archipelago patterns with a main island + satellites.
+
+	/** Island peak data: position (normalised 0-1), strength, and radius */
+	struct FIslandPeak
+	{
+		FVector2D Position;  // Centre in normalised coords
+		float Strength;      // Bias amplitude (higher = more likely to be land)
+		float Radius;        // Falloff radius in normalised coords
+	};
+
+	/** Seed-derived island peaks for multi-island generation */
+	TArray<FIslandPeak> IslandPeaks;
 
 	/** Land mask - 1 = land, 0 = ocean (uint8 for thread-safe parallel writes) */
 	TArray<uint8> LandMask;
