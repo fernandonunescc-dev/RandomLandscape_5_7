@@ -537,7 +537,7 @@ void UTerrainValidator::CheckVolcanoPlacement(
 		Err.Severity = EValidationSeverity::Warning;
 		Err.Description = FString::Printf(
 			TEXT("%d volcano center(s) placed in ocean pixels"), OceanVolcanoes);
-		Err.SuggestedFix = TEXT("Adjust VolcanicHotspotCount or increase LandCoveragePercent");
+		Err.SuggestedFix = TEXT("Adjust VolcanicHotspotCount or increase TargetLandAreaSqKm");
 		Err.DebugMapToInspect = TEXT("Debug_Landmass, Debug_UpliftMap");
 		OutErrors.Add(MoveTemp(Err));
 	}

@@ -27,8 +27,8 @@ void AWorldGenerationActor::SyncLandmassSettings()
 {
 	LandmassSettings.Seed = GlobalSeed;
 	LandmassSettings.TextureResolution = TextureResolution;
-	LandmassSettings.MapSize = MapSize;
-	LandmassSettings.LandCoveragePercent = LandCoveragePercent;
+	LandmassSettings.TargetLandAreaSqKm = TargetLandAreaSqKm;
+	LandmassSettings.OceanPaddingMeters = OceanPaddingMeters;
 }
 
 // ------------------------------------------------------------
@@ -56,6 +56,7 @@ void AWorldGenerationActor::Step1_GenerateLandmass()
 	CachedLandMask = Generator->GetLandMask();
 	ActualSeedUsed = Generator->GetSeed();
 	ResolutionUsed = TextureResolution;
+	CachedWorldSizeCm = Generator->GetComputedWorldSizeCm();
 	Debug_Landmass = Generator->GetPreviewTexture();
 
 	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor: Stage 1 Landmass complete - Seed: %d, Resolution: %d, LandPixels: %d"),
@@ -670,11 +671,10 @@ void AWorldGenerationActor::Randomize()
 {
 	GlobalSeed = FMath::RandRange(1, 0x7FFFFFFF);
 
-	// Randomise land coverage between 35-65% for varied archipelago density
-	// Lower values create more ocean, producing more distinct separated islands
-	LandCoveragePercent = FMath::FRandRange(35.0f, 65.0f);
+	// Randomise target land area for varied island sizes
+	TargetLandAreaSqKm = FMath::FRandRange(0.1f, 1.0f);
 
-	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor::Randomize - New seed: %d, LandCoverage: %.1f%%"), GlobalSeed, LandCoveragePercent);
+	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor::Randomize - New seed: %d, TargetLandArea: %.3f sq km"), GlobalSeed, TargetLandAreaSqKm);
 
 	GenerateAll();
 	GenerateMesh();
@@ -948,8 +948,8 @@ void AWorldGenerationActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 
 	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, GlobalSeed)
 		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TextureResolution)
-		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MapSize)
-		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, LandCoveragePercent))
+		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TargetLandAreaSqKm)
+		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, OceanPaddingMeters))
 	{
 		RegenerateFromStage(1);
 		return;
@@ -1119,17 +1119,8 @@ void AWorldGenerationActor::BuildTerrainMesh(const TArray<float>& Elevation, con
 
 	const bool bHasBiomeMap = BiomeMap && BiomeMap->Num() == TotalPixels;
 
-	// World size from MapSize enum
-	float WorldSizeCm;
-	switch (MapSize)
-	{
-	case EMapSize::Gigantic:   WorldSizeCm = 800000.0f; break;
-	case EMapSize::ExtraLarge: WorldSizeCm = 400000.0f; break;
-	case EMapSize::Large:      WorldSizeCm = 200000.0f; break;
-	case EMapSize::Medium:     WorldSizeCm = 100000.0f; break;
-	case EMapSize::Small:      WorldSizeCm = 50000.0f;  break;
-	default:                   WorldSizeCm = 100000.0f; break;
-	}
+	// World size derived from target land area + ocean padding (computed during landmass generation)
+	const float WorldSizeCm = CachedWorldSizeCm;
 
 	// Prepare mesh arrays
 	const int32 VertexCount = TotalPixels;

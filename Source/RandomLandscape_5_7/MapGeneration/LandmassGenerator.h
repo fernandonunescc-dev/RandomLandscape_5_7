@@ -20,11 +20,13 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	GENERATED_BODY()
 
 	/**
-	 * Map physical size in world space.
-	 * Large: 2x2 km, Medium: 1x1 km, Small: 500x500 m.
+	 * Target land area in square kilometres.
+	 * The algorithm generates exactly this much land, then wraps ocean around it.
+	 * The actual world dimensions are derived from the land area and ocean padding.
+	 * Typical range: 0.05 (tiny island) to 16.0 (continent-sized).
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass")
-	EMapSize MapSize = EMapSize::Medium;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "0.01", ClampMax = "64.0", UIMin = "0.01", UIMax = "16.0"))
+	float TargetLandAreaSqKm = 0.25f;
 
 	/**
 	 * Maximum height of the terrain mesh in meters.
@@ -51,14 +53,11 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	int32 TextureResolution = 512;
 
 	/** 
-	 * Target percentage of pixels that should be classified as land.
-	 * The algorithm guarantees this exact coverage by computing an adaptive threshold.
-	 * Clamped to 5-75% to ensure meaningful land/ocean distribution.
-	 * Note: Lower values create more ocean, naturally producing multiple
-	 * separate islands (archipelago-like). Higher values produce single landmasses.
+	 * Internal land coverage fraction used during generation.
+	 * Computed automatically from TargetLandAreaSqKm and OceanPaddingMeters.
+	 * NOT user-facing — use TargetLandAreaSqKm instead.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "5.0", ClampMax = "80.0"))
-	float LandCoveragePercent = 45.0f;
+	float ComputedLandCoveragePercent = 30.0f;
 
 	// === Domain Warp Settings ===
 	// Domain warping offsets sampling coordinates before noise evaluation,
@@ -121,32 +120,28 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	// === Edge Margin Settings ===
 
 	/**
-	 * Width of the guaranteed ocean border at all map edges, in metres.
-	 * Land can extend to near the edges (including corners), but this
-	 * minimum ocean strip is always enforced. A noise-modulated transition
-	 * creates organic coastlines at the boundary.
-	 * Default 30 m keeps a thin guaranteed ocean border while maximising
-	 * usable land area.
+	 * Width of the ocean border around the land bounding box, in metres.
+	 * After land is generated freely, this much ocean is guaranteed on all
+	 * sides.  The canvas is sized so that land stays well within bounds.
+	 * Default 200 m provides a generous ocean border.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "0.0", ClampMax = "300.0", Tooltip = "Width of the guaranteed ocean border at all map edges in metres. Default 30 m."))
-	float MinEdgeMarginMeters = 30.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "20.0", ClampMax = "2000.0", Tooltip = "Width of the ocean border around the generated land in metres. Default 200 m."))
+	float OceanPaddingMeters = 200.0f;
 
 	/**
-	 * Get the world-space size in centimeters for the current MapSize.
-	 * Gigantic: 800000 (8km), ExtraLarge: 400000 (4km),
-	 * Large: 200000 (2km), Medium: 100000 (1km), Small: 50000 (500m).
+	 * Computed world-space size in centimeters.
+	 * Derived from TargetLandAreaSqKm + OceanPaddingMeters during Initialize().
+	 * Use GetWorldSizeCm() to access this value.
+	 */
+	float ComputedWorldSizeCm = 100000.0f;
+
+	/**
+	 * Get the world-space size in centimeters.
+	 * After Initialize() this is derived from the target land area and ocean padding.
 	 */
 	float GetWorldSizeCm() const
 	{
-		switch (MapSize)
-		{
-		case EMapSize::Gigantic:   return 800000.0f;
-		case EMapSize::ExtraLarge: return 400000.0f;
-		case EMapSize::Large:      return 200000.0f;
-		case EMapSize::Medium:     return 100000.0f;
-		case EMapSize::Small:      return 50000.0f;
-		default:                   return 100000.0f;
-		}
+		return ComputedWorldSizeCm;
 	}
 };
 
@@ -216,6 +211,9 @@ public:
 
 	/** Get the seed used for noise generation */
 	int32 GetSeed() const { return Settings.Seed; }
+
+	/** Get the computed world size in centimeters (derived from land area + ocean padding) */
+	float GetComputedWorldSizeCm() const { return Settings.ComputedWorldSizeCm; }
 
 protected:
 	/**
@@ -303,9 +301,6 @@ protected:
 	
 	/** Offset for warp Y-component noise sampling */
 	FVector2D WarpOffsetY;
-
-	/** Minimum edge padding in normalised coordinates, computed from MinEdgeMarginMeters in Initialize() */
-	float MinEdgePaddingNorm = 0.02f;
 
 	// === Multi-peak island nucleation points (generated in Initialize) ===
 	// Instead of a single centre bias, multiple peaks scattered across the map
