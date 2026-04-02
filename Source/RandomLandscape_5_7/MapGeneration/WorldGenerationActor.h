@@ -69,6 +69,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Master slider controlling how flat or mountainous the terrain is. At 0 the island is mostly flat coastal plains with gentle hills. At 1 the terrain is dominated by tall mountain ridges. This adjusts MountainRidgeAmplitude, HillAmplitude, BaseNoisePersistence, and CoastlineGradientWidth behind the scenes."))
 	float TerrainRoughness = 0.3f;
 
+	/** Target Snow/Tundra coverage as a percentage of total land area. Synced to BiomeAssignmentSettings before generation. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (ClampMin = "0.0", ClampMax = "30.0", Tooltip = "Desired Snow and Tundra coverage as a percentage of total land pixels. Randomized by Randomize(), preserved by Randomize Seed Only."))
+	float TargetSnowPercent = 10.0f;
+
+	/** Target Desert coverage as a percentage of total land area. Synced to BiomeAssignmentSettings before generation. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (ClampMin = "0.0", ClampMax = "40.0", Tooltip = "Desired Desert coverage as a percentage of total land pixels. Randomized by Randomize(), preserved by Randomize Seed Only."))
+	float TargetDesertPercent = 15.0f;
+
+	/** Target Forest coverage as a percentage of total land area. Synced to BiomeAssignmentSettings before generation. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (ClampMin = "0.0", ClampMax = "60.0", Tooltip = "Desired Forest coverage as a percentage of total land pixels. Randomized by Randomize(), preserved by Randomize Seed Only."))
+	float TargetForestPercent = 25.0f;
+
 	// ==================== Pipeline Global Settings ====================
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global")
