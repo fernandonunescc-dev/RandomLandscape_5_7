@@ -515,6 +515,13 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "30.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Snow and Tundra coverage as a percentage of total land pixels. Voronoi cells in the coldest areas are assigned Snow. Within those cells, the coldest/wettest pixels are promoted to Ice/Glacier."))
 	float TargetSnowPercent = 10.0f;
 
+	/** How much randomness to mix into biome cell scoring.
+	    0.0 = pure climate (deterministic — deserts always center, snow always poles).
+	    1.0 = heavily randomised placement (any climate-viable cell may be picked).
+	    Intermediate values blend climate preference with random jitter. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Controls how much randomness is mixed into the biome cell scoring. At 0.0, biome placement is purely climate-driven (desert always in the hottest spot, snow always at the coldest). At 1.0, biome placement is heavily randomised — any cell with some climate affinity may be selected. Default 0.5 gives a good balance of climate-awareness and variety across different seeds."))
+	float BiomePlacementRandomness = 0.5f;
+
 	// --- Spatial Smoothing ---
 
 	/** Number of majority-vote smoothing passes applied to the biome map.

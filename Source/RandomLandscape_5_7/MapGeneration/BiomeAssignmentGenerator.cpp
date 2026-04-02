@@ -587,6 +587,11 @@ void UBiomeAssignmentGenerator::ApplyBiomeTargets(
 	// Scored cell for sorting
 	struct FScoredCell { int32 CellIdx; float Score; };
 
+	// Randomness factor: jitters climate scores so biomes don't always land
+	// at the same climate-extrema positions.  0 = pure climate, 1 = heavy jitter.
+	const float R = FMath::Clamp(Settings.BiomePlacementRandomness, 0.0f, 1.0f);
+	FRandomStream ScoreRng(ActualSeed + 777);
+
 	// --- Snow pass: coldest cells ---
 	{
 		const int32 TargetPixels = FMath::RoundToInt(LandCount * Settings.TargetSnowPercent / 100.0f);
@@ -596,7 +601,11 @@ void UBiomeAssignmentGenerator::ApplyBiomeTargets(
 		{
 			if (CellClaimed[c] || Stats[c].PixelCount == 0) continue;
 			const float S = FMath::Max(0.0f, 0.5f - AvgTemp[c]);
-			if (S > 0.0f) Scored.Add({c, S});
+			if (S > 0.0f)
+			{
+				const float Jitter = FMath::Lerp(1.0f, ScoreRng.FRand() * 2.0f, R);
+				Scored.Add({c, S * Jitter});
+			}
 		}
 		Scored.Sort([](const FScoredCell& A, const FScoredCell& B) { return A.Score > B.Score; });
 
@@ -620,7 +629,11 @@ void UBiomeAssignmentGenerator::ApplyBiomeTargets(
 			if (CellClaimed[c] || Stats[c].PixelCount == 0) continue;
 			const float S = FMath::Max(0.0f, AvgTemp[c] - 0.3f)
 			              * FMath::Max(0.0f, 0.6f - AvgMoist[c]);
-			if (S > 0.0f) Scored.Add({c, S});
+			if (S > 0.0f)
+			{
+				const float Jitter = FMath::Lerp(1.0f, ScoreRng.FRand() * 2.0f, R);
+				Scored.Add({c, S * Jitter});
+			}
 		}
 		Scored.Sort([](const FScoredCell& A, const FScoredCell& B) { return A.Score > B.Score; });
 
@@ -645,7 +658,11 @@ void UBiomeAssignmentGenerator::ApplyBiomeTargets(
 			const float S = AvgMoist[c]
 			              * FMath::Max(0.0f, AvgTemp[c] - 0.1f)
 			              * AvgPrecip[c];
-			if (S > 0.0f) Scored.Add({c, S});
+			if (S > 0.0f)
+			{
+				const float Jitter = FMath::Lerp(1.0f, ScoreRng.FRand() * 2.0f, R);
+				Scored.Add({c, S * Jitter});
+			}
 		}
 		Scored.Sort([](const FScoredCell& A, const FScoredCell& B) { return A.Score > B.Score; });
 
