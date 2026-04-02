@@ -517,14 +517,27 @@ void UBiomeAssignmentGenerator::ApplyBiomeTargets(
 			ScoreMap[C.Idx] = C.Score;
 		}
 
-		// Assigned tracking
+		// Assigned tracking + duplicate-prevention for the frontier
 		TArray<bool> Assigned;
 		Assigned.SetNumZeroed(Total);
+		TArray<bool> InFrontier;
+		InFrontier.SetNumZeroed(Total);
 
-		// Priority queue: BFS expansion ordered by score (highest first)
-		// Using sorted array as a simple max-heap substitute
+		// Max-heap frontier ordered by score (highest first)
 		TArray<FScored> Frontier;
 		Frontier.Reserve(FMath::Min(TargetCount * 2, Total));
+		auto HeapPred = [](const FScored& A, const FScored& B) { return A.Score < B.Score; };
+
+		// Helper: enqueue a neighbor into the frontier if eligible
+		auto TryEnqueue = [&](int32 NI)
+		{
+			if (!Assigned[NI] && !InFrontier[NI] && !Fixed[NI]
+				&& BiomeMap[NI] == LandVal && ScoreMap[NI] > 0.0f)
+			{
+				InFrontier[NI] = true;
+				Frontier.HeapPush({NI, ScoreMap[NI]}, HeapPred);
+			}
+		};
 
 		// Plant seeds
 		const int32 BiomeVal = static_cast<int32>(BiomeType);
@@ -547,52 +560,32 @@ void UBiomeAssignmentGenerator::ApplyBiomeTargets(
 				const int32 NX = X + BDX4[D];
 				const int32 NY = Y + BDY4[D];
 				if (NX < 0 || NX >= Resolution || NY < 0 || NY >= Resolution) continue;
-				const int32 NI = NY * Resolution + NX;
-				if (!Assigned[NI] && !Fixed[NI] && BiomeMap[NI] == LandVal && ScoreMap[NI] > 0.0f)
-				{
-					Frontier.Add({NI, ScoreMap[NI]});
-				}
+				TryEnqueue(NY * Resolution + NX);
 			}
 		}
 
-		// BFS expansion: repeatedly pick the highest-score frontier pixel
+		// BFS expansion: pop the highest-score frontier pixel each iteration
 		while (Claimed < TargetCount && Frontier.Num() > 0)
 		{
-			// Find the best frontier pixel
-			int32 BestIdx = 0;
-			float BestScore = Frontier[0].Score;
-			for (int32 f = 1; f < Frontier.Num(); ++f)
-			{
-				if (Frontier[f].Score > BestScore)
-				{
-					BestScore = Frontier[f].Score;
-					BestIdx = f;
-				}
-			}
+			FScored Top;
+			Frontier.HeapPop(Top, HeapPred);
 
-			const int32 PixIdx = Frontier[BestIdx].Idx;
-			Frontier.RemoveAtSwap(BestIdx);
+			if (Assigned[Top.Idx]) continue;
 
-			if (Assigned[PixIdx]) continue;
-
-			BiomeMap[PixIdx] = BiomeVal;
-			Assigned[PixIdx] = true;
-			PostAssignFn(PixIdx);
+			BiomeMap[Top.Idx] = BiomeVal;
+			Assigned[Top.Idx] = true;
+			PostAssignFn(Top.Idx);
 			Claimed++;
 
 			// Enqueue neighbors
-			const int32 X = PixIdx % Resolution;
-			const int32 Y = PixIdx / Resolution;
+			const int32 X = Top.Idx % Resolution;
+			const int32 Y = Top.Idx / Resolution;
 			for (int32 D = 0; D < 4; ++D)
 			{
 				const int32 NX = X + BDX4[D];
 				const int32 NY = Y + BDY4[D];
 				if (NX < 0 || NX >= Resolution || NY < 0 || NY >= Resolution) continue;
-				const int32 NI = NY * Resolution + NX;
-				if (!Assigned[NI] && !Fixed[NI] && BiomeMap[NI] == LandVal && ScoreMap[NI] > 0.0f)
-				{
-					Frontier.Add({NI, ScoreMap[NI]});
-				}
+				TryEnqueue(NY * Resolution + NX);
 			}
 		}
 	};
