@@ -57,6 +57,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (Tooltip = "Add flat-topped plateau regions. Disabling sets plateau flatness to zero."))
 	bool bIncludePlateaus = true;
 
+	/** Carve valley corridors between highlands, breaking up the central mountain dome. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (Tooltip = "Carve low-elevation valley corridors through the landmass interior. Valleys break up the central mountain concentration and create visible lowlands between ridges. Disabling sets valley depth to zero."))
+	bool bIncludeValleys = true;
+
 	/** Generate rivers, lakes and waterfalls from drainage simulation. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (Tooltip = "Generate rivers, lakes, and waterfalls from drainage simulation."))
 	bool bIncludeRivers = true;
@@ -331,6 +335,7 @@ private:
 	void ApplyPreset_Mountains(bool bEnable);
 	void ApplyPreset_Hills(bool bEnable);
 	void ApplyPreset_Plateaus(bool bEnable);
+	void ApplyPreset_Valleys(bool bEnable);
 	void ApplyPreset_Rivers(bool bEnable);
 	void ApplyPreset_Canyons(bool bEnable);
 	void ApplyTerrainRoughness(float Roughness);

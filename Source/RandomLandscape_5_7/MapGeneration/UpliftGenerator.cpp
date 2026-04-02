@@ -41,6 +41,7 @@ bool UUpliftGenerator::Generate(const TArray<uint8>& LandMask)
 	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator::Generate – starting (%d pixels)"), TotalPixels);
 
 	GenerateBaseElevation(LandMask);
+	GenerateValleys(LandMask);
 	GenerateUpliftMap(LandMask);
 	GenerateHills(LandMask);
 	GenerateVolcanicHotspots(LandMask);
@@ -178,6 +179,72 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 
 	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator – BaseElevation generated (gradient width %d, coastal variation %.2f)"),
 		Settings.CoastlineGradientWidth, Settings.CoastalVariation);
+}
+
+//------------------------------------------------------------------------------
+// GenerateValleys:
+//   Carve broad low-elevation corridors through the base elevation using
+//   low-frequency FBM noise.  Where noise dips below zero the terrain is
+//   reduced, creating valleys between highlands.  Because mountain ridges
+//   are later multiplied by BaseElevation, valleys naturally suppress
+//   mountain formation — no extra logic needed.
+//
+//   Only interior land is affected (coastal fringes are left untouched via
+//   an elevation-based fade).
+//------------------------------------------------------------------------------
+void UUpliftGenerator::GenerateValleys(const TArray<uint8>& LandMask)
+{
+	const float Depth = FMath::Clamp(Settings.ValleyDepth, 0.0f, 0.8f);
+
+	if (Depth <= 0.0f)
+	{
+		return;
+	}
+
+	const int32 TotalPixels = Resolution * Resolution;
+	const float Freq       = Settings.ValleyFrequency;
+	const int32 Octaves    = Settings.ValleyOctaves;
+	// Decorrelate valley noise from base-elevation and mountain noise
+	const int32 Seed       = ActualSeed + 500;
+	const float InvRes     = 1.0f / FMath::Max(Resolution - 1, 1);
+
+	for (int32 i = 0; i < TotalPixels; ++i)
+	{
+		if (LandMask[i] == 0)
+		{
+			continue;
+		}
+
+		const float NormX = static_cast<float>(i % Resolution) * InvRes;
+		const float NormY = static_cast<float>(i / Resolution) * InvRes;
+
+		// Low-frequency noise field: negative regions become valleys
+		const float Noise = WorldNoise::FBM(NormX * Freq, NormY * Freq, Octaves, 0.5f, Seed);
+
+		// Only carve where noise is negative — positive noise keeps highlands intact
+		if (Noise >= 0.0f)
+		{
+			continue;
+		}
+
+		// ValleyStrength ramps from 0 at noise=0 to 1 at noise=-1.
+		// Squaring gives a smooth ease-in so only deep-noise regions
+		// get strong carving, while the transition zone is gentle.
+		const float ValleyStrength = FMath::Min(-Noise, 1.0f);
+		const float SmoothedStrength = ValleyStrength * ValleyStrength;
+
+		// Fade out near coastline: only carve where BaseElevation is
+		// already moderately high (interior).  Smoothstep from 0.15 to 0.5.
+		const float BaseElev = BaseElevation[i];
+		const float InteriorFade = FMath::SmoothStep(0.15f, 0.5f, BaseElev);
+
+		// Reduce base elevation in valley zones
+		const float Reduction = Depth * SmoothedStrength * InteriorFade;
+		BaseElevation[i] = FMath::Max(BaseElev * (1.0f - Reduction), 0.0f);
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator – Valleys generated (freq %.2f, depth %.2f, octaves %d)"),
+		Freq, Depth, Octaves);
 }
 
 //------------------------------------------------------------------------------

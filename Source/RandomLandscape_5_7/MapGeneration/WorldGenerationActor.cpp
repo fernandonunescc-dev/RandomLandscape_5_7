@@ -913,6 +913,12 @@ void AWorldGenerationActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 		RegenerateFromStage(2);
 		return;
 	}
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeValleys))
+	{
+		ApplyPreset_Valleys(bIncludeValleys);
+		RegenerateFromStage(2);
+		return;
+	}
 	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeRivers))
 	{
 		ApplyPreset_Rivers(bIncludeRivers);
@@ -1071,6 +1077,20 @@ void AWorldGenerationActor::ApplyPreset_Plateaus(bool bEnable)
 	}
 }
 
+void AWorldGenerationActor::ApplyPreset_Valleys(bool bEnable)
+{
+	if (bEnable)
+	{
+		UpliftSettings.ValleyFrequency = 1.2f;
+		UpliftSettings.ValleyDepth = 0.3f;
+		UpliftSettings.ValleyOctaves = 3;
+	}
+	else
+	{
+		UpliftSettings.ValleyDepth = 0.0f;
+	}
+}
+
 void AWorldGenerationActor::ApplyPreset_Rivers(bool bEnable)
 {
 	if (bEnable)
@@ -1122,6 +1142,9 @@ void AWorldGenerationActor::ApplyTerrainRoughness(float Roughness)
 
 	// Coastline gradient: flat terrain gets wider coastal plains
 	UpliftSettings.CoastlineGradientWidth = FMath::RoundToInt32(FMath::Lerp(140.0f, 50.0f, Roughness));
+
+	// Valley depth: deeper valleys at higher roughness for more dramatic relief
+	UpliftSettings.ValleyDepth = FMath::Lerp(0.1f, 0.5f, Roughness);
 
 	// Plateau flatness: more prominent in mid-range, reduced at extremes
 	const float PlateauCurve = FMath::Clamp(1.0f - FMath::Abs(Roughness - 0.5f) * 3.0f, 0.0f, 1.0f);
