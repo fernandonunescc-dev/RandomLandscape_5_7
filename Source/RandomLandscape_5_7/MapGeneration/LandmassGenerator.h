@@ -121,12 +121,11 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 
 	/**
 	 * Minimum width of visible ocean around ALL land, in metres.
-	 * After land is generated freely, the world size is expanded so that
-	 * every side has at least this much ocean.  Land is never cut — if it
-	 * grows larger or more spread-out than expected the world just gets
-	 * bigger to accommodate.  Default 200 m.
+	 * A soft edge fade in the noise field prevents land from growing into
+	 * this zone.  If land still ends up close to an edge, the world size
+	 * is expanded (up to 2×) to maintain the padding.  Default 200 m.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "100.0", ClampMax = "2000.0", Tooltip = "Minimum ocean border around all land in metres.  The world expands to guarantee this. Default 200 m."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "100.0", ClampMax = "2000.0", Tooltip = "Minimum ocean border around all land in metres.  A soft edge fade prevents land in this zone; the world expands up to 2x if needed. Default 200 m."))
 	float OceanPaddingMeters = 200.0f;
 
 	/**
@@ -263,11 +262,9 @@ protected:
 	 * Higher values are more likely to be land.
 	 * 
 	 * Components:
-	 *   - Distance from centre: land concentrated toward middle
-	 *   - Coast noise: irregular coastline detail
-	 *   - Shape noise: large-scale island shape variation
-	 *   - Detail noise: fine bumps and indentations
-	 *   - Edge falloff: enforces minimum margin from texture borders
+	 *   - Multi-peak bias: seed-derived island centres with sharp falloff
+	 *   - Layered noise: primary shape, secondary ridges, coast, detail
+	 *   - Edge fade: soft smoothstep in ocean padding zone
 	 * 
 	 * @param NormX, NormY - Normalised coordinates (0.0 to 1.0)
 	 * @return Island mask value (0.0 to 1.0, higher = more land-like)

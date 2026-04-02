@@ -665,6 +665,10 @@ void ULandmassGenerator::GenerateLandMask()
 	// of all land pixels.  Then expand ComputedWorldSizeCm so that every
 	// side of the map has at least OceanPaddingMeters of ocean.
 	// Land is NEVER cut — the world just gets bigger if needed.
+	// Expansion is capped at 2× the initial estimate to prevent absurd
+	// blowups when land happens to be very close to a canvas edge.
+	// (The soft edge fade in GetIslandMask should prevent that, but
+	// this cap is a safety net.)
 	if (LandPixels.Num() > 0)
 	{
 		// Find land bounding box in pixel space
@@ -702,14 +706,19 @@ void ULandmassGenerator::GenerateLandMask()
 		const float OceanPaddingCm = FMath::Max(Settings.OceanPaddingMeters, 100.0f) * 100.0f;
 		const float RequiredWorldSizeCm = OceanPaddingCm / MinMarginNorm;
 
-		if (RequiredWorldSizeCm > Settings.ComputedWorldSizeCm)
+		// Cap expansion at 2× to prevent absurd world sizes (the soft edge fade
+		// in GetIslandMask is the primary mechanism; this is just a safety net).
+		const float MaxWorldSizeCm = Settings.ComputedWorldSizeCm * 2.0f;
+		const float ClampedRequiredCm = FMath::Min(RequiredWorldSizeCm, MaxWorldSizeCm);
+
+		if (ClampedRequiredCm > Settings.ComputedWorldSizeCm)
 		{
 			UE_LOG(LogTemp, Log, TEXT("Ocean padding: expanding world from %.0f cm to %.0f cm  "
-				"(land bbox pixels [%d,%d]-[%d,%d], min margin norm %.4f)"),
-				Settings.ComputedWorldSizeCm, RequiredWorldSizeCm,
-				LandMinX, LandMinY, LandMaxX, LandMaxY, MinMarginNorm);
+				"(land bbox pixels [%d,%d]-[%d,%d], min margin norm %.4f, uncapped %.0f cm)"),
+				Settings.ComputedWorldSizeCm, ClampedRequiredCm,
+				LandMinX, LandMinY, LandMaxX, LandMaxY, MinMarginNorm, RequiredWorldSizeCm);
 
-			Settings.ComputedWorldSizeCm = RequiredWorldSizeCm;
+			Settings.ComputedWorldSizeCm = ClampedRequiredCm;
 		}
 	}
 
@@ -887,6 +896,7 @@ float ULandmassGenerator::FBM(float X, float Y, int32 Octaves, float Persistence
 //   3. Secondary terrain noise: medium ridges and isthmuses
 //   4. Coast noise: irregular coastline details
 //   5. Detail noise: fine bumps and indentations
+//   6. Edge fade: soft smoothstep in ocean padding zone
 // 
 // Returns 0.0 (definitely ocean) to ~1.0 (definitely land).
 //------------------------------------------------------------------------------
@@ -984,9 +994,22 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 	// Noise is additive so it can create small islets where peak bias is zero.
 	float IslandValue = PeakBias + PrimaryNoise + SecondaryNoise + CoastNoise + DetailNoise;
 
-	// No rectangular or circular edge constraints — land grows freely.
-	// After generation, Pass 6 expands ComputedWorldSizeCm so that every
-	// side has at least OceanPaddingMeters of ocean.  Land is never cut.
+	// ===== Soft edge fade: keep land out of the ocean padding zone =====
+	// The canvas was sized to include OceanPaddingMeters on every side.
+	// A smooth fade in that zone prevents land from reaching the canvas
+	// edge, which would otherwise cause Pass 6 to blow up the world size.
+	// The transition is gradual (full padding width) so coastlines near
+	// the edge still look organic, not hard-cut.
+	const float WorldSizeM = Settings.ComputedWorldSizeCm / 100.0f;
+	const float PaddingNorm = FMath::Clamp(
+		FMath::Max(Settings.OceanPaddingMeters, 100.0f) / FMath::Max(WorldSizeM, 1.0f),
+		0.02f, 0.30f);
+	const float EdgeDist = FMath::Min(
+		FMath::Min(NormX, 1.0f - NormX),
+		FMath::Min(NormY, 1.0f - NormY));
+	// SmoothStep: 0 at canvas edge → 1 at PaddingNorm inward
+	const float EdgeFade = FMath::SmoothStep(0.0f, PaddingNorm, EdgeDist);
+	IslandValue *= EdgeFade;
 
 	// Clamp to valid range (noise can push slightly negative)
 	return FMath::Clamp(IslandValue, 0.0f, 1.0f);
