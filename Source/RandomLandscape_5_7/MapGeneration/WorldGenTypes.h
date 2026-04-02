@@ -496,7 +496,7 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 	    land area. Volcanic and Ocean assignments are not affected.
 	    Land not claimed by any target becomes Grassland. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (Tooltip = "Enable percentage-based biome distribution. When enabled, the system ranks pixels by affinity and assigns biomes to achieve the configured target coverage percentages. When disabled, raw threshold-based classification is used. Volcanic and Ocean are always unaffected. Land not claimed by any biome target becomes Grassland."))
-	bool bEnableBiomeTargets = false;
+	bool bEnableBiomeTargets = true;
 
 	/** Target Forest coverage as a percentage of total land area */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "60.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Forest coverage as a percentage of total land pixels. The most forest-suitable pixels (high moisture, warm temperature, adequate precipitation) are selected up to this target. Remaining land becomes Grassland."))
@@ -510,10 +510,6 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "30.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Snow and Tundra coverage as a percentage of total land pixels. The coldest pixels are selected. Within this budget, pixels that are cold and moist enough are promoted to Ice/Glacier."))
 	float TargetSnowPercent = 10.0f;
 
-	/** Target Mountain coverage as a percentage of total land area */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "30.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Mountain coverage as a percentage of total land pixels. The highest-elevation and steepest-slope pixels are selected up to this target."))
-	float TargetMountainPercent = 10.0f;
-
 	// --- Spatial Smoothing ---
 
 	/** Number of majority-vote smoothing passes applied to the biome map.
@@ -521,14 +517,14 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 	    neighbourhood, eliminating thin stripe artefacts along threshold
 	    boundaries. 0 = no smoothing. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spatial Smoothing", meta = (ClampMin = "0", ClampMax = "8", Tooltip = "Number of majority-vote smoothing passes applied to the biome map after classification. Each pass replaces every pixel with the most common biome in a 5×5 neighbourhood window, eliminating thin stripe artefacts that form along elevation or temperature contour lines. Higher values produce broader, more cohesive biome regions. 0 disables smoothing."))
-	int32 BiomeSmoothingPasses = 2;
+	int32 BiomeSmoothingPasses = 4;
 
 	// --- Cluster Filtering ---
 
 	/** Minimum contiguous biome region size in pixels. Patches smaller than this
 	    are absorbed into the most common surrounding biome. 0 = no filtering. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Cluster Filtering", meta = (ClampMin = "0", ClampMax = "512", Tooltip = "Minimum contiguous area in pixels for a biome patch to survive. Smaller patches are absorbed into the dominant neighbouring biome, producing cleaner, more readable biome boundaries. Set to 0 to disable."))
-	int32 MinBiomeClusterSize = 64;
+	int32 MinBiomeClusterSize = 200;
 
 	/** Per-biome material & foliage spawn rules (8 entries, indexed by EBiomeType) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Material Rules", meta = (Tooltip = "Array of material and foliage spawn rules, one per biome type (indexed by EBiomeType). Controls the visual appearance and vegetation of each biome."))

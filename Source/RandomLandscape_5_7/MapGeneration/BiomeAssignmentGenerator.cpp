@@ -436,10 +436,16 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 
 //------------------------------------------------------------------------------
 // ApplyBiomeTargets:
-//   Score-ranked biome assignment to achieve target percentage coverage.
-//   For each biome (in climate-first priority order), compute an affinity
-//   score per pixel, then select the top-N land pixels to match the configured
-//   target.  Ocean assignments are preserved; remaining land → Grassland.
+//   Seed-and-grow biome assignment to achieve target percentage coverage while
+//   producing spatially coherent blob-shaped regions.
+//
+//   For each biome (in climate-first priority order):
+//     1. Score every unclaimed land pixel by climate affinity.
+//     2. Seed the top ~10% of candidates as initial growth points.
+//     3. BFS-expand from seeds to adjacent candidates (priority-queue, highest
+//        score first) until the target pixel count is reached.
+//
+//   Ocean assignments are preserved; unclaimed land stays as Grassland.
 //------------------------------------------------------------------------------
 void UBiomeAssignmentGenerator::ApplyBiomeTargets(
 	const TArray<float>& Elevation,
@@ -450,7 +456,7 @@ void UBiomeAssignmentGenerator::ApplyBiomeTargets(
 {
 	const int32 Total = Resolution * Resolution;
 
-	// Count land pixels and mark fixed biomes (Ocean only — Volcanic is no longer classified)
+	// Count land pixels and mark fixed biomes (Ocean)
 	int32 LandCount = 0;
 	TArray<bool> Fixed;
 	Fixed.SetNumZeroed(Total);
@@ -475,90 +481,170 @@ void UBiomeAssignmentGenerator::ApplyBiomeTargets(
 		if (!Fixed[i]) BiomeMap[i] = LandVal;
 	}
 
-	// Scored candidate for sorting
-	struct FScored
+	// --- Helper: seed-and-grow a single biome via BFS ---
+	// Scores each candidate pixel, seeds from top SeedFraction, then BFS-grows
+	// to adjacent candidates in score order until TargetCount pixels are claimed.
+	auto GrowBiome = [&](EBiomeType BiomeType, int32 TargetCount,
+		TFunctionRef<float(int32)> ScoreFn,
+		TFunctionRef<void(int32)> PostAssignFn)
 	{
-		int32 Idx;
-		float Score;
+		if (TargetCount <= 0) return;
+
+		// Score all available (unclaimed) land pixels
+		struct FScored { int32 Idx; float Score; };
+		TArray<FScored> Cands;
+		Cands.Reserve(LandCount);
+
+		for (int32 i = 0; i < Total; ++i)
+		{
+			if (Fixed[i] || BiomeMap[i] != LandVal) continue;
+			const float S = ScoreFn(i);
+			if (S > 0.0f) Cands.Add({i, S});
+		}
+		if (Cands.Num() == 0) return;
+
+		// Sort by score descending to identify seed points
+		Cands.Sort([](const FScored& A, const FScored& B) { return A.Score > B.Score; });
+
+		// Seed from top 10% of candidates (at least 1)
+		const int32 SeedCount = FMath::Max(1, Cands.Num() / 10);
+
+		// Track which pixels are candidate-eligible for quick lookup
+		TArray<float> ScoreMap;
+		ScoreMap.SetNumZeroed(Total);
+		for (const FScored& C : Cands)
+		{
+			ScoreMap[C.Idx] = C.Score;
+		}
+
+		// Assigned tracking
+		TArray<bool> Assigned;
+		Assigned.SetNumZeroed(Total);
+
+		// Priority queue: BFS expansion ordered by score (highest first)
+		// Using sorted array as a simple max-heap substitute
+		TArray<FScored> Frontier;
+		Frontier.Reserve(FMath::Min(TargetCount * 2, Total));
+
+		// Plant seeds
+		const int32 BiomeVal = static_cast<int32>(BiomeType);
+		int32 Claimed = 0;
+		for (int32 s = 0; s < SeedCount && Claimed < TargetCount; ++s)
+		{
+			const int32 Idx = Cands[s].Idx;
+			if (Assigned[Idx]) continue;
+
+			BiomeMap[Idx] = BiomeVal;
+			Assigned[Idx] = true;
+			PostAssignFn(Idx);
+			Claimed++;
+
+			// Enqueue neighbors
+			const int32 X = Idx % Resolution;
+			const int32 Y = Idx / Resolution;
+			for (int32 D = 0; D < 4; ++D)
+			{
+				const int32 NX = X + BDX4[D];
+				const int32 NY = Y + BDY4[D];
+				if (NX < 0 || NX >= Resolution || NY < 0 || NY >= Resolution) continue;
+				const int32 NI = NY * Resolution + NX;
+				if (!Assigned[NI] && !Fixed[NI] && BiomeMap[NI] == LandVal && ScoreMap[NI] > 0.0f)
+				{
+					Frontier.Add({NI, ScoreMap[NI]});
+				}
+			}
+		}
+
+		// BFS expansion: repeatedly pick the highest-score frontier pixel
+		while (Claimed < TargetCount && Frontier.Num() > 0)
+		{
+			// Find the best frontier pixel
+			int32 BestIdx = 0;
+			float BestScore = Frontier[0].Score;
+			for (int32 f = 1; f < Frontier.Num(); ++f)
+			{
+				if (Frontier[f].Score > BestScore)
+				{
+					BestScore = Frontier[f].Score;
+					BestIdx = f;
+				}
+			}
+
+			const int32 PixIdx = Frontier[BestIdx].Idx;
+			Frontier.RemoveAtSwap(BestIdx);
+
+			if (Assigned[PixIdx]) continue;
+
+			BiomeMap[PixIdx] = BiomeVal;
+			Assigned[PixIdx] = true;
+			PostAssignFn(PixIdx);
+			Claimed++;
+
+			// Enqueue neighbors
+			const int32 X = PixIdx % Resolution;
+			const int32 Y = PixIdx / Resolution;
+			for (int32 D = 0; D < 4; ++D)
+			{
+				const int32 NX = X + BDX4[D];
+				const int32 NY = Y + BDY4[D];
+				if (NX < 0 || NX >= Resolution || NY < 0 || NY >= Resolution) continue;
+				const int32 NI = NY * Resolution + NX;
+				if (!Assigned[NI] && !Fixed[NI] && BiomeMap[NI] == LandVal && ScoreMap[NI] > 0.0f)
+				{
+					Frontier.Add({NI, ScoreMap[NI]});
+				}
+			}
+		}
 	};
+
+	// Null post-assign for biomes that don't need special handling
+	auto NoOp = [](int32) {};
 
 	// --- Snow/Ice pass: coldest pixels (first, so polar mountains → Snow) ---
 	{
-		int32 Target = FMath::RoundToInt(LandCount * Settings.TargetSnowPercent / 100.0f);
-		if (Target > 0)
+		const int32 Target = FMath::RoundToInt(LandCount * Settings.TargetSnowPercent / 100.0f);
+		auto SnowScore = [&](int32 i) -> float
 		{
-			TArray<FScored> Cands;
-			Cands.Reserve(LandCount);
-			for (int32 i = 0; i < Total; ++i)
+			return FMath::Max(0.0f, 0.5f - Temperature[i]);
+		};
+		auto SnowPost = [&](int32 Idx)
+		{
+			// Promote coldest + wettest to Ice
+			if (Temperature[Idx] < Settings.IceTemperatureThreshold
+				&& EffectiveMoisture[Idx] > Settings.IceMoistureThreshold)
 			{
-				if (Fixed[i] || BiomeMap[i] != LandVal) continue;
-				float S = FMath::Max(0.0f, 0.5f - Temperature[i]);
-				if (S > 0.0f) Cands.Add({i, S});
+				BiomeMap[Idx] = static_cast<int32>(EBiomeType::Ice);
 			}
-			Cands.Sort([](const FScored& A, const FScored& B) { return A.Score > B.Score; });
-			int32 Count = FMath::Min(Target, Cands.Num());
-			for (int32 j = 0; j < Count; ++j)
-			{
-				const int32 Idx = Cands[j].Idx;
-				if (Temperature[Idx] < Settings.IceTemperatureThreshold
-					&& EffectiveMoisture[Idx] > Settings.IceMoistureThreshold)
-				{
-					BiomeMap[Idx] = static_cast<int32>(EBiomeType::Ice);
-				}
-				else
-				{
-					BiomeMap[Idx] = static_cast<int32>(EBiomeType::Snow);
-				}
-			}
-		}
+		};
+		GrowBiome(EBiomeType::Snow, Target, SnowScore, SnowPost);
 	}
 
-	// --- Desert pass: hottest + driest (before Mountain, so arid highlands → Desert) ---
+	// --- Desert pass: hottest + driest ---
 	{
-		int32 Target = FMath::RoundToInt(LandCount * Settings.TargetDesertPercent / 100.0f);
-		if (Target > 0)
+		const int32 Target = FMath::RoundToInt(LandCount * Settings.TargetDesertPercent / 100.0f);
+		auto DesertScore = [&](int32 i) -> float
 		{
-			TArray<FScored> Cands;
-			Cands.Reserve(LandCount);
-			for (int32 i = 0; i < Total; ++i)
-			{
-				if (Fixed[i] || BiomeMap[i] != LandVal) continue;
-				float S = FMath::Max(0.0f, Temperature[i] - 0.3f)
-				        * FMath::Max(0.0f, 0.6f - EffectiveMoisture[i]);
-				if (S > 0.0f) Cands.Add({i, S});
-			}
-			Cands.Sort([](const FScored& A, const FScored& B) { return A.Score > B.Score; });
-			int32 Count = FMath::Min(Target, Cands.Num());
-			for (int32 j = 0; j < Count; ++j)
-				BiomeMap[Cands[j].Idx] = static_cast<int32>(EBiomeType::Desert);
-		}
+			return FMath::Max(0.0f, Temperature[i] - 0.3f)
+			     * FMath::Max(0.0f, 0.6f - EffectiveMoisture[i]);
+		};
+		GrowBiome(EBiomeType::Desert, Target, DesertScore, NoOp);
 	}
 
 	// --- Forest pass: wettest + warmest + highest precipitation ---
 	{
-		int32 Target = FMath::RoundToInt(LandCount * Settings.TargetForestPercent / 100.0f);
-		if (Target > 0)
+		const int32 Target = FMath::RoundToInt(LandCount * Settings.TargetForestPercent / 100.0f);
+		auto ForestScore = [&](int32 i) -> float
 		{
-			TArray<FScored> Cands;
-			Cands.Reserve(LandCount);
-			for (int32 i = 0; i < Total; ++i)
-			{
-				if (Fixed[i] || BiomeMap[i] != LandVal) continue;
-				float S = EffectiveMoisture[i]
-				        * FMath::Max(0.0f, Temperature[i] - 0.1f)
-				        * Precipitation[i];
-				if (S > 0.0f) Cands.Add({i, S});
-			}
-			Cands.Sort([](const FScored& A, const FScored& B) { return A.Score > B.Score; });
-			int32 Count = FMath::Min(Target, Cands.Num());
-			for (int32 j = 0; j < Count; ++j)
-				BiomeMap[Cands[j].Idx] = static_cast<int32>(EBiomeType::Forest);
-		}
+			return EffectiveMoisture[i]
+			     * FMath::Max(0.0f, Temperature[i] - 0.1f)
+			     * Precipitation[i];
+		};
+		GrowBiome(EBiomeType::Forest, Target, ForestScore, NoOp);
 	}
 
 	// Remaining land pixels stay as Land (Grassland)
 
-	UE_LOG(LogTemp, Log, TEXT("BiomeAssignmentGenerator – Applied target percentages (Snow:%.0f%%, Desert:%.0f%%, Forest:%.0f%% of %d land)"),
+	UE_LOG(LogTemp, Log, TEXT("BiomeAssignmentGenerator – Applied target percentages with spatial growth (Snow:%.0f%%, Desert:%.0f%%, Forest:%.0f%% of %d land)"),
 		Settings.TargetSnowPercent, Settings.TargetDesertPercent,
 		Settings.TargetForestPercent, LandCount);
 }
