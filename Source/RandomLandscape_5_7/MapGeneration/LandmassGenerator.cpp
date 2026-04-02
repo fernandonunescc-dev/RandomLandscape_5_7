@@ -100,12 +100,10 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 		RandomStream.FRandRange(-500.0f, 500.0f)
 	);
 
-	// === Generate island peaks with power-law size distribution ===
-	// Real archipelagos follow a power-law: many small islands, few large ones.
-	// We generate 10-16 peaks using best-candidate placement (Poisson-disk-like)
-	// with minimum separation to ensure distinct, non-overlapping islands.
-	// Peak 0 is a large "main island" near centre; subsequent peaks follow
-	// a power-law size distribution for natural variation.
+	// === Generate island peaks ===
+	// Peak generation depends on the LandmassType:
+	//   Islands   – Power-law distribution: 10-16 peaks (main + medium + small + tiny)
+	//   Continent – Single dominant landmass: 1 massive central peak + 3-6 tiny islets only
 	
 	IslandPeaks.Reset();
 	// Keep peaks well inside the canvas.  With the 1.3× safety factor and
@@ -113,6 +111,82 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 	// so 15% from edges keeps all peaks within the usable area regardless of
 	// target land area.
 	constexpr float MarginInset = 0.15f;
+
+	if (Settings.LandmassType == ELandmassType::Continent)
+	{
+		// --- Continent mode ---
+		// One massive central peak dominates the landscape, producing a single
+		// large connected landmass.  Only very tiny islets are allowed around it.
+		constexpr int32 NumCandidates = 30;
+
+		// Main continent peak: very strong, very large radius, near centre
+		{
+			FIslandPeak Peak;
+			Peak.Position = FVector2D(
+				0.5f + RandomStream.FRandRange(-0.04f, 0.04f),
+				0.5f + RandomStream.FRandRange(-0.04f, 0.04f)
+			);
+			Peak.Strength = RandomStream.FRandRange(0.60f, 0.75f);
+			Peak.Radius = RandomStream.FRandRange(0.28f, 0.38f);
+			IslandPeaks.Add(Peak);
+		}
+
+		// A few very tiny islets for visual interest (no medium or large islands)
+		const int32 NumTinyIslets = RandomStream.RandRange(3, 6);
+		for (int32 i = 0; i < NumTinyIslets; ++i)
+		{
+			FIslandPeak Peak;
+			const float SizeFactor = RandomStream.FRandRange(0.06f, 0.18f);
+			Peak.Strength = SizeFactor * 0.45f;
+			Peak.Radius = SizeFactor * 0.14f;
+
+			// Best-candidate placement
+			FVector2D BestPos(0.5f, 0.5f);
+			float BestMinDist = -1.0f;
+
+			for (int32 c = 0; c < NumCandidates; ++c)
+			{
+				FVector2D CandPos(
+					RandomStream.FRandRange(MarginInset, 1.0f - MarginInset),
+					RandomStream.FRandRange(MarginInset, 1.0f - MarginInset)
+				);
+
+				float MinDist = 10.0f;
+				for (const FIslandPeak& Existing : IslandPeaks)
+				{
+					float Dx = CandPos.X - Existing.Position.X;
+					float Dy = CandPos.Y - Existing.Position.Y;
+					float Dist = FMath::Sqrt(Dx * Dx + Dy * Dy);
+					float SepDist = Dist - (Existing.Radius + Peak.Radius) * 0.5f;
+					MinDist = FMath::Min(MinDist, SepDist);
+				}
+
+				float EdgeDist = FMath::Min(
+					FMath::Min(CandPos.X - MarginInset, 1.0f - MarginInset - CandPos.X),
+					FMath::Min(CandPos.Y - MarginInset, 1.0f - MarginInset - CandPos.Y)
+				);
+				MinDist = FMath::Min(MinDist, EdgeDist);
+
+				if (MinDist > BestMinDist)
+				{
+					BestMinDist = MinDist;
+					BestPos = CandPos;
+				}
+			}
+
+			Peak.Position = BestPos;
+			IslandPeaks.Add(Peak);
+		}
+	}
+	else
+	{
+	// --- Islands / Archipelago mode (existing logic) ---
+	// Real archipelagos follow a power-law: many small islands, few large ones.
+	// We generate 10-16 peaks using best-candidate placement (Poisson-disk-like)
+	// with minimum separation to ensure distinct, non-overlapping islands.
+	// Peak 0 is a large "main island" near centre; subsequent peaks follow
+	// a power-law size distribution for natural variation.
+	
 	const int32 NumPeaks = RandomStream.RandRange(10, 16);
 	constexpr int32 NumCandidates = 30; // Best-of-N candidate sampling
 	
@@ -194,11 +268,14 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 		
 		IslandPeaks.Add(Peak);
 	}
+	} // end Islands mode
 
-	UE_LOG(LogTemp, Log, TEXT("LandmassGenerator initialized - Resolution: %d, Seed: %d, TargetLandArea: %.3f sq km, ComputedCoverage: %.1f%%, WorldSize: %.0f cm, MaxHeight: %.0f, DomainWarp: %s"),
+	UE_LOG(LogTemp, Log, TEXT("LandmassGenerator initialized - Type: %s, Resolution: %d, Seed: %d, TargetLandArea: %.3f sq km, ComputedCoverage: %.1f%%, WorldSize: %.0f cm, MaxHeight: %.0f, DomainWarp: %s, Peaks: %d"),
+		(Settings.LandmassType == ELandmassType::Continent) ? TEXT("Continent") : TEXT("Islands"),
 		Settings.TextureResolution, Settings.Seed, Settings.TargetLandAreaSqKm,
 		Settings.ComputedLandCoveragePercent, Settings.ComputedWorldSizeCm, Settings.MaxMapHeight,
-		Settings.bEnableDomainWarp ? TEXT("ON") : TEXT("OFF"));
+		Settings.bEnableDomainWarp ? TEXT("ON") : TEXT("OFF"),
+		IslandPeaks.Num());
 }
 
 //------------------------------------------------------------------------------

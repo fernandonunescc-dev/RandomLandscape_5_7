@@ -77,6 +77,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "64", ClampMax = "4096"))
 	int32 TextureResolution = 512;
 
+	/** Landmass generation type: Islands (archipelago) or Continent (single large landmass). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global")
+	ELandmassType LandmassType = ELandmassType::Islands;
+
 	/** Target land area in square kilometres. The world dimensions adapt to fit the land + ocean padding. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Global", meta = (ClampMin = "0.01", ClampMax = "64.0", UIMin = "0.01", UIMax = "16.0"))
 	float TargetLandAreaSqKm = 0.25f;

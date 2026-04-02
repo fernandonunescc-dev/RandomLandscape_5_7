@@ -130,6 +130,7 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, GlobalSeed), "Global Seed");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TextureResolution), "Texture Resolution");
+	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, LandmassType), "Landmass Type");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TargetLandAreaSqKm), "Target Land Area (sq km)");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, OceanPaddingMeters), "Ocean Padding (m)");
 	AddGlobalProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, MaxMapHeight), "Max Map Height (m)");

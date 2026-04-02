@@ -27,6 +27,7 @@ void AWorldGenerationActor::SyncLandmassSettings()
 {
 	LandmassSettings.Seed = GlobalSeed;
 	LandmassSettings.TextureResolution = TextureResolution;
+	LandmassSettings.LandmassType = LandmassType;
 	LandmassSettings.TargetLandAreaSqKm = TargetLandAreaSqKm;
 	LandmassSettings.OceanPaddingMeters = OceanPaddingMeters;
 }
@@ -962,6 +963,7 @@ void AWorldGenerationActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 
 	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, GlobalSeed)
 		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TextureResolution)
+		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, LandmassType)
 		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TargetLandAreaSqKm)
 		|| MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, OceanPaddingMeters))
 	{
