@@ -42,12 +42,13 @@ class RANDOMLANDSCAPE_5_7_API UBiomeAssignmentGenerator : public UObject
 public:
 
 	/**
-	 * Store settings and allocate output buffers.
+	 * Store settings, derive seed, and allocate output buffers.
 	 *
 	 * @param InSettings        Biome classification thresholds
+	 * @param GlobalSeed        Global world seed for deterministic randomisation
 	 * @param TextureResolution Width/height of the square map in pixels
 	 */
-	void Initialize(const FBiomeAssignmentSettings& InSettings, int32 TextureResolution);
+	void Initialize(const FBiomeAssignmentSettings& InSettings, int32 GlobalSeed, int32 TextureResolution);
 
 	/**
 	 * Classify every pixel into a biome type, compute slope, water distance,
@@ -100,6 +101,7 @@ private:
 
 	FBiomeAssignmentSettings Settings;
 	int32 Resolution = 0;
+	int32 ActualSeed = 0;
 
 	TArray<int32> BiomeMap;
 	TArray<int32> TerrainArchetypeMap;

@@ -486,7 +486,7 @@ void AWorldGenerationActor::Step6_GenerateBiomes()
 		return;
 	}
 
-	Generator->Initialize(BiomeAssignmentSettings, TextureResolution);
+	Generator->Initialize(BiomeAssignmentSettings, GlobalSeed, TextureResolution);
 
 	if (!Generator->Generate(CachedErodedElevation, CachedTemperature, CachedMoisture,
 		CachedPrecipitation, CachedLandMask, CachedRiverMap, CachedLakeMap, CachedVolcanicCenters,

@@ -489,25 +489,30 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Blending", meta = (ClampMin = "0", ClampMax = "32", Tooltip = "Radius in pixels over which biome boundaries are blended. Larger values produce smoother, more gradual biome transitions; 0 creates hard biome edges."))
 	int32 BiomeBlendRadius = 8;
 
-	// --- Target Percentage Control ---
+	// --- Target Percentage Control (Voronoi Cell Based) ---
 
-	/** Enable target-percentage biome distribution. Overrides threshold-based
-	    classification so each biome covers approximately its target share of
-	    land area. Volcanic and Ocean assignments are not affected.
-	    Land not claimed by any target becomes Grassland. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (Tooltip = "Enable percentage-based biome distribution. When enabled, the system ranks pixels by affinity and assigns biomes to achieve the configured target coverage percentages. When disabled, raw threshold-based classification is used. Volcanic and Ocean are always unaffected. Land not claimed by any biome target becomes Grassland."))
+	/** Enable target-percentage biome distribution using Voronoi cells.
+	    Scatters BiomeCellCount random seed points on land, partitions land into
+	    compact Voronoi regions via multi-source BFS, then assigns each cell a
+	    biome type based on average climate to achieve the target coverage.
+	    Ocean assignments are not affected.  Unclaimed land becomes Grassland. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (Tooltip = "Enable Voronoi-cell-based biome distribution. Scatters random seed points on land to create compact blob-shaped regions, then assigns biome types to each cell based on its average climate. Target percentages control how many cells of each biome exist. When disabled, raw threshold-based classification is used."))
 	bool bEnableBiomeTargets = true;
 
+	/** Number of Voronoi cells to scatter on land. More cells = smaller biome patches. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "8", ClampMax = "200", EditCondition = "bEnableBiomeTargets", Tooltip = "Number of random seed points scattered on land. Each seed becomes the center of a Voronoi cell — a compact blob-shaped region. More cells produce smaller, more numerous biome patches; fewer cells produce fewer, larger patches."))
+	int32 BiomeCellCount = 40;
+
 	/** Target Forest coverage as a percentage of total land area */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "60.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Forest coverage as a percentage of total land pixels. The most forest-suitable pixels (high moisture, warm temperature, adequate precipitation) are selected up to this target. Remaining land becomes Grassland."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "60.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Forest coverage as a percentage of total land pixels. Voronoi cells whose average climate is most forest-suitable are assigned Forest until this target is reached. Remaining land becomes Grassland."))
 	float TargetForestPercent = 25.0f;
 
 	/** Target Desert coverage as a percentage of total land area */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "40.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Desert coverage as a percentage of total land pixels. The hottest and driest pixels are selected up to this target."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "40.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Desert coverage as a percentage of total land pixels. Voronoi cells in the hottest/driest areas are assigned Desert until this target is reached."))
 	float TargetDesertPercent = 15.0f;
 
 	/** Target Snow/Tundra coverage as a percentage of total land area (includes Ice) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "30.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Snow and Tundra coverage as a percentage of total land pixels. The coldest pixels are selected. Within this budget, pixels that are cold and moist enough are promoted to Ice/Glacier."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "30.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Snow and Tundra coverage as a percentage of total land pixels. Voronoi cells in the coldest areas are assigned Snow. Within those cells, the coldest/wettest pixels are promoted to Ice/Glacier."))
 	float TargetSnowPercent = 10.0f;
 
 	// --- Spatial Smoothing ---
