@@ -205,6 +205,10 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "1", ClampMax = "8", Tooltip = "Number of ridged-noise layers for mountain generation. More octaves add smaller-scale ridge detail on top of the main mountain shape."))
 	int32 MountainOctaves = 4;
 
+	/** How much of the island interior is covered by mountains (lower = confined to center, higher = spread everywhere) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "0.1", ClampMax = "2.0", Tooltip = "Controls the footprint of mountain ridges across the landmass. Low values (e.g. 0.2) confine mountains to the highest central peaks. High values (e.g. 1.5-2.0) let ridges extend all the way to the coast. At the default (0.5) mountains fade through the mid-elevation band."))
+	float MountainCoverage = 0.5f;
+
 	// --- Hills (rolling FBM terrain) ---
 
 	/** Frequency of hill features */
@@ -333,6 +337,10 @@ struct RANDOMLANDSCAPE_5_7_API FErosionSettings
 	/** How much material moves per thermal pass */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thermal Erosion", meta = (ClampMin = "0.01", ClampMax = "1.0", Tooltip = "Fraction of excess slope material moved per erosion pass. Higher rates produce faster, more dramatic smoothing; lower rates give subtle weathering over many passes."))
 	float ThermalErosionRate = 0.3f;
+
+	/** Minimum elevation for thermal erosion to apply (0 = erode everywhere, 0.3 = only above 30% elevation) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thermal Erosion", meta = (ClampMin = "0.0", ClampMax = "0.5", Tooltip = "Normalised elevation floor below which thermal erosion is skipped. At 0, erosion smooths the entire landscape. Increase this value to confine weathering to high-altitude mountain terrain, preventing lowlands and coastal areas from being affected."))
+	float ThermalErosionMinElevation = 0.0f;
 };
 
 /**

@@ -110,6 +110,9 @@ private:
 	 *
 	 * Canyon-adjacent pixels (CanyonMask == 1) have their erosion rate scaled
 	 * down by CanyonWallSteepness to preserve steep canyon walls.
+	 *
+	 * When ThermalErosionMinElevation > 0, pixels below that elevation are
+	 * skipped entirely, confining weathering to mountainous terrain.
 	 */
-	void ApplyThermalErosion(const TArray<uint8>& LandMask);
+	void ApplyThermalErosion(const TArray<uint8>& LandMask, const TArray<float>& InputElevation);
 };
