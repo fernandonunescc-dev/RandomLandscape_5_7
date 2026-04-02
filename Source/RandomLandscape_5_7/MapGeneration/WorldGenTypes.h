@@ -223,6 +223,20 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hills", meta = (ClampMin = "1", ClampMax = "6", Tooltip = "Number of FBM noise layers for hill generation. More octaves add finer bumps and texture to the rolling hills."))
 	int32 HillOctaves = 3;
 
+	// --- Valleys (low-elevation corridors between highlands) ---
+
+	/** Frequency of valley corridor features */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Valleys", meta = (ClampMin = "0.3", ClampMax = "5.0", Tooltip = "Controls the spacing of valley corridors across the landmass. Lower values produce a few broad valleys; higher values create many narrower ones. Valleys carve into the base elevation so mountains naturally avoid them."))
+	float ValleyFrequency = 1.2f;
+
+	/** How deep valley corridors cut into the terrain (0 = disabled) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Valleys", meta = (ClampMin = "0.0", ClampMax = "0.8", Tooltip = "Maximum depth of valley depressions as a fraction of base elevation. At 0 valleys are disabled. Higher values carve deeper lowlands between highlands, breaking up the central mountain dome and creating visible elevation variation across the interior."))
+	float ValleyDepth = 0.3f;
+
+	/** Octaves for valley noise (more = finer detail on valley edges) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Valleys", meta = (ClampMin = "1", ClampMax = "6", Tooltip = "Number of FBM noise layers for valley generation. More octaves add finer detail to valley boundaries, making the transition between highlands and lowlands more organic."))
+	int32 ValleyOctaves = 3;
+
 	// --- Plateaus (flat-topped elevated areas) ---
 
 	/** Frequency of plateau noise regions */

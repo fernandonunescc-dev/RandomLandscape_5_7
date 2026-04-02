@@ -117,6 +117,9 @@ private:
 	/** Compute rolling hills via FBM and add to UpliftMap. */
 	void GenerateHills(const TArray<uint8>& LandMask);
 
+	/** Carve valley corridors into BaseElevation using low-frequency noise. */
+	void GenerateValleys(const TArray<uint8>& LandMask);
+
 	/** Compute plateau mask and flatten qualifying terrain. */
 	void GeneratePlateaus(const TArray<uint8>& LandMask);
 
