@@ -360,11 +360,12 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 				Overlay = ESurfaceOverlay::Grassland;
 			}
 
-			// --- Biome classification — climate-first priority ---
-			// Climate zones take precedence over terrain shape so that
-			// mountains in polar regions become Snow, mountains in arid
-			// zones become Desert, etc.  Only temperate-climate high terrain
-			// is classified as Mountain biome.
+			// --- Biome classification — purely climate-driven ---
+			// Biomes represent large-scale climate zones.  Terrain shape
+			// (mountains, hills, etc.) is tracked by TerrainArchetype and
+			// does NOT override the climate zone.  A mountain in the snow
+			// zone is Snow; a mountain in the desert zone is Desert; a
+			// mountain in a temperate zone is Forest or Grassland.
 
 			// 2. Ice — extremely cold + sufficient moisture
 			if (Temperature[i] < Settings.IceTemperatureThreshold
@@ -383,20 +384,14 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 			{
 				Biome = EBiomeType::Desert;
 			}
-			// 5. Mountain — high elevation OR very steep, only in temperate climate
-			else if (Elevation[i] > Settings.MountainElevationThreshold
-				|| SlopeMap[i] > Settings.SteepSlopeThreshold)
-			{
-				Biome = EBiomeType::Mountain;
-			}
-			// 6. Forest — uses precipitation in addition to moisture/temperature
+			// 5. Forest — uses precipitation in addition to moisture/temperature
 			else if (EffectiveMoisture > Settings.ForestMoistureThreshold
 				&& Temperature[i] > Settings.ForestTemperatureThreshold
 				&& Precipitation[i] > Settings.ForestPrecipitationThreshold)
 			{
 				Biome = EBiomeType::Forest;
 			}
-			// 7. Default — Land (grassland) already set
+			// 6. Default — Land (grassland) already set
 		}
 
 		BiomeMap[i] = static_cast<int32>(Biome);
@@ -539,27 +534,6 @@ void UBiomeAssignmentGenerator::ApplyBiomeTargets(
 		}
 	}
 
-	// --- Mountain pass: highest elevation + steepest slope (only in temperate climate) ---
-	{
-		int32 Target = FMath::RoundToInt(LandCount * Settings.TargetMountainPercent / 100.0f);
-		if (Target > 0)
-		{
-			TArray<FScored> Cands;
-			Cands.Reserve(LandCount);
-			for (int32 i = 0; i < Total; ++i)
-			{
-				if (Fixed[i] || BiomeMap[i] != LandVal) continue;
-				float S = FMath::Max(0.0f, Elevation[i] - 0.3f) * 2.0f
-				        + FMath::Max(0.0f, SlopeMap[i] - 0.03f);
-				if (S > 0.0f) Cands.Add({i, S});
-			}
-			Cands.Sort([](const FScored& A, const FScored& B) { return A.Score > B.Score; });
-			int32 Count = FMath::Min(Target, Cands.Num());
-			for (int32 j = 0; j < Count; ++j)
-				BiomeMap[Cands[j].Idx] = static_cast<int32>(EBiomeType::Mountain);
-		}
-	}
-
 	// --- Forest pass: wettest + warmest + highest precipitation ---
 	{
 		int32 Target = FMath::RoundToInt(LandCount * Settings.TargetForestPercent / 100.0f);
@@ -584,9 +558,9 @@ void UBiomeAssignmentGenerator::ApplyBiomeTargets(
 
 	// Remaining land pixels stay as Land (Grassland)
 
-	UE_LOG(LogTemp, Log, TEXT("BiomeAssignmentGenerator – Applied target percentages (Snow:%.0f%%, Desert:%.0f%%, Mtn:%.0f%%, Forest:%.0f%% of %d land)"),
+	UE_LOG(LogTemp, Log, TEXT("BiomeAssignmentGenerator – Applied target percentages (Snow:%.0f%%, Desert:%.0f%%, Forest:%.0f%% of %d land)"),
 		Settings.TargetSnowPercent, Settings.TargetDesertPercent,
-		Settings.TargetMountainPercent, Settings.TargetForestPercent, LandCount);
+		Settings.TargetForestPercent, LandCount);
 }
 
 //------------------------------------------------------------------------------
