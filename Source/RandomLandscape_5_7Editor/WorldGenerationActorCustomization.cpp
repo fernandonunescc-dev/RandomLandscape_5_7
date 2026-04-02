@@ -69,6 +69,8 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 			[](AWorldGenerationActor* A) { A->Step6_GenerateBiomes(); });
 		AddButtonRow(FallbackCategory, "Step 7: Generate Refinement",
 			[](AWorldGenerationActor* A) { A->Step7_GenerateRefinement(); });
+		AddButtonRow(FallbackCategory, "Step 8: Generate Caves",
+			[](AWorldGenerationActor* A) { A->Step8_GenerateCaves(); });
 		AddButtonRow(FallbackCategory, "Randomize",
 			[](AWorldGenerationActor* A) { A->Randomize(); });
 		AddButtonRow(FallbackCategory, "Generate All",
@@ -112,6 +114,7 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludePlateaus), "Include Plateaus");
 	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeRivers), "Include Rivers");
 	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeCanyons), "Include Canyons");
+	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeCaves), "Include Caves");
 	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TerrainRoughness), "Terrain Roughness");
 	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TargetSnowPercent), "Snow %");
 	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TargetDesertPercent), "Desert %");
@@ -251,6 +254,18 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 		S.ButtonLabel = "Generate Refinement";
 		S.ButtonAction = [](AWorldGenerationActor* A) { A->Step7_GenerateRefinement(); };
 		S.DebugTextureProps.Add(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, Debug_FinalElevation));
+		Stages.Add(MoveTemp(S));
+	}
+
+	// Stage 8: Caves
+	{
+		FStageInfo S;
+		S.GroupName = "CavesGroup";
+		S.DisplayName = "8 - Caves";
+		S.SettingsProp = GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, CaveSettings);
+		S.ButtonLabel = "Generate Caves";
+		S.ButtonAction = [](AWorldGenerationActor* A) { A->Step8_GenerateCaves(); };
+		S.DebugTextureProps.Add(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, Debug_CavePresence));
 		Stages.Add(MoveTemp(S));
 	}
 

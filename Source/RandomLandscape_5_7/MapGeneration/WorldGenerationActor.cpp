@@ -8,6 +8,7 @@
 #include "ClimateGenerator.h"
 #include "BiomeAssignmentGenerator.h"
 #include "TerrainRefinementGenerator.h"
+#include "CaveGenerator.h"
 #include "TerrainValidator.h"
 #include "Engine/Texture2D.h"
 
@@ -646,6 +647,61 @@ void AWorldGenerationActor::Step7_GenerateRefinement()
 }
 
 // ------------------------------------------------------------
+// Stage 8: Caves
+// ------------------------------------------------------------
+void AWorldGenerationActor::Step8_GenerateCaves()
+{
+	// Caves need at minimum the final elevation and land mask
+	const TArray<float>* ElevSrc = nullptr;
+	if (CachedFinalElevation.Num() > 0)
+	{
+		ElevSrc = &CachedFinalElevation;
+	}
+	else if (CachedErodedElevation.Num() > 0)
+	{
+		ElevSrc = &CachedErodedElevation;
+	}
+
+	if (!ElevSrc || CachedLandMask.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("AWorldGenerationActor: Run Step7_GenerateRefinement (or at least Step4) first"));
+		return;
+	}
+
+	UCaveGenerator* Generator = NewObject<UCaveGenerator>(this);
+	if (!Generator)
+	{
+		UE_LOG(LogTemp, Error, TEXT("AWorldGenerationActor: Failed to create UCaveGenerator"));
+		return;
+	}
+
+	Generator->Initialize(CaveSettings, GlobalSeed, TextureResolution);
+
+	const float MaxHeightCm = MaxMapHeight * 100.0f;
+
+	if (!Generator->Generate(*ElevSrc, CachedLandMask, CachedWorldSizeCm, MaxHeightCm))
+	{
+		UE_LOG(LogTemp, Error, TEXT("AWorldGenerationActor: Cave generation failed"));
+		return;
+	}
+
+	// Cache cave mesh data
+	const FCaveMeshData& Mesh = Generator->GetCaveMesh();
+	CachedCaveVertices = Mesh.Vertices;
+	CachedCaveTriangles = Mesh.Triangles;
+	CachedCaveNormals = Mesh.Normals;
+	CachedCaveUVs = Mesh.UVs;
+	CachedCaveVertexColors = Mesh.VertexColors;
+	CachedCavePresenceMap = Generator->GetCavePresenceMap();
+
+	// Debug texture
+	Debug_CavePresence = CreateGrayscaleDebugTexture(TextureResolution, CachedCavePresenceMap);
+
+	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor: Stage 8 Caves complete – %d cave vertices, %d cave triangles"),
+		CachedCaveVertices.Num(), CachedCaveTriangles.Num() / 3);
+}
+
+// ------------------------------------------------------------
 // Generate All Stages
 // ------------------------------------------------------------
 void AWorldGenerationActor::GenerateAll()
@@ -669,6 +725,8 @@ void AWorldGenerationActor::GenerateAll()
 	if (CachedBiomeMap.Num() == 0) return;
 
 	Step7_GenerateRefinement();
+
+	Step8_GenerateCaves();
 }
 
 // ------------------------------------------------------------
@@ -777,6 +835,7 @@ void AWorldGenerationActor::ClearAll()
 	Debug_SurfaceOverlayMap = nullptr;
 	Debug_GeneratedFeatureMap = nullptr;
 	Debug_FinalElevation = nullptr;
+	Debug_CavePresence = nullptr;
 
 	CachedLandMask.Empty();
 	CachedBaseElevation.Empty();
@@ -802,6 +861,12 @@ void AWorldGenerationActor::ClearAll()
 	CachedSlopeMap.Empty();
 	CachedBiomeBlendWeights.Empty();
 	CachedVolcanicCenters.Empty();
+	CachedCaveVertices.Empty();
+	CachedCaveTriangles.Empty();
+	CachedCaveNormals.Empty();
+	CachedCaveUVs.Empty();
+	CachedCaveVertexColors.Empty();
+	CachedCavePresenceMap.Empty();
 
 	ActualSeedUsed = 0;
 	ResolutionUsed = 0;
@@ -925,6 +990,12 @@ void AWorldGenerationActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 		RegenerateFromStage(4);
 		return;
 	}
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, bIncludeCaves))
+	{
+		ApplyPreset_Caves(bIncludeCaves);
+		RegenerateFromStage(8);
+		return;
+	}
 	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TerrainRoughness))
 	{
 		ApplyTerrainRoughness(TerrainRoughness);
@@ -969,6 +1040,11 @@ void AWorldGenerationActor::PostEditChangeProperty(FPropertyChangedEvent& Proper
 		RegenerateFromStage(7);
 		return;
 	}
+	if (MemberName == GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, CaveSettings))
+	{
+		RegenerateFromStage(8);
+		return;
+	}
 
 	// --- Global settings that affect the full pipeline ---
 
@@ -1008,6 +1084,7 @@ void AWorldGenerationActor::RegenerateFromStage(int32 StageIndex)
 	if (StageIndex <= 5) Step5_GenerateClimate();
 	if (StageIndex <= 6) Step6_GenerateBiomes();
 	if (StageIndex <= 7) Step7_GenerateRefinement();
+	if (StageIndex <= 8) Step8_GenerateCaves();
 	GenerateMesh();
 }
 
@@ -1099,6 +1176,11 @@ void AWorldGenerationActor::ApplyPreset_Canyons(bool bEnable)
 	{
 		ErosionSettings.RiverIncisionStrength = 0.0f;
 	}
+}
+
+void AWorldGenerationActor::ApplyPreset_Caves(bool bEnable)
+{
+	CaveSettings.bEnabled = bEnable;
 }
 
 void AWorldGenerationActor::ApplyTerrainRoughness(float Roughness)
@@ -1267,6 +1349,17 @@ void AWorldGenerationActor::BuildTerrainMesh(const TArray<float>& Elevation, con
 
 	TArray<FProcMeshTangent> Tangents;
 	TerrainMesh->CreateMeshSection(0, Vertices, Triangles, Normals, UVs, VertexColors, Tangents, true);
+
+	// Add cave mesh as section 1 if available
+	if (CachedCaveVertices.Num() > 0 && CachedCaveTriangles.Num() > 0)
+	{
+		TArray<FProcMeshTangent> CaveTangents;
+		TerrainMesh->CreateMeshSection(1, CachedCaveVertices, CachedCaveTriangles,
+			CachedCaveNormals, CachedCaveUVs, CachedCaveVertexColors, CaveTangents, true);
+
+		UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor: Cave mesh section added - %d vertices, %d triangles"),
+			CachedCaveVertices.Num(), CachedCaveTriangles.Num() / 3);
+	}
 
 	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor: Terrain mesh built - %d vertices, %d triangles, WorldSize=%.0fcm, MaxHeight=%.0fm, OceanLevel=%.0fm"),
 		VertexCount, TriangleCount, WorldSizeCm, MaxMapHeight, OceanLevel);
