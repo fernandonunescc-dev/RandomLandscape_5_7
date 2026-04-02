@@ -42,8 +42,9 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 	const float CanvasSideM = 2.0f * TotalRadiusM;
 	Settings.ComputedWorldSizeCm = CanvasSideM * 100.0f;
 
-	// Derive internal land coverage % so that the correct number of pixels equals the target area
-	const float PixelSizeM = CanvasSideM / FMath::Max(static_cast<float>(Settings.TextureResolution - 1), 1.0f);
+	// Derive internal land coverage % so that the correct number of pixels equals the target area.
+	// Use TextureResolution (not -1) for pixel area: N×N pixels tile the canvas into N×N equal cells.
+	const float PixelSizeM = CanvasSideM / FMath::Max(static_cast<float>(Settings.TextureResolution), 1.0f);
 	const float PixelAreaSqM = PixelSizeM * PixelSizeM;
 	const int32 TotalPixels = Settings.TextureResolution * Settings.TextureResolution;
 	const int32 TargetLandPixels = FMath::RoundToInt(TargetAreaSqM / PixelAreaSqM);
@@ -96,7 +97,11 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 	// a power-law size distribution for natural variation.
 	
 	IslandPeaks.Reset();
-	constexpr float MarginInset = 0.15f; // Keep peaks away from canvas edges (15%)
+	// Keep peaks well inside the canvas.  With the 1.3× safety factor and
+	// ocean padding the land zone is roughly the central 50-70% of the canvas,
+	// so 15% from edges keeps all peaks within the usable area regardless of
+	// target land area.
+	constexpr float MarginInset = 0.15f;
 	const int32 NumPeaks = RandomStream.RandRange(10, 16);
 	constexpr int32 NumCandidates = 30; // Best-of-N candidate sampling
 	
