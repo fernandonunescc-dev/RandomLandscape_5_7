@@ -418,7 +418,6 @@ void UTerrainValidator::CheckIsolatedWetBiomes(
 	const int32 Total = Resolution * Resolution;
 	if (BiomeMap.Num() != Total || Moisture.Num() != Total) return;
 
-	const int32 ForestBiome = static_cast<int32>(EBiomeType::Forest);
 	const int32 IceBiome = static_cast<int32>(EBiomeType::Ice);
 	const float LowMoistureThreshold = 0.2f;
 	const int32 WaterSearchRadius = 16;
@@ -430,7 +429,7 @@ void UTerrainValidator::CheckIsolatedWetBiomes(
 	{
 		if (LandMask[i] == 0) continue;
 		const int32 Biome = BiomeMap[i];
-		if (Biome != ForestBiome && Biome != IceBiome) continue;
+		if (Biome != IceBiome) continue;
 		WetBiomePixels++;
 
 		if (Moisture[i] >= LowMoistureThreshold) continue;

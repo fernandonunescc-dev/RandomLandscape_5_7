@@ -440,8 +440,8 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thresholds", meta = (ClampMin = "5", ClampMax = "100", Tooltip = "Radius in pixels around each volcanic hotspot centre that is classified as Volcanic biome. Overrides other biome rules within this zone. Larger values create wider volcanic wastelands."))
 	int32 VolcanicRadiusPixels = 30;
 
-	/** Slope above which terrain may shift from Forest→Mountain (0-1, as elevation difference between neighbors) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thresholds", meta = (ClampMin = "0.0", ClampMax = "0.5", Tooltip = "Normalised slope threshold above which terrain is reclassified from Forest to Mountain/Rocky. Prevents unrealistically dense forest on near-vertical cliff faces."))
+	/** Slope above which terrain archetype becomes Mountain (0-1, as elevation difference between neighbors) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thresholds", meta = (ClampMin = "0.0", ClampMax = "0.5", Tooltip = "Normalised slope threshold above which terrain is classified as Mountain archetype. Steep terrain above this threshold gets the Mountains terrain archetype regardless of biome."))
 	float SteepSlopeThreshold = 0.15f;
 
 	/** Minimum precipitation to count as wet enough for Forest override */
@@ -495,7 +495,7 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 	    Scatters BiomeCellCount random seed points on land, partitions land into
 	    compact Voronoi regions via multi-source BFS, then assigns each cell a
 	    biome type based on average climate to achieve the target coverage.
-	    Ocean assignments are not affected.  Unclaimed land becomes Grassland. */
+	    Ocean assignments are not affected.  Unclaimed land becomes Plains. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (Tooltip = "Enable Voronoi-cell-based biome distribution. Scatters random seed points on land to create compact blob-shaped regions, then assigns biome types to each cell based on its average climate. Target percentages control how many cells of each biome exist. When disabled, raw threshold-based classification is used."))
 	bool bEnableBiomeTargets = true;
 
@@ -503,17 +503,13 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "8", ClampMax = "200", EditCondition = "bEnableBiomeTargets", Tooltip = "Number of random seed points scattered on land. Each seed becomes the center of a Voronoi cell — a compact blob-shaped region. More cells produce smaller, more numerous biome patches; fewer cells produce fewer, larger patches."))
 	int32 BiomeCellCount = 40;
 
-	/** Target Forest coverage as a percentage of total land area */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "60.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Forest coverage as a percentage of total land pixels. Voronoi cells whose average climate is most forest-suitable are assigned Forest until this target is reached. Remaining land becomes Grassland."))
-	float TargetForestPercent = 25.0f;
-
 	/** Target Desert coverage as a percentage of total land area */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "40.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Desert coverage as a percentage of total land pixels. Voronoi cells in the hottest/driest areas are assigned Desert until this target is reached."))
-	float TargetDesertPercent = 15.0f;
+	float TargetDesertPercent = 20.0f;
 
 	/** Target Snow/Tundra coverage as a percentage of total land area (includes Ice) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "30.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Desired Snow and Tundra coverage as a percentage of total land pixels. Voronoi cells in the coldest areas are assigned Snow. Within those cells, the coldest/wettest pixels are promoted to Ice/Glacier."))
-	float TargetSnowPercent = 10.0f;
+	float TargetSnowPercent = 25.0f;
 
 	/** How much randomness to mix into biome cell scoring.
 	    0.0 = pure climate (deterministic — deserts always center, snow always poles).

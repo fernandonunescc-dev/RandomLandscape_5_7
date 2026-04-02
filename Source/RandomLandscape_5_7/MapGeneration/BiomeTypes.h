@@ -29,8 +29,8 @@ UENUM(BlueprintType)
 enum class EBiomeType : uint8
 {
 	Ocean    UMETA(DisplayName = "Ocean"),
-	Land     UMETA(DisplayName = "Grassland"),
-	Forest   UMETA(DisplayName = "Forest"),
+	Land     UMETA(DisplayName = "Plains"),
+	Forest   UMETA(DisplayName = "Forest (Deprecated)"),
 	Desert   UMETA(DisplayName = "Desert"),
 	Snow     UMETA(DisplayName = "Snow/Tundra"),
 	Ice      UMETA(DisplayName = "Ice/Glacier"),
@@ -94,10 +94,10 @@ inline FLinearColor GetBiomeDebugColor(EBiomeType Type)
 	switch (Type)
 	{
 	case EBiomeType::Ocean:    return FLinearColor(0.05f, 0.10f, 0.40f, 1.0f);
-	case EBiomeType::Land:     return FLinearColor(0.60f, 0.80f, 0.30f, 1.0f);
-	case EBiomeType::Forest:   return FLinearColor(0.10f, 0.40f, 0.10f, 1.0f);
+	case EBiomeType::Land:     return FLinearColor(0.13f, 0.55f, 0.20f, 1.0f);
+	case EBiomeType::Forest:   return FLinearColor(0.13f, 0.55f, 0.20f, 1.0f); // deprecated — same as Plains
 	case EBiomeType::Desert:   return FLinearColor(0.95f, 0.85f, 0.30f, 1.0f);
-	case EBiomeType::Snow:     return FLinearColor(0.95f, 0.95f, 1.00f, 1.0f);
+	case EBiomeType::Snow:     return FLinearColor(0.68f, 0.85f, 0.95f, 1.0f);
 	case EBiomeType::Ice:      return FLinearColor(0.70f, 0.85f, 1.00f, 1.0f);
 	case EBiomeType::Mountain: return FLinearColor(0.70f, 0.70f, 0.70f, 1.0f);
 	case EBiomeType::Volcanic: return FLinearColor(0.90f, 0.40f, 0.30f, 1.0f);
