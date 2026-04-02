@@ -63,12 +63,13 @@ public class RandomLandscape_5_7 : ModuleRules
 			"RandomLandscape_5_7/Variant_SideScrolling/Gameplay",
 			"RandomLandscape_5_7/Variant_SideScrolling/Interfaces",
 			"RandomLandscape_5_7/Variant_SideScrolling/UI",
+			"RandomLandscape_5_7/UI",
 		});
 		
 		bUseRTTI = true;
 
-		// Uncomment if you are using Slate UI
-		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
+		// Slate UI support for UMG widgets
+		PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
 
 		// Uncomment if you are using online features
 		// PrivateDependencyModuleNames.Add("OnlineSubsystem");
