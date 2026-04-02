@@ -34,10 +34,13 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 
 	// === Compute canvas world size from target land area + ocean padding ===
 	// Assume roughly circular land: land radius = sqrt(TargetArea / π)
-	// Add ocean padding and a 1.3× safety factor for non-circular shapes.
+	// Add ocean padding and a safety factor for non-circular shapes.
+	// 1.3× is empirically chosen: noise-driven generation can create
+	// elongated or multi-island shapes that extend ~30% beyond a circle.
+	// Post-generation Pass 6 will expand further if this estimate is too small.
 	const float TargetAreaSqM = FMath::Max(Settings.TargetLandAreaSqKm, 0.01f) * 1.0e6f;
 	const float LandRadiusM = FMath::Sqrt(TargetAreaSqM / PI);
-	const float SafetyFactor = 1.3f; // Extra room for elongated/irregular shapes
+	constexpr float SafetyFactor = 1.3f;
 	const float TotalRadiusM = LandRadiusM * SafetyFactor + FMath::Max(Settings.OceanPaddingMeters, 100.0f);
 	const float CanvasSideM = 2.0f * TotalRadiusM;
 	Settings.ComputedWorldSizeCm = CanvasSideM * 100.0f;
@@ -48,9 +51,17 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 	const float PixelAreaSqM = PixelSizeM * PixelSizeM;
 	const int32 TotalPixels = Settings.TextureResolution * Settings.TextureResolution;
 	const int32 TargetLandPixels = FMath::RoundToInt(TargetAreaSqM / PixelAreaSqM);
-	Settings.ComputedLandCoveragePercent = FMath::Clamp(
-		static_cast<float>(TargetLandPixels) / static_cast<float>(TotalPixels) * 100.0f,
-		5.0f, 80.0f);
+	const float RawCoveragePercent = static_cast<float>(TargetLandPixels) / static_cast<float>(TotalPixels) * 100.0f;
+
+	// Clamp coverage to a sane range.  Log a warning if clamping changed the value,
+	// since the actual generated land area will differ from TargetLandAreaSqKm.
+	Settings.ComputedLandCoveragePercent = FMath::Clamp(RawCoveragePercent, 5.0f, 80.0f);
+	if (FMath::Abs(Settings.ComputedLandCoveragePercent - RawCoveragePercent) > 0.1f)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("LandmassGenerator: target land area implies %.1f%% coverage, clamped to %.1f%%. "
+			"Actual land area will differ from TargetLandAreaSqKm=%.3f."),
+			RawCoveragePercent, Settings.ComputedLandCoveragePercent, Settings.TargetLandAreaSqKm);
+	}
 
 	// Initialize random stream with seed for deterministic noise generation
 	RandomStream.Initialize(Settings.Seed);
@@ -686,6 +697,8 @@ void ULandmassGenerator::GenerateLandMask()
 			1.0f / static_cast<float>(FMath::Max(Width, Height))  // Floor: at least 1 pixel
 		);
 
+		// Defensive floor: UPROPERTY ClampMin enforces 100 in the editor, but code
+		// paths (e.g. SyncLandmassSettings) may bypass it.
 		const float OceanPaddingCm = FMath::Max(Settings.OceanPaddingMeters, 100.0f) * 100.0f;
 		const float RequiredWorldSizeCm = OceanPaddingCm / MinMarginNorm;
 
