@@ -15,6 +15,23 @@
 #include "Engine/Texture2D.h"
 #include "Kismet/GameplayStatics.h"
 
+namespace MapGenUI
+{
+	// Slider range limits — must match the ClampMax meta on WorldGenerationActor properties
+	static constexpr float MinLandAreaSqKm = 0.01f;
+	static constexpr float MaxLandAreaSqKm = 16.0f;
+	static constexpr float MaxSnowPercent   = 30.0f;
+	static constexpr float MaxDesertPercent  = 40.0f;
+	static constexpr float MaxForestPercent  = 60.0f;
+
+	// Landmass type display names — order must match ELandmassType
+	static const TCHAR* LandmassTypeNames[] =
+	{
+		TEXT("Islands / Archipelago"),   // ELandmassType::Islands
+		TEXT("Continent"),               // ELandmassType::Continent
+	};
+}
+
 // ----------------------------------------------------------------
 // Lifecycle
 // ----------------------------------------------------------------
@@ -74,8 +91,10 @@ void UMapGenerationWidget::NativeConstruct()
 	if (LandmassTypeCombo)
 	{
 		LandmassTypeCombo->ClearOptions();
-		LandmassTypeCombo->AddOption(TEXT("Islands / Archipelago"));
-		LandmassTypeCombo->AddOption(TEXT("Continent"));
+		for (const TCHAR* Name : MapGenUI::LandmassTypeNames)
+		{
+			LandmassTypeCombo->AddOption(Name);
+		}
 		LandmassTypeCombo->OnSelectionChanged.AddDynamic(this, &UMapGenerationWidget::OnLandmassTypeChanged);
 	}
 
@@ -242,25 +261,25 @@ void UMapGenerationWidget::SyncUIToActor()
 		GeneratorActor->TerrainRoughness = TerrainRoughnessSlider->GetValue();
 	}
 
-	// Land area: slider 0-1 → 0.01 - 16.0 sq km (logarithmic feel via power curve)
+	// Land area: slider 0-1 → MinLandAreaSqKm - MaxLandAreaSqKm (power curve for logarithmic feel)
 	if (LandAreaSlider)
 	{
 		const float T = LandAreaSlider->GetValue();
-		GeneratorActor->TargetLandAreaSqKm = FMath::Lerp(0.01f, 16.0f, T * T);
+		GeneratorActor->TargetLandAreaSqKm = FMath::Lerp(MapGenUI::MinLandAreaSqKm, MapGenUI::MaxLandAreaSqKm, T * T);
 	}
 
-	// Biome percentages: slider 0-1 → their respective ranges
+	// Biome percentages: slider 0-1 → their respective max ranges
 	if (SnowPercentSlider)
 	{
-		GeneratorActor->TargetSnowPercent = SnowPercentSlider->GetValue() * 30.0f;
+		GeneratorActor->TargetSnowPercent = SnowPercentSlider->GetValue() * MapGenUI::MaxSnowPercent;
 	}
 	if (DesertPercentSlider)
 	{
-		GeneratorActor->TargetDesertPercent = DesertPercentSlider->GetValue() * 40.0f;
+		GeneratorActor->TargetDesertPercent = DesertPercentSlider->GetValue() * MapGenUI::MaxDesertPercent;
 	}
 	if (ForestPercentSlider)
 	{
-		GeneratorActor->TargetForestPercent = ForestPercentSlider->GetValue() * 60.0f;
+		GeneratorActor->TargetForestPercent = ForestPercentSlider->GetValue() * MapGenUI::MaxForestPercent;
 	}
 
 	// Feature toggles
@@ -302,7 +321,7 @@ void UMapGenerationWidget::SyncActorToUI()
 	// Land area — inverse of the power curve used in SyncUIToActor
 	if (LandAreaSlider)
 	{
-		const float Normalized = FMath::Sqrt(FMath::GetRangePct(0.01f, 16.0f, GeneratorActor->TargetLandAreaSqKm));
+		const float Normalized = FMath::Sqrt(FMath::GetRangePct(MapGenUI::MinLandAreaSqKm, MapGenUI::MaxLandAreaSqKm, GeneratorActor->TargetLandAreaSqKm));
 		LandAreaSlider->SetValue(FMath::Clamp(Normalized, 0.0f, 1.0f));
 	}
 	if (LandAreaLabel)
@@ -314,7 +333,7 @@ void UMapGenerationWidget::SyncActorToUI()
 	// Snow
 	if (SnowPercentSlider)
 	{
-		SnowPercentSlider->SetValue(GeneratorActor->TargetSnowPercent / 30.0f);
+		SnowPercentSlider->SetValue(GeneratorActor->TargetSnowPercent / MapGenUI::MaxSnowPercent);
 	}
 	if (SnowPercentLabel)
 	{
@@ -325,7 +344,7 @@ void UMapGenerationWidget::SyncActorToUI()
 	// Desert
 	if (DesertPercentSlider)
 	{
-		DesertPercentSlider->SetValue(GeneratorActor->TargetDesertPercent / 40.0f);
+		DesertPercentSlider->SetValue(GeneratorActor->TargetDesertPercent / MapGenUI::MaxDesertPercent);
 	}
 	if (DesertPercentLabel)
 	{
@@ -336,7 +355,7 @@ void UMapGenerationWidget::SyncActorToUI()
 	// Forest
 	if (ForestPercentSlider)
 	{
-		ForestPercentSlider->SetValue(GeneratorActor->TargetForestPercent / 60.0f);
+		ForestPercentSlider->SetValue(GeneratorActor->TargetForestPercent / MapGenUI::MaxForestPercent);
 	}
 	if (ForestPercentLabel)
 	{
@@ -418,7 +437,7 @@ void UMapGenerationWidget::OnLandAreaChanged(float Value)
 {
 	if (LandAreaLabel)
 	{
-		const float Area = FMath::Lerp(0.01f, 16.0f, Value * Value);
+		const float Area = FMath::Lerp(MapGenUI::MinLandAreaSqKm, MapGenUI::MaxLandAreaSqKm, Value * Value);
 		LandAreaLabel->SetText(FText::FromString(
 			FString::Printf(TEXT("Land Area: %.2f km²"), Area)));
 	}
@@ -429,7 +448,7 @@ void UMapGenerationWidget::OnSnowPercentChanged(float Value)
 	if (SnowPercentLabel)
 	{
 		SnowPercentLabel->SetText(FText::FromString(
-			FString::Printf(TEXT("Snow: %.0f%%"), Value * 30.0f)));
+			FString::Printf(TEXT("Snow: %.0f%%"), Value * MapGenUI::MaxSnowPercent)));
 	}
 }
 
@@ -438,7 +457,7 @@ void UMapGenerationWidget::OnDesertPercentChanged(float Value)
 	if (DesertPercentLabel)
 	{
 		DesertPercentLabel->SetText(FText::FromString(
-			FString::Printf(TEXT("Desert: %.0f%%"), Value * 40.0f)));
+			FString::Printf(TEXT("Desert: %.0f%%"), Value * MapGenUI::MaxDesertPercent)));
 	}
 }
 
@@ -447,7 +466,7 @@ void UMapGenerationWidget::OnForestPercentChanged(float Value)
 	if (ForestPercentLabel)
 	{
 		ForestPercentLabel->SetText(FText::FromString(
-			FString::Printf(TEXT("Forest: %.0f%%"), Value * 60.0f)));
+			FString::Printf(TEXT("Forest: %.0f%%"), Value * MapGenUI::MaxForestPercent)));
 	}
 }
 
@@ -456,7 +475,24 @@ void UMapGenerationWidget::OnForestPercentChanged(float Value)
 // ----------------------------------------------------------------
 void UMapGenerationWidget::OnSeedCommitted(const FText& Text, ETextCommit::Type CommitMethod)
 {
-	// Value is pushed on next Generate
+	// Validate that the input is a valid integer seed
+	const FString SeedStr = Text.ToString();
+	if (SeedStr.IsNumeric())
+	{
+		const int32 ParsedSeed = FCString::Atoi(*SeedStr);
+		if (ParsedSeed > 0 && SeedInput)
+		{
+			SeedInput->SetText(FText::AsNumber(ParsedSeed));
+		}
+	}
+	else if (SeedInput)
+	{
+		// Revert to current actor seed if invalid
+		if (GeneratorActor)
+		{
+			SeedInput->SetText(FText::AsNumber(GeneratorActor->GlobalSeed));
+		}
+	}
 }
 
 void UMapGenerationWidget::OnLandmassTypeChanged(FString SelectedItem, ESelectInfo::Type SelectionType)
