@@ -57,6 +57,7 @@ void AWorldGenerationActor::Step1_GenerateLandmass()
 	ActualSeedUsed = Generator->GetSeed();
 	ResolutionUsed = TextureResolution;
 	CachedWorldSizeCm = Generator->GetComputedWorldSizeCm();
+	FinalMapSizeMeters = CachedWorldSizeCm / 100.0f;
 	Debug_Landmass = Generator->GetPreviewTexture();
 
 	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor: Stage 1 Landmass complete - Seed: %d, Resolution: %d, LandPixels: %d"),
@@ -675,6 +676,19 @@ void AWorldGenerationActor::Randomize()
 	TargetLandAreaSqKm = FMath::FRandRange(0.1f, 1.0f);
 
 	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor::Randomize - New seed: %d, TargetLandArea: %.3f sq km"), GlobalSeed, TargetLandAreaSqKm);
+
+	GenerateAll();
+	GenerateMesh();
+}
+
+// ------------------------------------------------------------
+// RandomizeSeed: new random seed only → full pipeline → mesh
+// ------------------------------------------------------------
+void AWorldGenerationActor::RandomizeSeed()
+{
+	GlobalSeed = FMath::RandRange(1, 0x7FFFFFFF);
+
+	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor::RandomizeSeed - New seed: %d"), GlobalSeed);
 
 	GenerateAll();
 	GenerateMesh();

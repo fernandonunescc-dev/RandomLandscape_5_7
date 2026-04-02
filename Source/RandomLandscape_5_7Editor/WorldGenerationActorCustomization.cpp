@@ -315,6 +315,24 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 			)
 		];
 
+	// Randomize Seed Only
+	ActionsGroup.AddWidgetRow()
+		.NameContent()
+		[
+			SNew(STextBlock)
+			.Text(FText::FromString("Randomize Seed"))
+			.Font(IDetailLayoutBuilder::GetDetailFont())
+		]
+		.ValueContent()
+		.MinDesiredWidth(200.0f)
+		[
+			MakeButtonWidget(
+				FText::FromString("Randomize Seed Only"),
+				[](AWorldGenerationActor* A) { A->RandomizeSeed(); },
+				SelectedActors
+			)
+		];
+
 	// Generate All
 	ActionsGroup.AddWidgetRow()
 		.NameContent()
@@ -404,6 +422,13 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 	if (ResUsedHandle->IsValidHandle())
 	{
 		DebugInfoGroup.AddPropertyRow(ResUsedHandle).DisplayName(FText::FromString("Resolution Used"));
+	}
+
+	TSharedRef<IPropertyHandle> MapSizeHandle = DetailBuilder.GetProperty(
+		GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, FinalMapSizeMeters));
+	if (MapSizeHandle->IsValidHandle())
+	{
+		DebugInfoGroup.AddPropertyRow(MapSizeHandle).DisplayName(FText::FromString("Final Map Size (m)"));
 	}
 
 	TSharedRef<IPropertyHandle> ValidationHandle = DetailBuilder.GetProperty(

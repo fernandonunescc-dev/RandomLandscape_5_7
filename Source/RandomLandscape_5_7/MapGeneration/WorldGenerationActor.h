@@ -200,6 +200,10 @@ public:
 	UPROPERTY(VisibleAnywhere, Category = "Debug|Info")
 	int32 ResolutionUsed = 0;
 
+	/** Final map size in metres (side length) after generation, including ocean padding. */
+	UPROPERTY(VisibleAnywhere, Category = "Debug|Info")
+	float FinalMapSizeMeters = 0.0f;
+
 	// ==================== Mesh Component ====================
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Mesh")
@@ -237,6 +241,10 @@ public:
 	/** Pick a new random seed, run all pipeline stages, and build the mesh. */
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Pipeline|Actions")
 	void Randomize();
+
+	/** Pick a new random seed only (keeps all other settings), then regenerate. */
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Pipeline|Actions")
+	void RandomizeSeed();
 
 	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Pipeline|Actions")
 	void ClearAll();
