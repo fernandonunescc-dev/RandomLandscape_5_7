@@ -20,6 +20,14 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	GENERATED_BODY()
 
 	/**
+	 * Landmass generation algorithm.
+	 *   Islands   – Multi-peak archipelago with one main island + satellites.
+	 *   Continent – Single dominant landmass; only very tiny islets may appear.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass")
+	ELandmassType LandmassType = ELandmassType::Islands;
+
+	/**
 	 * Target land area in square kilometres.
 	 * The algorithm generates exactly this much land, then wraps ocean around it.
 	 * The actual world dimensions are derived from the land area and ocean padding.

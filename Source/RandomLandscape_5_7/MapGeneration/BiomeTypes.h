@@ -8,6 +8,20 @@
 #include "BiomeTypes.generated.h"
 
 /**
+ * Landmass generation type.
+ * Selects the algorithm used to create the initial land/ocean mask.
+ *
+ *   Islands   – Multi-peak archipelago: one main island + medium/small satellites.
+ *   Continent – Single dominant landmass; only very tiny islets may appear.
+ */
+UENUM(BlueprintType)
+enum class ELandmassType : uint8
+{
+	Islands   UMETA(DisplayName = "Islands / Archipelago"),
+	Continent UMETA(DisplayName = "Continent")
+};
+
+/**
  * Biome types derived from climate, elevation, and geology.
  * Assigned by the climate/terrain classification stage — NOT placed randomly.
  */
