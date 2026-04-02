@@ -363,7 +363,7 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 			// --- Biome classification — climate-first priority ---
 			// Climate zones take precedence over terrain shape so that
 			// mountains in polar regions become Snow, mountains in arid
-			// zones become Desert, etc.  Only moderate-climate high terrain
+			// zones become Desert, etc.  Only temperate-climate high terrain
 			// is classified as Mountain biome.
 
 			// 2. Ice — extremely cold + sufficient moisture
