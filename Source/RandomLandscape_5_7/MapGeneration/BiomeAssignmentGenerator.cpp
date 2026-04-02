@@ -472,6 +472,7 @@ void UBiomeAssignmentGenerator::ApplyBiomeTargets(
 
 	// --- Scatter Voronoi cell centers on land ---
 	const int32 NumCells = FMath::Clamp(Settings.BiomeCellCount, 4, LandCount);
+	if (NumCells > LandCount) return;  // not enough land for any cells
 	TArray<int32> CellCenters;
 	CellCenters.SetNum(NumCells);
 
@@ -494,13 +495,11 @@ void UBiomeAssignmentGenerator::ApplyBiomeTargets(
 	// --- Multi-source BFS to assign each land pixel to its nearest cell ---
 	// CellId[pixel] = index of the cell that owns this pixel (-1 = unassigned/ocean)
 	TArray<int32> CellId;
-	CellId.SetNumUninitialized(Total);
-	for (int32 i = 0; i < Total; ++i) CellId[i] = -1;
+	CellId.Init(-1, Total);
 
 	TArray<float> Dist;
-	Dist.SetNumUninitialized(Total);
 	const float Unvisited = static_cast<float>(Resolution * 2);
-	for (int32 i = 0; i < Total; ++i) Dist[i] = Unvisited;
+	Dist.Init(Unvisited, Total);
 
 	TQueue<int32> BFS;
 	for (int32 c = 0; c < NumCells; ++c)
