@@ -38,7 +38,7 @@ void ULandmassGenerator::Initialize(const FLandmassSettings& InSettings)
 	const float TargetAreaSqM = FMath::Max(Settings.TargetLandAreaSqKm, 0.01f) * 1.0e6f;
 	const float LandRadiusM = FMath::Sqrt(TargetAreaSqM / PI);
 	const float SafetyFactor = 1.3f; // Extra room for elongated/irregular shapes
-	const float TotalRadiusM = LandRadiusM * SafetyFactor + FMath::Max(Settings.OceanPaddingMeters, 20.0f);
+	const float TotalRadiusM = LandRadiusM * SafetyFactor + FMath::Max(Settings.OceanPaddingMeters, 100.0f);
 	const float CanvasSideM = 2.0f * TotalRadiusM;
 	Settings.ComputedWorldSizeCm = CanvasSideM * 100.0f;
 
@@ -649,6 +649,57 @@ void ULandmassGenerator::GenerateLandMask()
 		}
 	}
 
+	// ===== PASS 6: Expand world size to guarantee ocean padding =====
+	// After land has been generated freely, measure the actual bounding box
+	// of all land pixels.  Then expand ComputedWorldSizeCm so that every
+	// side of the map has at least OceanPaddingMeters of ocean.
+	// Land is NEVER cut — the world just gets bigger if needed.
+	if (LandPixels.Num() > 0)
+	{
+		// Find land bounding box in pixel space
+		int32 LandMinX = Width;
+		int32 LandMaxX = 0;
+		int32 LandMinY = Height;
+		int32 LandMaxY = 0;
+
+		for (const FIntPoint& P : LandPixels)
+		{
+			LandMinX = FMath::Min(LandMinX, P.X);
+			LandMaxX = FMath::Max(LandMaxX, P.X);
+			LandMinY = FMath::Min(LandMinY, P.Y);
+			LandMaxY = FMath::Max(LandMaxY, P.Y);
+		}
+
+		// Convert to normalised [0,1] coords
+		const float InvW = (Width > 1)  ? 1.0f / static_cast<float>(Width - 1)  : 1.0f;
+		const float InvH = (Height > 1) ? 1.0f / static_cast<float>(Height - 1) : 1.0f;
+
+		// Margins: distance from land bbox to canvas edge in normalised space
+		const float MarginLeft   = static_cast<float>(LandMinX) * InvW;
+		const float MarginRight  = 1.0f - static_cast<float>(LandMaxX) * InvW;
+		const float MarginTop    = static_cast<float>(LandMinY) * InvH;
+		const float MarginBottom = 1.0f - static_cast<float>(LandMaxY) * InvH;
+
+		// Smallest margin constrains the required world size
+		const float MinMarginNorm = FMath::Max(
+			FMath::Min(FMath::Min(MarginLeft, MarginRight), FMath::Min(MarginTop, MarginBottom)),
+			1.0f / static_cast<float>(FMath::Max(Width, Height))  // Floor: at least 1 pixel
+		);
+
+		const float OceanPaddingCm = FMath::Max(Settings.OceanPaddingMeters, 100.0f) * 100.0f;
+		const float RequiredWorldSizeCm = OceanPaddingCm / MinMarginNorm;
+
+		if (RequiredWorldSizeCm > Settings.ComputedWorldSizeCm)
+		{
+			UE_LOG(LogTemp, Log, TEXT("Ocean padding: expanding world from %.0f cm to %.0f cm  "
+				"(land bbox pixels [%d,%d]-[%d,%d], min margin norm %.4f)"),
+				Settings.ComputedWorldSizeCm, RequiredWorldSizeCm,
+				LandMinX, LandMinY, LandMaxX, LandMaxY, MinMarginNorm);
+
+			Settings.ComputedWorldSizeCm = RequiredWorldSizeCm;
+		}
+	}
+
 	UE_LOG(LogTemp, Log, TEXT("Land mask generated: %d land pixels out of %d total (%.1f%%)"),
 		LandPixels.Num(), TotalPixels,
 		(float)LandPixels.Num() / (float)TotalPixels * 100.0f);
@@ -823,7 +874,6 @@ float ULandmassGenerator::FBM(float X, float Y, int32 Octaves, float Persistence
 //   3. Secondary terrain noise: medium ridges and isthmuses
 //   4. Coast noise: irregular coastline details
 //   5. Detail noise: fine bumps and indentations
-//   6. Edge falloff: thin rectangular ocean border at map edges
 // 
 // Returns 0.0 (definitely ocean) to ~1.0 (definitely land).
 //------------------------------------------------------------------------------
@@ -922,9 +972,8 @@ float ULandmassGenerator::GetIslandMask(float NormX, float NormY) const
 	float IslandValue = PeakBias + PrimaryNoise + SecondaryNoise + CoastNoise + DetailNoise;
 
 	// No rectangular or circular edge constraints — land grows freely.
-	// The canvas is sized large enough (via OceanPaddingMeters + safety factor)
-	// so that land naturally stays away from edges.  A minimal 1-pixel safety
-	// border is enforced in GenerateLandMask() Pass 5.
+	// After generation, Pass 6 expands ComputedWorldSizeCm so that every
+	// side has at least OceanPaddingMeters of ocean.  Land is never cut.
 
 	// Clamp to valid range (noise can push slightly negative)
 	return FMath::Clamp(IslandValue, 0.0f, 1.0f);

@@ -120,12 +120,13 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	// === Edge Margin Settings ===
 
 	/**
-	 * Width of the ocean border around the land bounding box, in metres.
-	 * After land is generated freely, this much ocean is guaranteed on all
-	 * sides.  The canvas is sized so that land stays well within bounds.
-	 * Default 200 m provides a generous ocean border.
+	 * Minimum width of visible ocean around ALL land, in metres.
+	 * After land is generated freely, the world size is expanded so that
+	 * every side has at least this much ocean.  Land is never cut — if it
+	 * grows larger or more spread-out than expected the world just gets
+	 * bigger to accommodate.  Default 200 m.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "20.0", ClampMax = "2000.0", Tooltip = "Width of the ocean border around the generated land in metres. Default 200 m."))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass", meta = (ClampMin = "100.0", ClampMax = "2000.0", Tooltip = "Minimum ocean border around all land in metres.  The world expands to guarantee this. Default 200 m."))
 	float OceanPaddingMeters = 200.0f;
 
 	/**
