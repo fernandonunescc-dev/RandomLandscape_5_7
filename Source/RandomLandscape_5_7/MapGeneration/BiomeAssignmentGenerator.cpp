@@ -37,7 +37,7 @@ void UBiomeAssignmentGenerator::Initialize(const FBiomeAssignmentSettings& InSet
 	}
 
 	UE_LOG(LogTemp, Log,
-		TEXT("BiomeAssignmentGenerator initialized – Resolution: %d, MountainThreshold: %.2f, BlendRadius: %d px"),
+		TEXT("BiomeAssignmentGenerator initialized – Resolution: %d, MountainArchetypeThreshold: %.2f, BlendRadius: %d px"),
 		Resolution, Settings.MountainElevationThreshold, Settings.BiomeBlendRadius);
 }
 
