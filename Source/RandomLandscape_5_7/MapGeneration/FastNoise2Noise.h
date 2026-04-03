@@ -60,7 +60,7 @@ namespace FN2
 		Fractal->SetSource(Source);
 		Fractal->SetOctaveCount(Octaves);
 		Fractal->SetGain(Gain);
-		Fractal->SetLacunarity(Lacunarity);
+		Fractal->SetLacunarity(Lacunarity);  // Pass through to FN2
 		return Fractal;
 	}
 
@@ -72,7 +72,7 @@ namespace FN2
 		Fractal->SetSource(Source);
 		Fractal->SetOctaveCount(Octaves);
 		Fractal->SetGain(Gain);
-		Fractal->SetLacunarity(Lacunarity);
+		Fractal->SetLacunarity(Lacunarity);  // Pass through to FN2
 		return Fractal;
 	}
 

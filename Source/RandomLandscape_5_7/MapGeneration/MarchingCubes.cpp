@@ -39,9 +39,9 @@ void FMarchingCubes::Extract(const FVoxelChunk& Chunk, float VoxelSize, float Is
 
 	// World offset for this chunk
 	const FVector ChunkOrigin(
-		static_cast<float>(Chunk.ChunkCoord.X) * (Res - 1) * VoxelSize,
-		static_cast<float>(Chunk.ChunkCoord.Y) * (Res - 1) * VoxelSize,
-		static_cast<float>(Chunk.ChunkCoord.Z) * (Res - 1) * VoxelSize);
+		static_cast<float>(Chunk.ChunkCoord.X) * Res * VoxelSize,
+		static_cast<float>(Chunk.ChunkCoord.Y) * Res * VoxelSize,
+		static_cast<float>(Chunk.ChunkCoord.Z) * Res * VoxelSize);
 
 	// Iterate over all cubes (each cube is 2×2×2 corner samples)
 	for (int32 Z = 0; Z < Res - 1; ++Z)
