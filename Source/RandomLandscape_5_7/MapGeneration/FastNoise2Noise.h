@@ -29,9 +29,9 @@ namespace FN2
 		auto Generator = FastNoise::New<FastNoise::Simplex>();
 		float Result = 0.0f;
 		Generator->GenUniformGrid2D(&Result,
-			static_cast<int>(FMath::FloorToInt(X)),
-			static_cast<int>(FMath::FloorToInt(Y)),
-			1, 1, 1.0f, Seed);
+			X, Y,
+			1, 1,
+			1.0f, 1.0f, Seed);
 		return Result;
 	}
 
@@ -41,10 +41,9 @@ namespace FN2
 		auto Generator = FastNoise::New<FastNoise::Simplex>();
 		float Result = 0.0f;
 		Generator->GenUniformGrid3D(&Result,
-			static_cast<int>(FMath::FloorToInt(X)),
-			static_cast<int>(FMath::FloorToInt(Y)),
-			static_cast<int>(FMath::FloorToInt(Z)),
-			1, 1, 1, 1.0f, Seed);
+			X, Y, Z,
+			1, 1, 1,
+			1.0f, 1.0f, 1.0f, Seed);
 		return Result;
 	}
 
@@ -80,14 +79,13 @@ namespace FN2
 	inline FastNoise::SmartNode<FastNoise::Generator> MakeWarpedFBM(int32 Octaves = 5, float Gain = 0.5f, float WarpAmplitude = 30.0f)
 	{
 		auto FBM = MakeFBM(Octaves, Gain);
-		auto WarpSource = FastNoise::New<FastNoise::Simplex>();
+
 		auto DomainWarp = FastNoise::New<FastNoise::DomainWarpGradient>();
-		DomainWarp->SetSource(WarpSource);
+		DomainWarp->SetSource(FBM);
 		DomainWarp->SetWarpAmplitude(WarpAmplitude);
 
 		auto WarpedFractal = FastNoise::New<FastNoise::DomainWarpFractalProgressive>();
-		WarpedFractal->SetSource(FBM);
-		WarpedFractal->SetDomainWarpSource(DomainWarp);
+		WarpedFractal->SetSource(DomainWarp);
 		WarpedFractal->SetOctaveCount(3);
 		WarpedFractal->SetGain(0.5f);
 		WarpedFractal->SetLacunarity(2.0f);
@@ -112,9 +110,9 @@ namespace FN2
 		OutData.SetNumUninitialized(SizeX * SizeY);
 		Generator->GenUniformGrid2D(
 			OutData.GetData(),
-			StartX, StartY,
+			static_cast<float>(StartX), static_cast<float>(StartY),
 			SizeX, SizeY,
-			Frequency, Seed);
+			Frequency, Frequency, Seed);
 	}
 
 	/**
@@ -131,9 +129,9 @@ namespace FN2
 		OutData.SetNumUninitialized(SizeX * SizeY * SizeZ);
 		Generator->GenUniformGrid3D(
 			OutData.GetData(),
-			StartX, StartY, StartZ,
+			static_cast<float>(StartX), static_cast<float>(StartY), static_cast<float>(StartZ),
 			SizeX, SizeY, SizeZ,
-			Frequency, Seed);
+			Frequency, Frequency, Frequency, Seed);
 	}
 
 	// ----------------------------------------------------------------
