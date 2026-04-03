@@ -373,7 +373,7 @@ struct RANDOMLANDSCAPE_5_7_API FClimateSettings
 
 	/** How quickly moisture decays inland from the coast */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moisture", meta = (ClampMin = "0.001", ClampMax = "0.1", Tooltip = "Rate at which moisture decreases with distance from the coastline. Higher values dry out the interior faster, creating arid inland zones. Lower values allow moisture to penetrate deep inland."))
-	float MoistureDecayRate = 0.015f;
+	float MoistureDecayRate = 0.010f;
 
 	/** Strength of rain shadow effect behind mountains */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Moisture", meta = (ClampMin = "0.0", ClampMax = "2.0", Tooltip = "How strongly mountain ranges block moisture carried by prevailing winds. At 0 mountains have no rain-shadow effect; at 2 the leeward side is extremely dry, encouraging desert biomes behind mountain ranges."))
@@ -516,7 +516,7 @@ struct RANDOMLANDSCAPE_5_7_API FBiomeAssignmentSettings
 	    1.0 = heavily randomised placement (any climate-viable cell may be picked).
 	    Intermediate values blend climate preference with random jitter. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Target Percentages", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bEnableBiomeTargets", Tooltip = "Controls how much randomness is mixed into the biome cell scoring. At 0.0, biome placement is purely climate-driven (desert always in the hottest spot, snow always at the coldest). At 1.0, biome placement is heavily randomised — any cell with some climate affinity may be selected. Default 0.5 gives a good balance of climate-awareness and variety across different seeds."))
-	float BiomePlacementRandomness = 0.5f;
+	float BiomePlacementRandomness = 0.7f;
 
 	// --- Spatial Smoothing ---
 

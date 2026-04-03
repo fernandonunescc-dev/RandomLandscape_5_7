@@ -684,8 +684,12 @@ void AWorldGenerationActor::Randomize()
 	TargetSnowPercent = FMath::FRandRange(5.0f, 30.0f);
 	TargetDesertPercent = FMath::FRandRange(5.0f, 30.0f);
 
-	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor::Randomize - New seed: %d, TargetLandArea: %.3f sq km, Snow: %.1f%%, Desert: %.1f%%"),
-		GlobalSeed, TargetLandAreaSqKm, TargetSnowPercent, TargetDesertPercent);
+	// Randomise equator position so the hot zone (and thus deserts) can
+	// appear on any side of the island, not always in the centre.
+	ClimateSettings.EquatorPosition = FMath::FRandRange(0.15f, 0.85f);
+
+	UE_LOG(LogTemp, Log, TEXT("AWorldGenerationActor::Randomize - New seed: %d, TargetLandArea: %.3f sq km, Snow: %.1f%%, Desert: %.1f%%, Equator: %.2f"),
+		GlobalSeed, TargetLandAreaSqKm, TargetSnowPercent, TargetDesertPercent, ClimateSettings.EquatorPosition);
 
 	GenerateAll();
 	GenerateMesh();
