@@ -1,18 +1,27 @@
 // NoiseUtility.h
 // Shared deterministic noise functions for the world generation pipeline.
-// All functions are static/inline so this is a header-only utility.
+// Now backed by FastNoise2 (SIMD-accelerated Simplex) for 2D and 3D noise,
+// while preserving the same WorldNoise:: API for existing callers.
 
 #pragma once
 
 #include "CoreMinimal.h"
+#include "FastNoise2Noise.h"
 
 /**
  * Shared noise utilities used across all pipeline generators.
  * Deterministic: same inputs always produce the same output.
+ *
+ * Noise2D, FBM, and RidgedFBM now delegate to FastNoise2 for SIMD performance.
+ * Hash2D and DeriveSeed remain unchanged (pure integer math).
+ *
+ * For new code that needs 3D noise, use the FN2:: namespace directly
+ * (see FastNoise2Noise.h).
  */
 namespace WorldNoise
 {
-	/** Fast integer hash → float in [-1, 1] */
+	/** Fast integer hash → float in [-1, 1].
+	 *  Kept as-is for non-noise uses (seeding, random placement, etc.). */
 	FORCEINLINE float Hash2D(int32 X, int32 Y, int32 Seed)
 	{
 		uint32 N = static_cast<uint32>(X) + static_cast<uint32>(Y) * 57u + static_cast<uint32>(Seed);
@@ -21,74 +30,46 @@ namespace WorldNoise
 		return 1.0f - static_cast<float>(N & 0x7FFFFFFFu) / 1073741824.0f;
 	}
 
-	/** 2D value noise with smooth interpolation. Returns [-1, 1]. */
+	/** 2D Simplex noise via FastNoise2. Returns approximately [-1, 1].
+	 *  Drop-in replacement for the old hand-rolled value noise. */
 	inline float Noise2D(float X, float Y, int32 Seed)
 	{
-		const float OffsetX = (Seed % 10000) * 0.37f;
-		const float OffsetY = (Seed % 10000) * 0.53f;
-		X += OffsetX;
-		Y += OffsetY;
-
-		const int32 Xi = FMath::FloorToInt(X);
-		const int32 Yi = FMath::FloorToInt(Y);
-		const float Xf = X - Xi;
-		const float Yf = Y - Yi;
-
-		// Smoothstep interpolation
-		const float U = Xf * Xf * (3.0f - 2.0f * Xf);
-		const float V = Yf * Yf * (3.0f - 2.0f * Yf);
-
-		const float A = Hash2D(Xi, Yi, Seed);
-		const float B = Hash2D(Xi + 1, Yi, Seed);
-		const float C = Hash2D(Xi, Yi + 1, Seed);
-		const float D = Hash2D(Xi + 1, Yi + 1, Seed);
-
-		return FMath::Lerp(
-			FMath::Lerp(A, B, U),
-			FMath::Lerp(C, D, U),
-			V);
+		return FN2::Noise2D(X, Y, Seed);
 	}
 
-	/** Fractal Brownian Motion. Returns approximately [-1, 1]. */
+	/** Fractal Brownian Motion via FastNoise2. Returns approximately [-1, 1]. */
 	inline float FBM(float X, float Y, int32 Octaves, float Persistence, int32 Seed)
 	{
-		float Total = 0.0f;
-		float Amplitude = 1.0f;
-		float Frequency = 1.0f;
-		float MaxValue = 0.0f;
-
-		for (int32 i = 0; i < Octaves; ++i)
-		{
-			Total += Noise2D(X * Frequency, Y * Frequency, Seed + i * 31) * Amplitude;
-			MaxValue += Amplitude;
-			Amplitude *= Persistence;
-			Frequency *= 2.0f;
-		}
-
-		return (MaxValue > 0.0f) ? (Total / MaxValue) : 0.0f;
+		return FN2::FBM(X, Y, Octaves, Persistence, Seed);
 	}
 
-	/** Ridged FBM — produces ridge-like mountain structures. Returns [0, 1]. */
+	/** Ridged FBM via FastNoise2. Returns [0, 1]. */
 	inline float RidgedFBM(float X, float Y, int32 Octaves, float Persistence, float Sharpness, int32 Seed)
 	{
-		float Total = 0.0f;
-		float Amplitude = 1.0f;
-		float Frequency = 1.0f;
-		float MaxValue = 0.0f;
-
-		for (int32 i = 0; i < Octaves; ++i)
-		{
-			float N = Noise2D(X * Frequency, Y * Frequency, Seed + i * 31);
-			N = 1.0f - FMath::Abs(N);  // Fold into ridge
-			N = FMath::Pow(N, Sharpness);
-			Total += N * Amplitude;
-			MaxValue += Amplitude;
-			Amplitude *= Persistence;
-			Frequency *= 2.0f;
-		}
-
-		return (MaxValue > 0.0f) ? (Total / MaxValue) : 0.0f;
+		return FN2::RidgedFBM(X, Y, Octaves, Persistence, Sharpness, Seed);
 	}
+
+	// ==================== 3D Noise (new) ====================
+
+	/** 3D Simplex noise via FastNoise2. Returns approximately [-1, 1]. */
+	inline float Noise3D(float X, float Y, float Z, int32 Seed)
+	{
+		return FN2::Noise3D(X, Y, Z, Seed);
+	}
+
+	/** 3D FBM via FastNoise2. Returns approximately [-1, 1]. */
+	inline float FBM3D(float X, float Y, float Z, int32 Octaves, float Persistence, int32 Seed)
+	{
+		return FN2::FBM3D(X, Y, Z, Octaves, Persistence, Seed);
+	}
+
+	/** 3D Ridged FBM via FastNoise2. Returns approximately [0, 1]. */
+	inline float RidgedFBM3D(float X, float Y, float Z, int32 Octaves, float Persistence, int32 Seed)
+	{
+		return FN2::RidgedFBM3D(X, Y, Z, Octaves, Persistence, Seed);
+	}
+
+	// ==================== Utility (unchanged) ====================
 
 	/** Compute a deterministic seed offset from a base seed and stage index */
 	FORCEINLINE int32 DeriveSeed(int32 BaseSeed, int32 StageIndex)
