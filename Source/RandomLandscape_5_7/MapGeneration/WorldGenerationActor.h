@@ -67,7 +67,7 @@ public:
 
 	/** Generate underground caves using 3D noise and Marching Cubes. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (Tooltip = "Generate underground cave networks beneath the terrain using 3D noise. Caves are rendered as separate mesh sections below the heightmap surface."))
-	bool bIncludeCaves = false;
+	bool bIncludeCaves = true;
 
 	/** Overall terrain roughness: 0 = mostly flat with gentle hills, 1 = heavily mountainous. Adjusts mountain amplitude, hill amplitude, and base elevation noise in the background. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Master slider controlling how flat or mountainous the terrain is. At 0 the island is mostly flat coastal plains with gentle hills. At 1 the terrain is dominated by tall mountain ridges. This adjusts MountainRidgeAmplitude, HillAmplitude, BaseNoisePersistence, and CoastlineGradientWidth behind the scenes."))
