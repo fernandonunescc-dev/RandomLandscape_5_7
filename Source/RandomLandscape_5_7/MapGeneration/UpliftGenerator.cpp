@@ -134,11 +134,16 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 	const int32 Seed       = ActualSeed;
 	const float InvRes     = 1.0f / FMath::Max(Resolution - 1, 1);
 
-	// Coastal variation: use low-frequency noise to vary gradient width per pixel
+	// Coastal variation: use low-frequency noise to vary gradient width per pixel.
+	// At high variation, some coastlines become very steep cliffs (2-3 pixel gradient)
+	// while others remain gentle beaches (full configured gradient width).
 	const float CoastalVar     = FMath::Clamp(Settings.CoastalVariation, 0.0f, 1.0f);
 	const float CoastalVarFreq = Settings.CoastalVariationFrequency;
 	// Decorrelate coastal variation noise from other sub-stage seeds
 	const int32 CoastalVarSeed = WorldNoise::DeriveSeed(ActualSeed, 5);
+
+	// The narrowest gradient (cliff): elevation jumps from 0 to full within 2 pixels
+	constexpr float CliffGradWidth = 2.0f;
 
 	for (int32 i = 0; i < TotalPixels; ++i)
 	{
@@ -151,17 +156,20 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 		const float NormX = static_cast<float>(i % Resolution) * InvRes;
 		const float NormY = static_cast<float>(i / Resolution) * InvRes;
 
-		// Per-pixel gradient width: modulate by low-frequency noise
+		// Per-pixel gradient width: noise determines cliff vs beach zones
 		float LocalGradWidth = GradWidth;
 		if (CoastalVar > 0.0f)
 		{
 			// Sample low-frequency noise for this position, returns ~[-1, 1]
 			const float VarNoise = WorldNoise::FBM(NormX * CoastalVarFreq, NormY * CoastalVarFreq, 2, 0.5f, CoastalVarSeed);
-			// Map noise to a multiplier: centre on 1.0, spread by CoastalVar.
-			// Max spread factor — at CoastalVar=1, multiplier ranges ~[0.25, 1.75].
-			constexpr float CoastalVariationScale = 0.75f;
-			const float Multiplier = 1.0f + VarNoise * CoastalVar * CoastalVariationScale;
-			LocalGradWidth = FMath::Max(GradWidth * Multiplier, 1.0f);
+			// Map noise [-1,1] → beach factor [0,1]: 0 = cliff zone, 1 = beach zone
+			const float BeachFactor = VarNoise * 0.5f + 0.5f;
+			// The narrowest possible width at this CoastalVariation level:
+			// CoastalVar=0 → MinWidth = GradWidth (no variation at all)
+			// CoastalVar=1 → MinWidth = CliffGradWidth (full cliff)
+			const float MinWidth = FMath::Lerp(GradWidth, CliffGradWidth, CoastalVar);
+			// Lerp between cliff (MinWidth) and beach (GradWidth)
+			LocalGradWidth = FMath::Lerp(MinWidth, GradWidth, BeachFactor);
 		}
 
 		// Coastal transition: smoothstep for natural falloff instead of linear
@@ -202,7 +210,7 @@ void UUpliftGenerator::GenerateUpliftMap(const TArray<uint8>& LandMask)
 	// Higher coverage → thinner margin → mountains extend closer to coast.
 	const float CoverageT = FMath::Clamp(
 		(Settings.MountainCoverage - 0.1f) / 1.9f, 0.0f, 1.0f);
-	const float MountainCoastMargin = FMath::Lerp(60.0f, 3.0f, CoverageT);
+	const float MountainCoastMargin = FMath::Lerp(40.0f, 1.0f, CoverageT);
 
 	// Offset seed by a fixed amount to decorrelate mountain noise from base elevation noise
 	const int32 Seed       = ActualSeed + 100;
@@ -370,7 +378,7 @@ void UUpliftGenerator::GenerateHills(const TArray<uint8>& LandMask)
 	// Derived from MountainCoverage: higher coverage → hills also extend closer.
 	const float CoverageT = FMath::Clamp(
 		(Settings.MountainCoverage - 0.1f) / 1.9f, 0.0f, 1.0f);
-	const float HillCoastMargin = FMath::Lerp(40.0f, 8.0f, CoverageT);
+	const float HillCoastMargin = FMath::Lerp(30.0f, 3.0f, CoverageT);
 
 	for (int32 i = 0; i < TotalPixels; ++i)
 	{

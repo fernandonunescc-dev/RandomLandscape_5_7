@@ -167,9 +167,9 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "10", ClampMax = "256", Tooltip = "Distance in pixels from the coastline before terrain reaches full inland height. Larger values produce wider, gentler coastal plains; smaller values create steep cliffs right at the shore."))
 	int32 CoastlineGradientWidth = 100;
 
-	/** How much the coastal gradient varies around the island (0 = uniform, 1 = full variation) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Controls how much the coastline steepness varies around the island. At 0 the coast is uniform everywhere. At 1 some sides may have steep cliffs while others have gentle beaches. The variation is driven by low-frequency noise so it changes gradually."))
-	float CoastalVariation = 0.6f;
+	/** How much the coastal gradient varies around the island (0 = uniform, 1 = full variation with cliffs) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Controls how much the coastline steepness varies around the island. At 0 the coast is uniformly gentle everywhere. At 1 some sides will have steep cliffs (elevation jumps within a few pixels of the ocean) while others have gentle beaches. The variation is driven by low-frequency noise so it changes gradually around the coastline."))
+	float CoastalVariation = 1.0f;
 
 	/** Noise frequency for coastal variation (lower = larger zones of similar steepness) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.2", ClampMax = "5.0", Tooltip = "Frequency of the noise that drives coastal variation. Lower values create a few large zones of similar steepness (e.g. one steep side, one gentle side). Higher values create more frequent changes around the shoreline."))
