@@ -161,7 +161,7 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 	// coastline becomes strong cliffs, and at most MaxCliffCoverage (so every
 	// landmass retains accessible beaches).
 	// BeachFactor = VarNoise * 0.5 + 0.5 + Bias.  Lower BeachFactor → more cliff.
-	// We want the fraction of coastal pixels with BeachFactor < CliffBeachThreshold (0.15)
+	// We want the fraction of coastal pixels with BeachFactor < CliffBeachThreshold (0.35)
 	// to be >= MinCliffCoverage and <= MaxCliffCoverage.
 
 	float NoiseBias = 0.0f;
@@ -188,9 +188,9 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 			// Sort ascending: lower noise → lower BeachFactor → more cliff-like
 			CoastalNoiseValues.Sort();
 
-			// The BeachFactor threshold for a strong cliff: at 0.15, the gradient
-			// width is very close to the 2px cliff width, producing tall vertical faces.
-			constexpr float CliffBeachThreshold = 0.15f;
+			// The BeachFactor threshold that separates cliff (CliffFactor > 0)
+			// from beach (CliffFactor = 0).  Must match BeachCutoff in Pass 2.
+			constexpr float CliffBeachThreshold = 0.35f;
 
 			// --- Minimum cliff bias (shift toward more cliffs) ---
 			float MinBias = 0.0f;
@@ -229,6 +229,10 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 	}
 
 	// --- Pass 2: compute BaseElevation and CliffFactor with bias ---
+	// BeachFactor threshold: above this → CliffFactor = 0 (true sea-level beach).
+	// Must match CliffBeachThreshold used in Pass 1 bias computation.
+	constexpr float BeachCutoff = 0.35f;
+
 	for (int32 i = 0; i < TotalPixels; ++i)
 	{
 		if (LandMask[i] == 0)
@@ -249,7 +253,7 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 			// Sample low-frequency noise for this position, returns ~[-1, 1]
 			const float VarNoise = WorldNoise::FBM(NormX * CoastalVarFreq, NormY * CoastalVarFreq, 2, 0.5f, CoastalVarSeed);
 			// Map noise [-1,1] → beach factor [0,1]: 0 = cliff zone, 1 = beach zone
-			// NoiseBias shifts the distribution to guarantee MinCliffCoverage
+			// NoiseBias shifts the distribution to guarantee Min/MaxCliffCoverage
 			const float BeachFactor = FMath::Clamp(VarNoise * 0.5f + 0.5f + NoiseBias, 0.0f, 1.0f);
 			// The narrowest possible width at this CoastalVariation level:
 			// CoastalVar=0 → MinWidth = GradWidth (no variation at all)
@@ -257,10 +261,11 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 			const float MinWidth = FMath::Lerp(GradWidth, CliffGradWidth, CoastalVar);
 			// Lerp between cliff (MinWidth) and beach (GradWidth)
 			LocalGradWidth = FMath::Lerp(MinWidth, GradWidth, BeachFactor);
-			// How "cliffy" is this pixel? 0 = beach, 1 = full cliff
-			LocalCliffFactor = 1.0f - FMath::Clamp(
-				(LocalGradWidth - CliffGradWidth) / FMath::Max(GradWidth - CliffGradWidth, 1.0f),
-				0.0f, 1.0f);
+			// Sharp cliff/beach cutoff: once BeachFactor exceeds BeachCutoff,
+			// CliffFactor goes to exactly 0 → no cliff floor, no mountain/hill
+			// coast bypass.  This ensures beaches are truly at sea level.
+			// Below BeachCutoff, CliffFactor ramps linearly to 1.
+			LocalCliffFactor = FMath::Clamp(1.0f - BeachFactor / BeachCutoff, 0.0f, 1.0f);
 		}
 		CliffFactor[i] = LocalCliffFactor;
 

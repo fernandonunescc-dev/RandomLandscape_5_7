@@ -180,8 +180,8 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 	float MinCliffCoverage = 0.3f;
 
 	/** Maximum fraction of each landmass's coastline that can be cliffs (remainder stays as beach entry points) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Caps cliff coverage so every landmass retains accessible beaches. If noise produces more cliffs than this limit, the threshold is shifted to preserve beach zones. At 0.85, at least 15%% of every coastline will be gentle beach — guaranteeing a boat landing point even on rough islands."))
-	float MaxCliffCoverage = 0.85f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Caps cliff coverage so every landmass retains accessible beaches. If noise produces more cliffs than this limit, the threshold is shifted to preserve beach zones. At 0.7, at least 30%% of every coastline will be gentle beach at sea level — guaranteeing a boat landing point even on rough islands."))
+	float MaxCliffCoverage = 0.7f;
 
 	/** Noise frequency for coastal variation (lower = larger zones of similar steepness) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.2", ClampMax = "5.0", Tooltip = "Frequency of the noise that drives coastal variation. Lower values create a few large zones of similar steepness (e.g. one steep side, one gentle side). Higher values create more frequent changes around the shoreline."))
