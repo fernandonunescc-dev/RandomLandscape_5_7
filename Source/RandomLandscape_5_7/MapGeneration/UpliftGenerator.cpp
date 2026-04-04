@@ -35,6 +35,7 @@ bool UUpliftGenerator::Generate(const TArray<uint8>& LandMask)
 	BaseElevation.SetNum(TotalPixels);
 	UpliftMap.SetNum(TotalPixels);
 	CombinedElevation.SetNum(TotalPixels);
+	CliffFactor.SetNum(TotalPixels);
 	PlateauMap.SetNum(TotalPixels);
 	CoastlineDistance.Empty();
 	VolcanicCenters.Empty();
@@ -145,11 +146,16 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 	// The narrowest gradient (cliff): elevation jumps from 0 to full within 2 pixels
 	constexpr float CliffGradWidth = 2.0f;
 
+	// Cliff floor: in cliff zones, ALL land pixels start at this minimum elevation.
+	// This creates an actual vertical cliff face (ocean=0, first land pixel=high).
+	const float CliffFloor = FMath::Clamp(Settings.CliffFloorHeight, 0.0f, 1.0f);
+
 	for (int32 i = 0; i < TotalPixels; ++i)
 	{
 		if (LandMask[i] == 0)
 		{
 			BaseElevation[i] = 0.0f;
+			CliffFactor[i] = 0.0f;
 			continue;
 		}
 
@@ -158,6 +164,7 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 
 		// Per-pixel gradient width: noise determines cliff vs beach zones
 		float LocalGradWidth = GradWidth;
+		float LocalCliffFactor = 0.0f;
 		if (CoastalVar > 0.0f)
 		{
 			// Sample low-frequency noise for this position, returns ~[-1, 1]
@@ -170,11 +177,20 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 			const float MinWidth = FMath::Lerp(GradWidth, CliffGradWidth, CoastalVar);
 			// Lerp between cliff (MinWidth) and beach (GradWidth)
 			LocalGradWidth = FMath::Lerp(MinWidth, GradWidth, BeachFactor);
+			// How "cliffy" is this pixel? 0 = beach, 1 = full cliff
+			LocalCliffFactor = 1.0f - FMath::Clamp(
+				(LocalGradWidth - CliffGradWidth) / FMath::Max(GradWidth - CliffGradWidth, 1.0f),
+				0.0f, 1.0f);
 		}
+		CliffFactor[i] = LocalCliffFactor;
 
 		// Coastal transition: smoothstep for natural falloff instead of linear
 		const float T = FMath::Clamp(CoastlineDistance[i] / LocalGradWidth, 0.0f, 1.0f);
 		const float CoastFade = T * T * (3.0f - 2.0f * T);
+
+		// In cliff zones, enforce a minimum elevation for ANY land pixel.
+		// This creates the dramatic step: ocean=0, first land pixel=high.
+		const float EffectiveCoastFade = FMath::Max(CoastFade, LocalCliffFactor * CliffFloor);
 
 		// Modulate with FBM noise
 		const float Noise = WorldNoise::FBM(NormX * Freq, NormY * Freq, Octaves, Persist, Seed);
@@ -183,7 +199,7 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 		// collapse to zero (0.2 floor) while inland areas get full modulation.
 		const float NoiseMod = FMath::Clamp(0.5f + 0.5f * Noise, 0.2f, 1.0f);
 
-		BaseElevation[i] = CoastFade * NoiseMod;
+		BaseElevation[i] = EffectiveCoastFade * NoiseMod;
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator – BaseElevation generated (gradient width %d, coastal variation %.2f)"),
@@ -232,8 +248,10 @@ void UUpliftGenerator::GenerateUpliftMap(const TArray<uint8>& LandMask)
 
 		// Thin coastal margin: smoothstep fade within MountainCoastMargin pixels
 		// of the shore.  Beyond the margin, mountains are at full strength.
+		// In cliff zones, bypass the margin so mountains contribute at the cliff edge.
 		const float D = FMath::Clamp(CoastlineDistance[i] / MountainCoastMargin, 0.0f, 1.0f);
-		const float CoastFade = D * D * (3.0f - 2.0f * D);
+		const float MarginFade = D * D * (3.0f - 2.0f * D);
+		const float CoastFade = FMath::Max(MarginFade, CliffFactor[i]);
 		UpliftMap[i] = Ridge * CoastFade;
 	}
 
@@ -394,9 +412,11 @@ void UUpliftGenerator::GenerateHills(const TArray<uint8>& LandMask)
 		// Remap [-1,1] → [0,1] then scale by amplitude
 		Hill = (Hill * 0.5f + 0.5f) * Amplitude;
 
-		// Thin coastal fade so hills can appear anywhere except right at shore
+		// Thin coastal fade so hills can appear anywhere except right at shore.
+		// In cliff zones, bypass the margin so hills contribute at the cliff edge.
 		const float D = FMath::Clamp(CoastlineDistance[i] / HillCoastMargin, 0.0f, 1.0f);
-		const float CoastFade = D * D * (3.0f - 2.0f * D);
+		const float MarginFade = D * D * (3.0f - 2.0f * D);
+		const float CoastFade = FMath::Max(MarginFade, CliffFactor[i]);
 
 		UpliftMap[i] += Hill * CoastFade;
 		UpliftMap[i] = FMath::Clamp(UpliftMap[i], 0.0f, 1.0f);

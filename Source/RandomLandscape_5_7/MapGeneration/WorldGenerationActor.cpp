@@ -1126,6 +1126,9 @@ void AWorldGenerationActor::ApplyTerrainRoughness(float Roughness)
 	// Coastal variation: rougher terrain produces more dramatic cliffs at the shore
 	UpliftSettings.CoastalVariation = FMath::Lerp(0.5f, 1.0f, Roughness);
 
+	// Cliff floor height: rougher terrain gets taller cliff faces
+	UpliftSettings.CliffFloorHeight = FMath::Lerp(0.4f, 0.8f, Roughness);
+
 	// Mountain coverage: rough terrain lets mountains extend closer to coast
 	UpliftSettings.MountainCoverage = FMath::Lerp(0.5f, 1.8f, Roughness);
 
