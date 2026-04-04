@@ -113,6 +113,11 @@ void AVoxelWorldActor::BuildChunkMeshes(UVoxelGenerator* Generator)
 			MeshData.Vertices, MeshData.Triangles, MeshData.Normals,
 			MeshData.UVs, MeshData.VertexColors, Tangents, true);
 
+		if (VoxelMaterial)
+		{
+			ChunkMesh->SetMaterial(0, VoxelMaterial);
+		}
+
 		ChunkMeshes.Add(ChunkMesh);
 
 		TotalVertices += MeshData.Vertices.Num();
@@ -316,7 +321,8 @@ void AVoxelWorldActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyCha
 	// Regenerate on any relevant property change
 	if (MemberName == GET_MEMBER_NAME_CHECKED(AVoxelWorldActor, GlobalSeed)
 		|| MemberName == GET_MEMBER_NAME_CHECKED(AVoxelWorldActor, VoxelSettings)
-		|| MemberName == GET_MEMBER_NAME_CHECKED(AVoxelWorldActor, IsoLevel))
+		|| MemberName == GET_MEMBER_NAME_CHECKED(AVoxelWorldActor, IsoLevel)
+		|| MemberName == GET_MEMBER_NAME_CHECKED(AVoxelWorldActor, VoxelMaterial))
 	{
 		GenerateVoxelWorld();
 	}

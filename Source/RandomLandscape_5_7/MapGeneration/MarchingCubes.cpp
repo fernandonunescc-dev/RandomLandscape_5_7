@@ -43,12 +43,14 @@ void FMarchingCubes::Extract(const FVoxelChunk& Chunk, float VoxelSize, float Is
 		static_cast<float>(Chunk.ChunkCoord.Y) * Res * VoxelSize,
 		static_cast<float>(Chunk.ChunkCoord.Z) * Res * VoxelSize);
 
-	// Iterate over all cubes (each cube is 2×2×2 corner samples)
-	for (int32 Z = 0; Z < Res - 1; ++Z)
+	// Iterate over all cubes (each cube is 2×2×2 corner samples).
+	// Thanks to the (Res+1)³ padded density storage, we iterate the full Res cubes
+	// per axis, eliminating 1-voxel seams between chunks.
+	for (int32 Z = 0; Z < Res; ++Z)
 	{
-		for (int32 Y = 0; Y < Res - 1; ++Y)
+		for (int32 Y = 0; Y < Res; ++Y)
 		{
-			for (int32 X = 0; X < Res - 1; ++X)
+			for (int32 X = 0; X < Res; ++X)
 			{
 				// 8 corner positions and density values
 				FVector Corners[8];
@@ -132,7 +134,7 @@ void FMarchingCubes::Extract(const FVoxelChunk& Chunk, float VoxelSize, float Is
 				default: break;
 				}
 
-				// Emit triangles
+				// Emit triangles (winding reversed for UE5 left-handed coordinates)
 				for (int32 i = 0; TriTable[CubeIndex][i] != -1; i += 3)
 				{
 					const int32 BaseVertex = OutMesh.Vertices.Num();
@@ -147,9 +149,11 @@ void FMarchingCubes::Extract(const FVoxelChunk& Chunk, float VoxelSize, float Is
 						OutMesh.UVs.Add(FVector2D(V.X / (VoxelSize * 32.0f), V.Y / (VoxelSize * 32.0f)));
 					}
 
+					// Swap winding: standard MC tables assume right-handed coords;
+					// UE5 is left-handed, so reverse triangle winding for correct outward normals.
 					OutMesh.Triangles.Add(BaseVertex);
-					OutMesh.Triangles.Add(BaseVertex + 1);
 					OutMesh.Triangles.Add(BaseVertex + 2);
+					OutMesh.Triangles.Add(BaseVertex + 1);
 				}
 			}
 		}

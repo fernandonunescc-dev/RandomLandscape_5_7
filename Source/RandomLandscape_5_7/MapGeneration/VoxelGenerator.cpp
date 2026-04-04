@@ -116,6 +116,9 @@ void UVoxelGenerator::FillChunkDensity(FVoxelChunk& Chunk)
 	const int32 BaseVY = Chunk.ChunkCoord.Y * Res;
 	const int32 BaseVZ = Chunk.ChunkCoord.Z * Res;
 
+	// Padded size: Res+1 to include boundary voxels from neighboring chunks
+	const int32 Padded = Res + 1;
+
 	// Pre-generate 3D cave noise for this chunk if 3D features enabled
 	TArray<float> CaveNoise;
 	if (Settings.bEnable3DFeatures && Settings.CaveStrength > 0.0f)
@@ -123,15 +126,20 @@ void UVoxelGenerator::FillChunkDensity(FVoxelChunk& Chunk)
 		auto CaveGen = FN2::MakeFBM(Settings.CaveOctaves, 0.5f);
 		FN2::GenGrid3D(CaveGen, CaveNoise,
 			BaseVX, BaseVY, BaseVZ,
-			Res, Res, Res,
+			Padded, Padded, Padded,
 			Settings.CaveFrequency, Seed + 5000);
 	}
 
-	for (int32 Z = 0; Z < Res; ++Z)
+	// Cave carve radius in voxels — scales with chunk resolution, not total world height.
+	// This prevents deep-underground chunks from being over-carved into empty space.
+	const float CaveRadiusVoxels = Settings.CaveStrength * static_cast<float>(Res);
+
+	// Fill density for (Res+1)³ voxels (includes 1-voxel padding for seamless MC)
+	for (int32 Z = 0; Z < Padded; ++Z)
 	{
-		for (int32 Y = 0; Y < Res; ++Y)
+		for (int32 Y = 0; Y < Padded; ++Y)
 		{
-			for (int32 X = 0; X < Res; ++X)
+			for (int32 X = 0; X < Padded; ++X)
 			{
 				const int32 WorldVX = BaseVX + X;
 				const int32 WorldVY = BaseVY + Y;
@@ -151,17 +159,18 @@ void UVoxelGenerator::FillChunkDensity(FVoxelChunk& Chunk)
 				// Apply 3D cave carving
 				if (CaveNoise.Num() > 0)
 				{
-					const int32 LocalIdx = Z * Res * Res + Y * Res + X;
+					const int32 LocalIdx = Z * Padded * Padded + Y * Padded + X;
 					const float Cave = CaveNoise[LocalIdx];
 
 					// Only carve caves below the surface (with minimum depth buffer)
 					const float DepthBelowSurface = SurfaceHeight - NormZ;
 					if (DepthBelowSurface > Settings.CaveMinDepth)
 					{
-						// Cave carving: where cave noise exceeds threshold, reduce density
+						// Cave carving: where cave noise exceeds threshold, reduce density.
+						// CarveAmount is bounded by CaveRadiusVoxels so deep rock stays solid.
 						if (Cave > Settings.CaveThreshold)
 						{
-							const float CarveAmount = (Cave - Settings.CaveThreshold) * Settings.CaveStrength * static_cast<float>(TotalVoxelsZ);
+							const float CarveAmount = (Cave - Settings.CaveThreshold) * CaveRadiusVoxels;
 							Density -= CarveAmount;
 						}
 					}
@@ -179,15 +188,16 @@ void UVoxelGenerator::FillChunkDensity(FVoxelChunk& Chunk)
 void UVoxelGenerator::AssignChunkMaterials(FVoxelChunk& Chunk)
 {
 	const int32 Res = Chunk.Resolution;
+	const int32 Padded = Res + 1;
 	const int32 BaseVX = Chunk.ChunkCoord.X * Res;
 	const int32 BaseVY = Chunk.ChunkCoord.Y * Res;
 	const int32 BaseVZ = Chunk.ChunkCoord.Z * Res;
 
-	for (int32 Z = 0; Z < Res; ++Z)
+	for (int32 Z = 0; Z < Padded; ++Z)
 	{
-		for (int32 Y = 0; Y < Res; ++Y)
+		for (int32 Y = 0; Y < Padded; ++Y)
 		{
-			for (int32 X = 0; X < Res; ++X)
+			for (int32 X = 0; X < Padded; ++X)
 			{
 				const float D = Chunk.GetDensity(X, Y, Z);
 

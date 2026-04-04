@@ -44,7 +44,9 @@ struct RANDOMLANDSCAPE_5_7_API FVoxelChunk
 	/** Voxels per axis in this chunk. */
 	int32 Resolution = 0;
 
-	/** Flat array of density values: Index = Z * Res*Res + Y * Res + X.
+	/** Flat array of density values: Index = Z * P*P + Y * P + X, where P = Resolution + 1.
+	 *  Stores (Resolution+1)³ values to include a 1-voxel padding layer for seamless
+	 *  Marching Cubes extraction across chunk boundaries.
 	 *  Positive = solid, Negative/zero = air. */
 	TArray<float> Density;
 
@@ -61,7 +63,8 @@ struct RANDOMLANDSCAPE_5_7_API FVoxelChunk
 	{
 		ChunkCoord = InCoord;
 		Resolution = InResolution;
-		const int32 Total = Resolution * Resolution * Resolution;
+		const int32 Padded = Resolution + 1;
+		const int32 Total = Padded * Padded * Padded;
 		Density.SetNumZeroed(Total);
 		Materials.SetNumZeroed(Total);
 		bIsEmpty = true;
@@ -70,7 +73,8 @@ struct RANDOMLANDSCAPE_5_7_API FVoxelChunk
 
 	FORCEINLINE int32 Index(int32 X, int32 Y, int32 Z) const
 	{
-		return Z * Resolution * Resolution + Y * Resolution + X;
+		const int32 P = Resolution + 1;
+		return Z * P * P + Y * P + X;
 	}
 
 	FORCEINLINE float GetDensity(int32 X, int32 Y, int32 Z) const

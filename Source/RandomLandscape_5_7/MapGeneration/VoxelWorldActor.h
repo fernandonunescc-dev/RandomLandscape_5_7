@@ -42,6 +42,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel|Mesh", meta = (ClampMin = "-1.0", ClampMax = "1.0"))
 	float IsoLevel = 0.0f;
 
+	/** Material applied to chunk meshes. Use a material that reads Vertex Color for biome-colored terrain. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel|Mesh")
+	TObjectPtr<UMaterialInterface> VoxelMaterial = nullptr;
+
 	/** Auto-regenerate when properties change in the editor. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel|Settings")
 	bool bAutoRegenerate = false;
