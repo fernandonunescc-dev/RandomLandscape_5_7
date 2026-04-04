@@ -696,6 +696,138 @@ void ULandmassGenerator::GenerateLandMask()
 		}
 	}
 
+	// ===== PASS 4b: Remove small ocean holes =====
+	// Even when bFillEnclosedHoles is false (preserving large interior seas),
+	// tiny ocean pockets inside land look like artifacts.  Flood-fill every
+	// enclosed ocean region; any smaller than MinOceanHoleSize is filled as land.
+	if (Settings.MinOceanHoleSize > 0 && !Settings.bFillEnclosedHoles)
+	{
+		// First, mark all ocean pixels reachable from the canvas border
+		// (the "true" ocean).  These are never candidates for removal.
+		TArray<uint8> ReachableFromEdge;
+		ReachableFromEdge.SetNumZeroed(TotalPixels);
+
+		TArray<int32> Queue;
+		Queue.Reserve(TotalPixels / 4);
+
+		const int32 DX[4] = { 1, -1, 0, 0 };
+		const int32 DY[4] = { 0, 0, 1, -1 };
+
+		// Seed from border ocean pixels
+		for (int32 X = 0; X < Width; ++X)
+		{
+			for (int32 EdgeY : { 0, Height - 1 })
+			{
+				int32 Idx = EdgeY * Width + X;
+				if (LandMask[Idx] == 0 && ReachableFromEdge[Idx] == 0)
+				{
+					ReachableFromEdge[Idx] = 1;
+					Queue.Add(Idx);
+				}
+			}
+		}
+		for (int32 Y = 1; Y < Height - 1; ++Y)
+		{
+			for (int32 EdgeX : { 0, Width - 1 })
+			{
+				int32 Idx = Y * Width + EdgeX;
+				if (LandMask[Idx] == 0 && ReachableFromEdge[Idx] == 0)
+				{
+					ReachableFromEdge[Idx] = 1;
+					Queue.Add(Idx);
+				}
+			}
+		}
+
+		while (Queue.Num() > 0)
+		{
+			int32 Cur = Queue.Pop(EAllowShrinking::No);
+			int32 CX = Cur % Width;
+			int32 CY = Cur / Width;
+			for (int32 D = 0; D < 4; ++D)
+			{
+				int32 NX = CX + DX[D];
+				int32 NY = CY + DY[D];
+				if (NX < 0 || NX >= Width || NY < 0 || NY >= Height) continue;
+				int32 NI = NY * Width + NX;
+				if (LandMask[NI] == 0 && ReachableFromEdge[NI] == 0)
+				{
+					ReachableFromEdge[NI] = 1;
+					Queue.Add(NI);
+				}
+			}
+		}
+
+		// Now flood-fill each enclosed ocean region (not reachable from edge).
+		// If the region is smaller than MinOceanHoleSize, fill it as land.
+		TArray<uint8> Visited;
+		Visited.SetNumZeroed(TotalPixels);
+
+		int32 SmallHolesFilled = 0;
+
+		for (int32 SeedIdx = 0; SeedIdx < TotalPixels; ++SeedIdx)
+		{
+			if (LandMask[SeedIdx] != 0 || ReachableFromEdge[SeedIdx] != 0 || Visited[SeedIdx] != 0)
+				continue;
+
+			// Flood-fill this enclosed ocean region
+			TArray<int32> Region;
+			Region.Reserve(256);
+			Queue.Reset();
+			Queue.Add(SeedIdx);
+			Visited[SeedIdx] = 1;
+
+			while (Queue.Num() > 0)
+			{
+				int32 Cur = Queue.Pop(EAllowShrinking::No);
+				Region.Add(Cur);
+				int32 CX = Cur % Width;
+				int32 CY = Cur / Width;
+				for (int32 D = 0; D < 4; ++D)
+				{
+					int32 NX = CX + DX[D];
+					int32 NY = CY + DY[D];
+					if (NX < 0 || NX >= Width || NY < 0 || NY >= Height) continue;
+					int32 NI = NY * Width + NX;
+					if (LandMask[NI] == 0 && ReachableFromEdge[NI] == 0 && Visited[NI] == 0)
+					{
+						Visited[NI] = 1;
+						Queue.Add(NI);
+					}
+				}
+			}
+
+			// Fill small regions
+			if (Region.Num() < Settings.MinOceanHoleSize)
+			{
+				for (int32 Idx : Region)
+				{
+					LandMask[Idx] = 1;
+				}
+				SmallHolesFilled += Region.Num();
+			}
+		}
+
+		if (SmallHolesFilled > 0)
+		{
+			// Rebuild LandPixels
+			LandPixels.Reset();
+			for (int32 Y = 0; Y < Height; ++Y)
+			{
+				for (int32 X = 0; X < Width; ++X)
+				{
+					int32 Index = Y * Width + X;
+					if (LandMask[Index] != 0)
+					{
+						LandPixels.Add(FIntPoint(X, Y));
+					}
+				}
+			}
+			UE_LOG(LogTemp, Log, TEXT("Removed %d small ocean hole pixels (min size %d)"),
+				SmallHolesFilled, Settings.MinOceanHoleSize);
+		}
+	}
+
 	// ===== PASS 5: Minimal 1-pixel safety border =====
 	// Since land grows freely with no rectangular constraints, we only
 	// enforce that the outermost pixel ring is always ocean.  This prevents

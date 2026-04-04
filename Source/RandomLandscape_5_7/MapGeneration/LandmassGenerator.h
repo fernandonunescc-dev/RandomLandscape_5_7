@@ -125,6 +125,15 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Post-Processing")
 	bool bFillEnclosedHoles = false;
 
+	/**
+	 * Minimum size (in pixels) for an enclosed ocean hole to be kept.
+	 * Ocean holes smaller than this are filled in as land, preventing
+	 * tiny blue specks inside islands.  Set to 0 to disable.
+	 * Applied even when bFillEnclosedHoles is false.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Post-Processing", meta = (ClampMin = "0", ClampMax = "10000"))
+	int32 MinOceanHoleSize = 100;
+
 	// === Edge Margin Settings ===
 
 	/**
