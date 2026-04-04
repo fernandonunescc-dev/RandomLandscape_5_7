@@ -130,9 +130,9 @@ void UVoxelGenerator::FillChunkDensity(FVoxelChunk& Chunk)
 			Settings.CaveFrequency, Seed + 5000);
 	}
 
-	// Cave carve radius in voxels — scales with chunk resolution, not total world height.
-	// This prevents deep-underground chunks from being over-carved into empty space.
-	const float CaveRadiusVoxels = Settings.CaveStrength * static_cast<float>(Res);
+	// Maximum cave carving magnitude in voxels — scales with chunk resolution, not total
+	// world height.  This prevents deep-underground chunks from being over-carved.
+	const float CaveCarveScale = Settings.CaveStrength * static_cast<float>(Res);
 
 	// Fill density for (Res+1)³ voxels (includes 1-voxel padding for seamless MC)
 	for (int32 Z = 0; Z < Padded; ++Z)
@@ -170,7 +170,7 @@ void UVoxelGenerator::FillChunkDensity(FVoxelChunk& Chunk)
 						// CarveAmount is bounded by CaveRadiusVoxels so deep rock stays solid.
 						if (Cave > Settings.CaveThreshold)
 						{
-							const float CarveAmount = (Cave - Settings.CaveThreshold) * CaveRadiusVoxels;
+							const float CarveAmount = (Cave - Settings.CaveThreshold) * CaveCarveScale;
 							Density -= CarveAmount;
 						}
 					}
