@@ -6,11 +6,6 @@
 
 #include "CoreMinimal.h"
 #include "BiomeTypes.h"
-
-THIRD_PARTY_INCLUDES_START
-#include "FastNoise/FastNoise.h"
-THIRD_PARTY_INCLUDES_END
-
 #include "LandmassGenerator.generated.h"
 
 class UTexture2D;
@@ -333,10 +328,6 @@ protected:
 
 	/** List of all land pixel coordinates */
 	TArray<FIntPoint> LandPixels;
-
-	/** Pre-built FN2 Simplex node for thread-safe per-sample noise queries.
-	 *  Built once in Initialize(), then read-only from ParallelFor workers. */
-	FastNoise::SmartNode<FastNoise::Generator> SimplexNode;
 
 	/** Black/white preview texture */
 	UPROPERTY()
