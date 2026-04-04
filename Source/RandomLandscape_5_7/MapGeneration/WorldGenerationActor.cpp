@@ -1132,6 +1132,9 @@ void AWorldGenerationActor::ApplyTerrainRoughness(float Roughness)
 	// Minimum cliff coverage: always guarantee at least 30% cliffs
 	UpliftSettings.MinCliffCoverage = 0.3f;
 
+	// Maximum cliff coverage: ensure every landmass has accessible beaches
+	UpliftSettings.MaxCliffCoverage = 0.85f;
+
 	// Mountain coverage: rough terrain lets mountains extend closer to coast
 	UpliftSettings.MountainCoverage = FMath::Lerp(0.5f, 1.8f, Roughness);
 

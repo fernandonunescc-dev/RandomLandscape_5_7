@@ -151,20 +151,22 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 	// This creates an actual vertical cliff face (ocean=0, first land pixel=high).
 	const float CliffFloor = FMath::Clamp(Settings.CliffFloorHeight, 0.0f, 1.0f);
 
-	// Minimum cliff coverage guarantee
+	// Minimum and maximum cliff coverage guarantees
 	const float MinCliffCoverage = FMath::Clamp(Settings.MinCliffCoverage, 0.0f, 1.0f);
+	const float MaxCliffCoverage = FMath::Clamp(Settings.MaxCliffCoverage, 0.0f, 1.0f);
 
 	// --- Pass 1: collect coastal variation noise for coastal pixels ---
 	// We sample VarNoise for all coastal land pixels (CoastlineDistance <= 1.5)
 	// to determine a bias that guarantees at least MinCliffCoverage of the
-	// coastline becomes strong cliffs.
+	// coastline becomes strong cliffs, and at most MaxCliffCoverage (so every
+	// landmass retains accessible beaches).
 	// BeachFactor = VarNoise * 0.5 + 0.5 + Bias.  Lower BeachFactor → more cliff.
 	// We want the fraction of coastal pixels with BeachFactor < CliffBeachThreshold (0.15)
-	// to be >= MinCliffCoverage.
+	// to be >= MinCliffCoverage and <= MaxCliffCoverage.
 
 	float NoiseBias = 0.0f;
 
-	if (CoastalVar > 0.0f && MinCliffCoverage > 0.0f)
+	if (CoastalVar > 0.0f && (MinCliffCoverage > 0.0f || MaxCliffCoverage < 1.0f))
 	{
 		TArray<float> CoastalNoiseValues;
 		CoastalNoiseValues.Reserve(Resolution * 4); // rough estimate for coastal perimeter
@@ -186,25 +188,43 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 			// Sort ascending: lower noise → lower BeachFactor → more cliff-like
 			CoastalNoiseValues.Sort();
 
-			// We want MinCliffCoverage fraction of coastal pixels to be in
-			// strong cliff territory (BeachFactor ≈ 0 → narrow gradient).
 			// The BeachFactor threshold for a strong cliff: at 0.15, the gradient
-			// width is very close to the 2px cliff width, producing tall vertical
-			// faces.  We compute the bias that pushes MinCliffCoverage fraction
-			// of pixels below this threshold.
+			// width is very close to the 2px cliff width, producing tall vertical faces.
 			constexpr float CliffBeachThreshold = 0.15f;
 
-			const int32 TargetIdx = FMath::Clamp(
-				FMath::FloorToInt32(MinCliffCoverage * CoastalNoiseValues.Num()),
-				0, CoastalNoiseValues.Num() - 1);
+			// --- Minimum cliff bias (shift toward more cliffs) ---
+			float MinBias = 0.0f;
+			if (MinCliffCoverage > 0.0f)
+			{
+				const int32 MinTargetIdx = FMath::Clamp(
+					FMath::FloorToInt32(MinCliffCoverage * CoastalNoiseValues.Num()),
+					0, CoastalNoiseValues.Num() - 1);
+				// BeachFactor = Noise*0.5 + 0.5 + Bias = CliffBeachThreshold
+				const float NoiseAtMin = CoastalNoiseValues[MinTargetIdx];
+				MinBias = CliffBeachThreshold - NoiseAtMin * 0.5f - 0.5f;
+				// Only apply negative bias (shift toward more cliffs)
+				MinBias = FMath::Min(MinBias, 0.0f);
+			}
 
-			// For pixel at TargetIdx:
-			// BeachFactor = NoiseAtPercentile * 0.5 + 0.5 + Bias = CliffBeachThreshold
-			// → Bias = CliffBeachThreshold - NoiseAtPercentile * 0.5 - 0.5
-			const float NoiseAtPercentile = CoastalNoiseValues[TargetIdx];
-			const float RequiredBias = CliffBeachThreshold - NoiseAtPercentile * 0.5f - 0.5f;
-			// Only apply a negative bias (shift toward more cliffs), never reduce cliffs
-			NoiseBias = FMath::Min(RequiredBias, 0.0f);
+			// --- Maximum cliff bias (shift toward more beaches) ---
+			float MaxBias = 0.0f;
+			if (MaxCliffCoverage < 1.0f)
+			{
+				const int32 MaxTargetIdx = FMath::Clamp(
+					FMath::FloorToInt32(MaxCliffCoverage * CoastalNoiseValues.Num()),
+					0, CoastalNoiseValues.Num() - 1);
+				// We want at most MaxCliffCoverage fraction below threshold
+				// So pixel at MaxTargetIdx should have BeachFactor = CliffBeachThreshold
+				const float NoiseAtMax = CoastalNoiseValues[MaxTargetIdx];
+				MaxBias = CliffBeachThreshold - NoiseAtMax * 0.5f - 0.5f;
+				// Only apply positive bias (shift toward more beaches)
+				MaxBias = FMath::Max(MaxBias, 0.0f);
+			}
+
+			// If both constraints apply, MaxBias (positive) wins over MinBias (negative)
+			// because we must always guarantee at least some beach.
+			// When only one constraint is active, the other is 0 and doesn't interfere.
+			NoiseBias = (MaxBias > 0.0f) ? MaxBias : MinBias;
 		}
 	}
 
