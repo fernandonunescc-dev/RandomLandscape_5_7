@@ -120,6 +120,7 @@ void UUpliftGenerator::ComputeCoastlineDistance(const TArray<uint8>& LandMask, T
 //      sides of the island can have steep cliffs or gentle beaches.
 //   2. Modulate with FBM noise to break up uniformity
 //   3. Ocean pixels = 0
+//   4. MinCliffCoverage guarantee: bias noise so at least N% of coast is cliffs
 //------------------------------------------------------------------------------
 void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 {
@@ -150,6 +151,63 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 	// This creates an actual vertical cliff face (ocean=0, first land pixel=high).
 	const float CliffFloor = FMath::Clamp(Settings.CliffFloorHeight, 0.0f, 1.0f);
 
+	// Minimum cliff coverage guarantee
+	const float MinCliffCoverage = FMath::Clamp(Settings.MinCliffCoverage, 0.0f, 1.0f);
+
+	// --- Pass 1: collect coastal variation noise for coastal pixels ---
+	// We sample VarNoise for all coastal land pixels (CoastlineDistance == 1)
+	// to determine a bias that guarantees at least MinCliffCoverage of the
+	// coastline becomes cliffs.
+	// BeachFactor = VarNoise * 0.5 + 0.5 + Bias.  Lower BeachFactor → more cliff.
+	// We want the fraction of coastal pixels with BeachFactor < 0.5 to be >= MinCliffCoverage.
+
+	float NoiseBias = 0.0f;
+
+	if (CoastalVar > 0.0f && MinCliffCoverage > 0.0f)
+	{
+		TArray<float> CoastalNoiseValues;
+		CoastalNoiseValues.Reserve(Resolution * 4); // rough estimate for coastal perimeter
+
+		for (int32 i = 0; i < TotalPixels; ++i)
+		{
+			// Coastal pixels: land pixels immediately adjacent to ocean
+			if (LandMask[i] != 0 && CoastlineDistance[i] <= 1.5f)
+			{
+				const float NormX = static_cast<float>(i % Resolution) * InvRes;
+				const float NormY = static_cast<float>(i / Resolution) * InvRes;
+				const float VarNoise = WorldNoise::FBM(NormX * CoastalVarFreq, NormY * CoastalVarFreq, 2, 0.5f, CoastalVarSeed);
+				CoastalNoiseValues.Add(VarNoise);
+			}
+		}
+
+		if (CoastalNoiseValues.Num() > 0)
+		{
+			// Sort ascending: lower noise → lower BeachFactor → more cliff-like
+			CoastalNoiseValues.Sort();
+
+			// We want MinCliffCoverage fraction of coastal pixels to be in
+			// strong cliff territory (BeachFactor ≈ 0 → narrow gradient).
+			// The BeachFactor threshold for a strong cliff: at 0.15, the gradient
+			// width is very close to the 2px cliff width, producing tall vertical
+			// faces.  We compute the bias that pushes MinCliffCoverage fraction
+			// of pixels below this threshold.
+			constexpr float CliffBeachThreshold = 0.15f;
+
+			const int32 TargetIdx = FMath::Clamp(
+				FMath::FloorToInt32(MinCliffCoverage * CoastalNoiseValues.Num()),
+				0, CoastalNoiseValues.Num() - 1);
+
+			// For pixel at TargetIdx:
+			// BeachFactor = NoiseAtPercentile * 0.5 + 0.5 + Bias = CliffBeachThreshold
+			// → Bias = CliffBeachThreshold - NoiseAtPercentile * 0.5 - 0.5
+			const float NoiseAtPercentile = CoastalNoiseValues[TargetIdx];
+			const float RequiredBias = CliffBeachThreshold - NoiseAtPercentile * 0.5f - 0.5f;
+			// Only apply a negative bias (shift toward more cliffs), never reduce cliffs
+			NoiseBias = FMath::Min(RequiredBias, 0.0f);
+		}
+	}
+
+	// --- Pass 2: compute BaseElevation and CliffFactor with bias ---
 	for (int32 i = 0; i < TotalPixels; ++i)
 	{
 		if (LandMask[i] == 0)
@@ -170,7 +228,8 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 			// Sample low-frequency noise for this position, returns ~[-1, 1]
 			const float VarNoise = WorldNoise::FBM(NormX * CoastalVarFreq, NormY * CoastalVarFreq, 2, 0.5f, CoastalVarSeed);
 			// Map noise [-1,1] → beach factor [0,1]: 0 = cliff zone, 1 = beach zone
-			const float BeachFactor = VarNoise * 0.5f + 0.5f;
+			// NoiseBias shifts the distribution to guarantee MinCliffCoverage
+			const float BeachFactor = FMath::Clamp(VarNoise * 0.5f + 0.5f + NoiseBias, 0.0f, 1.0f);
 			// The narrowest possible width at this CoastalVariation level:
 			// CoastalVar=0 → MinWidth = GradWidth (no variation at all)
 			// CoastalVar=1 → MinWidth = CliffGradWidth (full cliff)
@@ -202,8 +261,8 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 		BaseElevation[i] = EffectiveCoastFade * NoiseMod;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator – BaseElevation generated (gradient width %d, coastal variation %.2f)"),
-		Settings.CoastlineGradientWidth, Settings.CoastalVariation);
+	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator – BaseElevation generated (gradient width %d, coastal variation %.2f, cliff bias %.3f)"),
+		Settings.CoastlineGradientWidth, Settings.CoastalVariation, NoiseBias);
 }
 
 //------------------------------------------------------------------------------

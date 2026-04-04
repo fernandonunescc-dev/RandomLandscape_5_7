@@ -175,6 +175,10 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "In cliff zones, land pixels at the coastline are raised to at least this fraction of maximum elevation. At 0.7, cliff faces jump from ocean (0) to 70%% height in one pixel — a dramatic vertical wall. Lower values produce shorter ledges. Only affects areas where CoastalVariation noise produces cliff zones."))
 	float CliffFloorHeight = 0.7f;
 
+	/** Minimum fraction of each landmass's coastline that must be cliffs */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Guarantees that at least this fraction of the coastline consists of cliffs. The noise-driven coastal variation determines cliff placement, but if less than this percentage of coastal pixels are cliffs, the noise threshold is shifted until the minimum is met. At 0.3, at least 30%% of the shoreline will have dramatic cliff faces."))
+	float MinCliffCoverage = 0.3f;
+
 	/** Noise frequency for coastal variation (lower = larger zones of similar steepness) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.2", ClampMax = "5.0", Tooltip = "Frequency of the noise that drives coastal variation. Lower values create a few large zones of similar steepness (e.g. one steep side, one gentle side). Higher values create more frequent changes around the shoreline."))
 	float CoastalVariationFrequency = 0.8f;

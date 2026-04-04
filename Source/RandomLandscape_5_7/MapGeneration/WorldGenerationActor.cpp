@@ -1129,6 +1129,9 @@ void AWorldGenerationActor::ApplyTerrainRoughness(float Roughness)
 	// Cliff floor height: rougher terrain gets taller cliff faces
 	UpliftSettings.CliffFloorHeight = FMath::Lerp(0.4f, 0.8f, Roughness);
 
+	// Minimum cliff coverage: always guarantee at least 30% cliffs
+	UpliftSettings.MinCliffCoverage = 0.3f;
+
 	// Mountain coverage: rough terrain lets mountains extend closer to coast
 	UpliftSettings.MountainCoverage = FMath::Lerp(0.5f, 1.8f, Roughness);
 
