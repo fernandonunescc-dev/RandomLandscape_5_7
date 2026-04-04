@@ -906,7 +906,8 @@ float ULandmassGenerator::FBM(float X, float Y, int32 Octaves, float Persistence
 
 	for (int32 i = 0; i < Octaves; ++i)
 	{
-		// Sample Simplex noise at current frequency with per-octave seed offset
+		// Sample Simplex noise at current frequency with per-octave seed offset.
+		// Offset by prime 31 per octave to decorrelate the noise layers.
 		float SampleX = X * Frequency;
 		float SampleY = Y * Frequency;
 		float N = 0.0f;
