@@ -366,8 +366,11 @@ void UUpliftGenerator::GenerateHills(const TArray<uint8>& LandMask)
 		return;
 	}
 
-	// Hills use a slightly wider coast margin than mountains (gentler fade)
-	constexpr float HillCoastMargin = 20.0f;
+	// Hills use a slightly wider coast margin than mountains (gentler fade).
+	// Derived from MountainCoverage: higher coverage → hills also extend closer.
+	const float CoverageT = FMath::Clamp(
+		(Settings.MountainCoverage - 0.1f) / 1.9f, 0.0f, 1.0f);
+	const float HillCoastMargin = FMath::Lerp(40.0f, 8.0f, CoverageT);
 
 	for (int32 i = 0; i < TotalPixels; ++i)
 	{
