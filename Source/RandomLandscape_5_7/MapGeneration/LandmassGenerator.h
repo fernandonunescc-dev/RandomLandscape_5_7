@@ -129,7 +129,7 @@ struct RANDOMLANDSCAPE_5_7_API FLandmassSettings
 	 * Minimum size (in pixels) for an enclosed ocean hole to be kept.
 	 * Ocean holes smaller than this are filled in as land, preventing
 	 * tiny blue specks inside islands.  Set to 0 to disable.
-	 * Applied even when bFillEnclosedHoles is false.
+	 * Skipped when bFillEnclosedHoles is true (all holes are already filled).
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Landmass|Post-Processing", meta = (ClampMin = "0", ClampMax = "10000"))
 	int32 MinOceanHoleSize = 100;
