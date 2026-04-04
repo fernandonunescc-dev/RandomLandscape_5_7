@@ -11,42 +11,16 @@ THIRD_PARTY_INCLUDES_START
 THIRD_PARTY_INCLUDES_END
 
 /**
- * FastNoise2-backed noise utilities.
- * Replaces hand-rolled WorldNoise:: hash-based value noise with SIMD-accelerated
- * Simplex / OpenSimplex2 / Perlin noise from the FastNoise2 library.
+ * FastNoise2-backed noise utilities for SIMD-accelerated bulk grid generation.
+ *
+ * IMPORTANT: FN2 SmartNodes are NOT thread-safe for concurrent creation/destruction.
+ * Build node trees once on the main thread, then pass them to GenGrid2D/GenGrid3D.
+ * For per-sample noise in ParallelFor, use WorldNoise:: functions (see NoiseUtility.h).
  *
  * All functions are deterministic: same inputs always produce the same output.
  */
 namespace FN2
 {
-	// ----------------------------------------------------------------
-	// Single-sample convenience wrappers
-	// ----------------------------------------------------------------
-
-	/** 2D Simplex noise via FN2. Returns approximately [-1, 1]. */
-	inline float Noise2D(float X, float Y, int32 Seed)
-	{
-		auto Generator = FastNoise::New<FastNoise::Simplex>();
-		float Result = 0.0f;
-		Generator->GenUniformGrid2D(&Result,
-			X, Y,
-			1, 1,
-			1.0f, 1.0f, Seed);
-		return Result;
-	}
-
-	/** 3D Simplex noise via FN2. Returns approximately [-1, 1]. */
-	inline float Noise3D(float X, float Y, float Z, int32 Seed)
-	{
-		auto Generator = FastNoise::New<FastNoise::Simplex>();
-		float Result = 0.0f;
-		Generator->GenUniformGrid3D(&Result,
-			X, Y, Z,
-			1, 1, 1,
-			1.0f, 1.0f, 1.0f, Seed);
-		return Result;
-	}
-
 	// ----------------------------------------------------------------
 	// Node builders — create reusable FN2 node trees
 	// ----------------------------------------------------------------
@@ -134,50 +108,4 @@ namespace FN2
 			Frequency, Frequency, Frequency, Seed);
 	}
 
-	// ----------------------------------------------------------------
-	// Drop-in replacements for WorldNoise:: functions
-	// ----------------------------------------------------------------
-
-	/** FBM via FN2 — drop-in replacement for WorldNoise::FBM.
-	 *  Returns approximately [-1, 1]. */
-	inline float FBM(float X, float Y, int32 Octaves, float Persistence, int32 Seed)
-	{
-		auto Generator = MakeFBM(Octaves, Persistence);
-		float Result = 0.0f;
-		Generator->GenPositionArray2D(
-			&Result, 1, &X, &Y, 0.0f, 0.0f, Seed);
-		return Result;
-	}
-
-	/** Ridged FBM via FN2 — drop-in replacement for WorldNoise::RidgedFBM.
-	 *  Returns approximately [0, 1]. */
-	inline float RidgedFBM(float X, float Y, int32 Octaves, float Persistence, float /*Sharpness*/, int32 Seed)
-	{
-		auto Generator = MakeRidged(Octaves, Persistence);
-		float Result = 0.0f;
-		Generator->GenPositionArray2D(
-			&Result, 1, &X, &Y, 0.0f, 0.0f, Seed);
-		// Remap from [-1,1] to [0,1]
-		return (Result + 1.0f) * 0.5f;
-	}
-
-	/** 3D FBM via FN2 for volumetric noise. Returns approximately [-1, 1]. */
-	inline float FBM3D(float X, float Y, float Z, int32 Octaves, float Persistence, int32 Seed)
-	{
-		auto Generator = MakeFBM(Octaves, Persistence);
-		float Result = 0.0f;
-		Generator->GenPositionArray3D(
-			&Result, 1, &X, &Y, &Z, 0.0f, 0.0f, 0.0f, Seed);
-		return Result;
-	}
-
-	/** 3D Ridged FBM via FN2. Returns approximately [0, 1]. */
-	inline float RidgedFBM3D(float X, float Y, float Z, int32 Octaves, float Persistence, int32 Seed)
-	{
-		auto Generator = MakeRidged(Octaves, Persistence);
-		float Result = 0.0f;
-		Generator->GenPositionArray3D(
-			&Result, 1, &X, &Y, &Z, 0.0f, 0.0f, 0.0f, Seed);
-		return (Result + 1.0f) * 0.5f;
-	}
 }

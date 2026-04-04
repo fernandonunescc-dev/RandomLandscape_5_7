@@ -1,9 +1,8 @@
 // LandmassGenerator.cpp
-// Implementation of landmass texture generation using FastNoise2 FBM noise
+// Implementation of landmass texture generation using FBM noise
 // Version: 01.26.2026.23.36
 
 #include "LandmassGenerator.h"
-#include "FastNoise2Noise.h"
 #include "Engine/Texture2D.h"
 #include "Async/ParallelFor.h"  // ParallelFor for multi-threaded pixel processing
 #include <algorithm> // std::nth_element
@@ -868,21 +867,94 @@ void ULandmassGenerator::GeneratePreviewTexture()
 }
 
 //------------------------------------------------------------------------------
-// Noise2D: now delegates to FastNoise2 Simplex noise for SIMD performance.
+// Noise2D: Basic 2D value noise with smooth interpolation.
+// 
+// Algorithm:
+//   1. Offset input coordinates by seed-derived values for unique patterns per seed
+//   2. Find the integer grid cell containing (X, Y)
+//   3. Compute pseudo-random values at the 4 corners using a hash function
+//   4. Bilinearly interpolate using smoothstep for continuous, smooth noise
+// 
 // Returns values approximately in the range [-1, 1].
 //------------------------------------------------------------------------------
 float ULandmassGenerator::Noise2D(float X, float Y) const
 {
-	return FN2::Noise2D(X, Y, Settings.Seed);
+	// Offset by seed to get different patterns for different seeds
+	// Using irrational-ish multipliers to avoid obvious repetition
+	X += (Settings.Seed % 10000) * 0.37f;
+	Y += (Settings.Seed % 10000) * 0.53f;
+
+	// Find integer grid cell and fractional position within cell
+	int32 Xi = FMath::FloorToInt(X);
+	int32 Yi = FMath::FloorToInt(Y);
+	float Xf = X - Xi;  // 0 to 1 within cell
+	float Yf = Y - Yi;
+
+	// Smoothstep interpolation weights (Hermite curve: 3t² - 2t³)
+	// This eliminates visible grid artifacts compared to linear interpolation
+	float U = Xf * Xf * (3.0f - 2.0f * Xf);
+	float V = Yf * Yf * (3.0f - 2.0f * Yf);
+
+	// Hash function: maps integer grid coordinates to pseudo-random float
+	// Uses large primes for good distribution and includes seed for variation
+	// NOTE: All arithmetic in uint32 to avoid signed overflow UB
+	int32 SeedHash = Settings.Seed;
+	auto Hash = [SeedHash](int32 X, int32 Y) -> float
+	{
+		uint32 N = static_cast<uint32>(X) + static_cast<uint32>(Y) * 57u + static_cast<uint32>(SeedHash);
+		N = (N << 13) ^ N;
+		N = N * (N * N * 15731u + 789221u) + 1376312589u;
+		return 1.0f - static_cast<float>(N & 0x7fffffffu) / 1073741824.0f;
+	};
+
+	// Get pseudo-random values at the 4 corners of this grid cell
+	float A = Hash(Xi, Yi);         // Bottom-left
+	float B = Hash(Xi + 1, Yi);     // Bottom-right
+	float C = Hash(Xi, Yi + 1);     // Top-left
+	float D = Hash(Xi + 1, Yi + 1); // Top-right
+
+	// Bilinear interpolation: first horizontal, then vertical
+	float AB = FMath::Lerp(A, B, U);  // Bottom edge
+	float CD = FMath::Lerp(C, D, U);  // Top edge
+
+	return FMath::Lerp(AB, CD, V);    // Final interpolated value
 }
 
 //------------------------------------------------------------------------------
-// FBM (Fractal Brownian Motion): now delegates to FastNoise2.
-// Returns approximately [-1, 1].
+// FBM (Fractal Brownian Motion): Layered noise for natural-looking patterns.
+// 
+// Combines multiple "octaves" of noise at increasing frequencies and
+// decreasing amplitudes. This creates rich, multi-scale detail similar
+// to natural phenomena like coastlines, clouds, and terrain.
+// 
+// Parameters:
+//   Octaves     - Number of noise layers (4-6 typical for terrain)
+//   Persistence - How quickly amplitude decreases (0.5 = halves each octave)
+// 
+// Each octave: frequency doubles, amplitude *= persistence
 //------------------------------------------------------------------------------
 float ULandmassGenerator::FBM(float X, float Y, int32 Octaves, float Persistence) const
 {
-	return FN2::FBM(X, Y, Octaves, Persistence, Settings.Seed);
+	float Total = 0.0f;
+	float Amplitude = 1.0f;
+	float Frequency = 1.0f;
+	float MaxValue = 0.0f;  // For normalization
+
+	for (int32 i = 0; i < Octaves; ++i)
+	{
+		// Sample noise at current frequency, scale by current amplitude
+		Total += Noise2D(X * Frequency, Y * Frequency) * Amplitude;
+		
+		// Track maximum possible value for normalization
+		MaxValue += Amplitude;
+		
+		// Next octave: higher frequency (finer detail), lower amplitude
+		Amplitude *= Persistence;
+		Frequency *= 2.0f;
+	}
+
+	// Normalize to approximately [-1, 1] range
+	return Total / MaxValue;
 }
 
 //------------------------------------------------------------------------------
