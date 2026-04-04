@@ -155,11 +155,12 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 	const float MinCliffCoverage = FMath::Clamp(Settings.MinCliffCoverage, 0.0f, 1.0f);
 
 	// --- Pass 1: collect coastal variation noise for coastal pixels ---
-	// We sample VarNoise for all coastal land pixels (CoastlineDistance == 1)
+	// We sample VarNoise for all coastal land pixels (CoastlineDistance <= 1.5)
 	// to determine a bias that guarantees at least MinCliffCoverage of the
-	// coastline becomes cliffs.
+	// coastline becomes strong cliffs.
 	// BeachFactor = VarNoise * 0.5 + 0.5 + Bias.  Lower BeachFactor → more cliff.
-	// We want the fraction of coastal pixels with BeachFactor < 0.5 to be >= MinCliffCoverage.
+	// We want the fraction of coastal pixels with BeachFactor < CliffBeachThreshold (0.15)
+	// to be >= MinCliffCoverage.
 
 	float NoiseBias = 0.0f;
 
