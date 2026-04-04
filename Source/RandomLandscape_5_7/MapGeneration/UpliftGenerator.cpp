@@ -113,6 +113,10 @@ void UUpliftGenerator::ComputeCoastlineDistance(const TArray<uint8>& LandMask, T
 	}
 }
 
+// BeachFactor threshold separating cliff (CliffFactor > 0) from beach (CliffFactor = 0).
+// Used in both Pass 1 (bias computation) and Pass 2 (CliffFactor calculation).
+static constexpr float kBeachCutoff = 0.35f;
+
 //------------------------------------------------------------------------------
 // GenerateBaseElevation:
 //   1. Coastline distance → gradient clamped to [0,1]
@@ -189,8 +193,8 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 			CoastalNoiseValues.Sort();
 
 			// The BeachFactor threshold that separates cliff (CliffFactor > 0)
-			// from beach (CliffFactor = 0).  Must match BeachCutoff in Pass 2.
-			constexpr float CliffBeachThreshold = 0.35f;
+			// from beach (CliffFactor = 0).
+			constexpr float CliffBeachThreshold = kBeachCutoff;
 
 			// --- Minimum cliff bias (shift toward more cliffs) ---
 			float MinBias = 0.0f;
@@ -229,10 +233,6 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 	}
 
 	// --- Pass 2: compute BaseElevation and CliffFactor with bias ---
-	// BeachFactor threshold: above this → CliffFactor = 0 (true sea-level beach).
-	// Must match CliffBeachThreshold used in Pass 1 bias computation.
-	constexpr float BeachCutoff = 0.35f;
-
 	for (int32 i = 0; i < TotalPixels; ++i)
 	{
 		if (LandMask[i] == 0)
@@ -261,11 +261,11 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 			const float MinWidth = FMath::Lerp(GradWidth, CliffGradWidth, CoastalVar);
 			// Lerp between cliff (MinWidth) and beach (GradWidth)
 			LocalGradWidth = FMath::Lerp(MinWidth, GradWidth, BeachFactor);
-			// Sharp cliff/beach cutoff: once BeachFactor exceeds BeachCutoff,
+			// Sharp cliff/beach cutoff: once BeachFactor exceeds kBeachCutoff,
 			// CliffFactor goes to exactly 0 → no cliff floor, no mountain/hill
 			// coast bypass.  This ensures beaches are truly at sea level.
-			// Below BeachCutoff, CliffFactor ramps linearly to 1.
-			LocalCliffFactor = FMath::Clamp(1.0f - BeachFactor / BeachCutoff, 0.0f, 1.0f);
+			// Below kBeachCutoff, CliffFactor ramps linearly to 1.
+			LocalCliffFactor = FMath::Clamp(1.0f - BeachFactor / kBeachCutoff, 0.0f, 1.0f);
 		}
 		CliffFactor[i] = LocalCliffFactor;
 
