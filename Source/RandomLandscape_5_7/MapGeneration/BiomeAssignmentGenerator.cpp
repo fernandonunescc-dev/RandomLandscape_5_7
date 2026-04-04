@@ -755,6 +755,9 @@ void UBiomeAssignmentGenerator::RemoveSmallClusters()
 		}
 	}
 
+	// Check if we have a valid land mask to prevent land→Ocean absorption
+	const bool bHasLandMask = CachedLandMask && CachedLandMask->Num() == Total;
+
 	// --- Pass 2: for each small component, tally neighbour biome votes ---
 	TArray<TMap<int32, int32>> Votes;
 	Votes.SetNum(Comps.Num());
@@ -782,13 +785,21 @@ void UBiomeAssignmentGenerator::RemoveSmallClusters()
 	Replacement.SetNumUninitialized(Comps.Num());
 	for (int32 c = 0; c < Comps.Num(); ++c) Replacement[c] = -1;
 
+	const int32 OceanBiome = static_cast<int32>(EBiomeType::Ocean);
+
 	for (int32 c = 0; c < Comps.Num(); ++c)
 	{
 		if (Comps[c].Size >= MinSize) continue;
+
+		// Never absorb a land biome into Ocean — small islands must keep
+		// a land biome even when surrounded by ocean pixels.
+		const bool bIsLandComponent = bHasLandMask && Comps[c].Biome != OceanBiome;
+
 		int32 Best = Comps[c].Biome;
 		int32 BestN = 0;
 		for (const auto& V : Votes[c])
 		{
+			if (bIsLandComponent && V.Key == OceanBiome) continue;
 			if (V.Value > BestN) { BestN = V.Value; Best = V.Key; }
 		}
 		if (Best != Comps[c].Biome)
