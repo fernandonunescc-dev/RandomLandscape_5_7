@@ -76,6 +76,9 @@ private:
 	// Output buffers (Resolution * Resolution elements each)
 	//--------------------------------------------------------------------------
 
+	/** Per-pixel distance (in pixels) from the nearest ocean cell. */
+	TArray<float> CoastlineDistance;
+
 	/** Coastline distance + noise, 0-1. */
 	TArray<float> BaseElevation;
 

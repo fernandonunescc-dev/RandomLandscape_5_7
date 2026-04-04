@@ -36,6 +36,7 @@ bool UUpliftGenerator::Generate(const TArray<uint8>& LandMask)
 	UpliftMap.SetNum(TotalPixels);
 	CombinedElevation.SetNum(TotalPixels);
 	PlateauMap.SetNum(TotalPixels);
+	CoastlineDistance.Empty();
 	VolcanicCenters.Empty();
 
 	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator::Generate – starting (%d pixels)"), TotalPixels);
@@ -123,8 +124,8 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 {
 	const int32 TotalPixels = Resolution * Resolution;
 
-	TArray<float> CoastDist;
-	ComputeCoastlineDistance(LandMask, CoastDist);
+	// Compute and store coastline distance (reused by mountain/hill stages)
+	ComputeCoastlineDistance(LandMask, CoastlineDistance);
 
 	const float GradWidth = FMath::Max(static_cast<float>(Settings.CoastlineGradientWidth), 1.0f);
 	const float Freq      = Settings.BaseNoiseFrequency;
@@ -163,8 +164,9 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 			LocalGradWidth = FMath::Max(GradWidth * Multiplier, 1.0f);
 		}
 
-		// Coastline distance gradient
-		float Elev = FMath::Clamp(CoastDist[i] / LocalGradWidth, 0.0f, 1.0f);
+		// Coastal transition: smoothstep for natural falloff instead of linear
+		const float T = FMath::Clamp(CoastlineDistance[i] / LocalGradWidth, 0.0f, 1.0f);
+		const float CoastFade = T * T * (3.0f - 2.0f * T);
 
 		// Modulate with FBM noise
 		const float Noise = WorldNoise::FBM(NormX * Freq, NormY * Freq, Octaves, Persist, Seed);
@@ -173,7 +175,7 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 		// collapse to zero (0.2 floor) while inland areas get full modulation.
 		const float NoiseMod = FMath::Clamp(0.5f + 0.5f * Noise, 0.2f, 1.0f);
 
-		BaseElevation[i] = Elev * NoiseMod;
+		BaseElevation[i] = CoastFade * NoiseMod;
 	}
 
 	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator – BaseElevation generated (gradient width %d, coastal variation %.2f)"),
@@ -182,8 +184,11 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 
 //------------------------------------------------------------------------------
 // GenerateUpliftMap:
-//   Ridged FBM for mountain ranges, multiplied by BaseElevation so ridges
-//   fade toward the coast. Ocean = 0.
+//   Ridged FBM for mountain ranges.  Mountains are placed by noise alone —
+//   NOT confined to the island center.  Only a thin coastal margin prevents
+//   ridges from literally touching the ocean.  MountainCoverage controls the
+//   width of that margin: high values → mountains right at the coast (cliffs);
+//   low values → mountains confined farther inland.
 //------------------------------------------------------------------------------
 void UUpliftGenerator::GenerateUpliftMap(const TArray<uint8>& LandMask)
 {
@@ -192,11 +197,13 @@ void UUpliftGenerator::GenerateUpliftMap(const TArray<uint8>& LandMask)
 	const float Amplitude  = Settings.MountainRidgeAmplitude;
 	const float Sharpness  = Settings.MountainSharpness;
 	const int32 Octaves    = Settings.MountainOctaves;
-	// MountainCoverage: power curve on base elevation fade.
-	// Low values confine mountains to high-elevation interior.
-	// High values let ridges extend toward the coast.
-	const float CoverageExponent = FMath::Lerp(3.0f, 0.3f,
-		FMath::Clamp(Settings.MountainCoverage, 0.1f, 2.0f) / 2.0f);
+
+	// MountainCoverage → coastal margin in pixels.
+	// Higher coverage → thinner margin → mountains extend closer to coast.
+	const float CoverageT = FMath::Clamp(
+		(Settings.MountainCoverage - 0.1f) / 1.9f, 0.0f, 1.0f);
+	const float MountainCoastMargin = FMath::Lerp(60.0f, 3.0f, CoverageT);
+
 	// Offset seed by a fixed amount to decorrelate mountain noise from base elevation noise
 	const int32 Seed       = ActualSeed + 100;
 	const float InvRes     = 1.0f / FMath::Max(Resolution - 1, 1);
@@ -215,14 +222,15 @@ void UUpliftGenerator::GenerateUpliftMap(const TArray<uint8>& LandMask)
 		float Ridge = WorldNoise::RidgedFBM(NormX * Freq, NormY * Freq, Octaves, 0.5f, Sharpness, Seed);
 		Ridge *= Amplitude;
 
-		// Fade mountains near coastline by multiplying with base elevation,
-		// shaped by the MountainCoverage power curve
-		const float ElevFade = FMath::Pow(FMath::Max(BaseElevation[i], 0.0f), CoverageExponent);
-		UpliftMap[i] = Ridge * ElevFade;
+		// Thin coastal margin: smoothstep fade within MountainCoastMargin pixels
+		// of the shore.  Beyond the margin, mountains are at full strength.
+		const float D = FMath::Clamp(CoastlineDistance[i] / MountainCoastMargin, 0.0f, 1.0f);
+		const float CoastFade = D * D * (3.0f - 2.0f * D);
+		UpliftMap[i] = Ridge * CoastFade;
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator – UpliftMap generated (freq %.2f, amp %.2f, coverage %.2f)"),
-		Freq, Amplitude, Settings.MountainCoverage);
+	UE_LOG(LogTemp, Log, TEXT("UpliftGenerator – UpliftMap generated (freq %.2f, amp %.2f, coverage %.2f, margin %.0f px)"),
+		Freq, Amplitude, Settings.MountainCoverage, MountainCoastMargin);
 }
 
 //------------------------------------------------------------------------------
@@ -341,7 +349,8 @@ void UUpliftGenerator::GenerateVolcanicHotspots(const TArray<uint8>& LandMask)
 // GenerateHills:
 //   FBM-based rolling hills, added to UpliftMap.
 //   Hills are smaller-scale undulations distinct from mountain ridges.
-//   They are modulated by BaseElevation so they fade near coastlines.
+//   They fade within a thin coastal margin (using coastline distance) so
+//   they can appear anywhere on land, not only in the high-elevation centre.
 //------------------------------------------------------------------------------
 void UUpliftGenerator::GenerateHills(const TArray<uint8>& LandMask)
 {
@@ -357,6 +366,9 @@ void UUpliftGenerator::GenerateHills(const TArray<uint8>& LandMask)
 		return;
 	}
 
+	// Hills use a slightly wider coast margin than mountains (gentler fade)
+	constexpr float HillCoastMargin = 20.0f;
+
 	for (int32 i = 0; i < TotalPixels; ++i)
 	{
 		if (LandMask[i] == 0)
@@ -371,8 +383,11 @@ void UUpliftGenerator::GenerateHills(const TArray<uint8>& LandMask)
 		// Remap [-1,1] → [0,1] then scale by amplitude
 		Hill = (Hill * 0.5f + 0.5f) * Amplitude;
 
-		// Fade near coastline by multiplying with base elevation
-		UpliftMap[i] += Hill * BaseElevation[i];
+		// Thin coastal fade so hills can appear anywhere except right at shore
+		const float D = FMath::Clamp(CoastlineDistance[i] / HillCoastMargin, 0.0f, 1.0f);
+		const float CoastFade = D * D * (3.0f - 2.0f * D);
+
+		UpliftMap[i] += Hill * CoastFade;
 		UpliftMap[i] = FMath::Clamp(UpliftMap[i], 0.0f, 1.0f);
 	}
 

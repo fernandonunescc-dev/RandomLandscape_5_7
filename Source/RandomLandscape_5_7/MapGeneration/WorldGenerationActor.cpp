@@ -1123,6 +1123,9 @@ void AWorldGenerationActor::ApplyTerrainRoughness(float Roughness)
 	// Coastline gradient: flat terrain gets wider coastal plains
 	UpliftSettings.CoastlineGradientWidth = FMath::RoundToInt32(FMath::Lerp(140.0f, 50.0f, Roughness));
 
+	// Mountain coverage: rough terrain lets mountains extend closer to coast
+	UpliftSettings.MountainCoverage = FMath::Lerp(0.5f, 1.8f, Roughness);
+
 	// Plateau flatness: more prominent in mid-range, reduced at extremes
 	const float PlateauCurve = FMath::Clamp(1.0f - FMath::Abs(Roughness - 0.5f) * 3.0f, 0.0f, 1.0f);
 	UpliftSettings.PlateauFlatness = FMath::Lerp(0.0f, 0.7f, PlateauCurve);

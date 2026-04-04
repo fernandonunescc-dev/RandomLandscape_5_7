@@ -205,9 +205,9 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "1", ClampMax = "8", Tooltip = "Number of ridged-noise layers for mountain generation. More octaves add smaller-scale ridge detail on top of the main mountain shape."))
 	int32 MountainOctaves = 4;
 
-	/** How much of the island interior is covered by mountains (lower = confined to center, higher = spread everywhere) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "0.1", ClampMax = "2.0", Tooltip = "Controls the footprint of mountain ridges across the landmass. Low values (e.g. 0.2) confine mountains to the highest central peaks. High values (e.g. 1.5-2.0) let ridges extend all the way to the coast. At the default (0.5) mountains fade through the mid-elevation band."))
-	float MountainCoverage = 0.5f;
+	/** How close to the coastline mountains can appear (lower = confined inland, higher = can reach coast edges) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "0.1", ClampMax = "2.0", Tooltip = "Controls how close to the coastline mountain ridges may appear. Low values (e.g. 0.2) confine mountains deep inland. High values (e.g. 1.5-2.0) let ridges form right at the coast, creating cliffs. Mountains are placed randomly by noise—not forced to the centre."))
+	float MountainCoverage = 1.0f;
 
 	// --- Hills (rolling FBM terrain) ---
 
