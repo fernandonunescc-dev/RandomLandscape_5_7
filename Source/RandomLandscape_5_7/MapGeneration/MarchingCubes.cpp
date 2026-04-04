@@ -134,7 +134,9 @@ void FMarchingCubes::Extract(const FVoxelChunk& Chunk, float VoxelSize, float Is
 				default: break;
 				}
 
-				// Emit triangles (winding reversed for UE5 left-handed coordinates)
+				// Emit triangles using standard MC table winding (CCW from outside the solid).
+				// UE5's ProceduralMeshComponent treats CCW as front-facing, so standard
+				// winding produces correct outward-facing normals without any swap.
 				for (int32 i = 0; TriTable[CubeIndex][i] != -1; i += 3)
 				{
 					const int32 BaseVertex = OutMesh.Vertices.Num();
@@ -149,11 +151,9 @@ void FMarchingCubes::Extract(const FVoxelChunk& Chunk, float VoxelSize, float Is
 						OutMesh.UVs.Add(FVector2D(V.X / (VoxelSize * 32.0f), V.Y / (VoxelSize * 32.0f)));
 					}
 
-					// Swap winding: standard MC tables assume right-handed coords;
-					// UE5 is left-handed, so reverse triangle winding for correct outward normals.
 					OutMesh.Triangles.Add(BaseVertex);
-					OutMesh.Triangles.Add(BaseVertex + 2);
 					OutMesh.Triangles.Add(BaseVertex + 1);
+					OutMesh.Triangles.Add(BaseVertex + 2);
 				}
 			}
 		}

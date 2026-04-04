@@ -70,8 +70,10 @@ void UVoxelGenerator::GenerateHeightfield()
 	const int32 SizeX = TotalVoxelsX;
 	const int32 SizeY = TotalVoxelsY;
 
-	// Build the terrain FN2 node graph
-	auto TerrainFBM = FN2::MakeFBM(Settings.TerrainOctaves, Settings.TerrainGain);
+	// Build the terrain FN2 node graph (use domain warp for organic terrain if configured)
+	auto TerrainFBM = (Settings.DomainWarpAmplitude > 0.0f)
+		? FN2::MakeWarpedFBM(Settings.TerrainOctaves, Settings.TerrainGain, Settings.DomainWarpAmplitude)
+		: FN2::MakeFBM(Settings.TerrainOctaves, Settings.TerrainGain);
 
 	// Generate base heightfield
 	FN2::GenGrid2D(TerrainFBM, Heightfield, 0, 0, SizeX, SizeY, Settings.TerrainFrequency, Seed);
@@ -119,12 +121,13 @@ void UVoxelGenerator::FillChunkDensity(FVoxelChunk& Chunk)
 	// Padded size: Res+1 to include boundary voxels from neighboring chunks
 	const int32 Padded = Res + 1;
 
-	// Pre-generate 3D cave noise for this chunk if 3D features enabled
-	TArray<float> CaveNoise;
-	if (Settings.bEnable3DFeatures && Settings.CaveStrength > 0.0f)
+	// Pre-generate 3D noise for this chunk if 3D features enabled.
+	// Used for both overhang shaping and cave carving.
+	TArray<float> Noise3D;
+	if (Settings.bEnable3DFeatures && (Settings.CaveStrength > 0.0f || Settings.OverhangStrength > 0.0f))
 	{
-		auto CaveGen = FN2::MakeFBM(Settings.CaveOctaves, 0.5f);
-		FN2::GenGrid3D(CaveGen, CaveNoise,
+		auto NoiseGen = FN2::MakeFBM(Settings.CaveOctaves, 0.5f);
+		FN2::GenGrid3D(NoiseGen, Noise3D,
 			BaseVX, BaseVY, BaseVZ,
 			Padded, Padded, Padded,
 			Settings.CaveFrequency, Seed + 5000);
@@ -133,6 +136,9 @@ void UVoxelGenerator::FillChunkDensity(FVoxelChunk& Chunk)
 	// Maximum cave carving magnitude in voxels — scales with chunk resolution, not total
 	// world height.  This prevents deep-underground chunks from being over-carved.
 	const float CaveCarveScale = Settings.CaveStrength * static_cast<float>(Res);
+
+	// Overhang shaping scale: how strongly 3D noise reshapes the surface
+	const float OverhangScale = Settings.OverhangStrength * static_cast<float>(Res);
 
 	// Fill density for (Res+1)³ voxels (includes 1-voxel padding for seamless MC)
 	for (int32 Z = 0; Z < Padded; ++Z)
@@ -156,21 +162,33 @@ void UVoxelGenerator::FillChunkDensity(FVoxelChunk& Chunk)
 				// Base density: positive below surface, negative above
 				float Density = (SurfaceHeight - NormZ) * static_cast<float>(TotalVoxelsZ);
 
-				// Apply 3D cave carving
-				if (CaveNoise.Num() > 0)
+				if (Noise3D.Num() > 0)
 				{
 					const int32 LocalIdx = Z * Padded * Padded + Y * Padded + X;
-					const float Cave = CaveNoise[LocalIdx];
+					const float NoiseVal = Noise3D[LocalIdx];
 
-					// Only carve caves below the surface (with minimum depth buffer)
-					const float DepthBelowSurface = SurfaceHeight - NormZ;
-					if (DepthBelowSurface > Settings.CaveMinDepth)
+					// --- 3D terrain shaping (overhangs, undercuts, cliff faces) ---
+					// Blend bidirectional 3D noise near the surface.  Positive noise
+					// adds material above the heightfield → overhangs; negative noise
+					// removes material below it → undercuts.  Fades out with distance
+					// from the surface so deep underground stays solid.
+					if (Settings.OverhangStrength > 0.0f)
 					{
-						// Cave carving: where cave noise exceeds threshold, reduce density.
-						// CarveAmount is bounded by CaveRadiusVoxels so deep rock stays solid.
-						if (Cave > Settings.CaveThreshold)
+						const float DistFromSurface = FMath::Abs(SurfaceHeight - NormZ);
+						if (DistFromSurface < Settings.OverhangRange)
 						{
-							const float CarveAmount = (Cave - Settings.CaveThreshold) * CaveCarveScale;
+							const float Blend = 1.0f - (DistFromSurface / Settings.OverhangRange);
+							Density += NoiseVal * OverhangScale * Blend;
+						}
+					}
+
+					// --- Cave carving (deep underground only) ---
+					const float DepthBelowSurface = SurfaceHeight - NormZ;
+					if (Settings.CaveStrength > 0.0f && DepthBelowSurface > Settings.CaveMinDepth)
+					{
+						if (NoiseVal > Settings.CaveThreshold)
+						{
+							const float CarveAmount = (NoiseVal - Settings.CaveThreshold) * CaveCarveScale;
 							Density -= CarveAmount;
 						}
 					}

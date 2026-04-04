@@ -139,7 +139,7 @@ struct RANDOMLANDSCAPE_5_7_API FVoxelGenerationSettings
 
 	/** Primary frequency for the terrain heightfield noise. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel|Terrain", meta = (ClampMin = "0.001", ClampMax = "0.1"))
-	float TerrainFrequency = 0.008f;
+	float TerrainFrequency = 0.015f;
 
 	/** FBM octave count for the terrain heightfield. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel|Terrain", meta = (ClampMin = "1", ClampMax = "10"))
@@ -151,13 +151,23 @@ struct RANDOMLANDSCAPE_5_7_API FVoxelGenerationSettings
 
 	/** Domain warp amplitude for organic-looking terrain (0 = no warp). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel|Terrain", meta = (ClampMin = "0.0", ClampMax = "100.0"))
-	float DomainWarpAmplitude = 30.0f;
+	float DomainWarpAmplitude = 20.0f;
 
 	// --- 3D Features (Caves, Overhangs) ---
 
 	/** Enable 3D noise features (caves, overhangs, arches). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel|3D Features")
 	bool bEnable3DFeatures = true;
+
+	/** Strength of 3D noise shaping near the surface.
+	 *  Creates overhangs, undercuts, cliff faces (like 7 Days to Die terrain).
+	 *  0 = pure heightmap, higher = more dramatic 3D features. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel|3D Features", meta = (ClampMin = "0.0", ClampMax = "2.0"))
+	float OverhangStrength = 0.4f;
+
+	/** How far (fraction of world height) from the surface 3D shaping noise reaches. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel|3D Features", meta = (ClampMin = "0.02", ClampMax = "0.5"))
+	float OverhangRange = 0.15f;
 
 	/** Strength of 3D noise carving. Higher = more caves/overhangs. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel|3D Features", meta = (ClampMin = "0.0", ClampMax = "2.0"))
@@ -192,7 +202,7 @@ struct RANDOMLANDSCAPE_5_7_API FVoxelGenerationSettings
 
 	/** Frequency of mountain ridge noise. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel|Mountains", meta = (ClampMin = "0.001", ClampMax = "0.05"))
-	float MountainFrequency = 0.005f;
+	float MountainFrequency = 0.01f;
 
 	/** Octaves for mountain ridged noise. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel|Mountains", meta = (ClampMin = "1", ClampMax = "8"))
