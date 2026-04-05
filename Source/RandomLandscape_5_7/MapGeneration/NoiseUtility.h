@@ -9,6 +9,13 @@
 /**
  * Shared noise utilities used across all pipeline generators.
  * Deterministic: same inputs always produce the same output.
+ *
+ * Per-sample noise (Noise2D, FBM, RidgedFBM) uses lightweight hand-rolled
+ * value noise that is fully thread-safe for ParallelFor usage.
+ *
+ * For SIMD-accelerated bulk grid generation, use the FN2:: namespace
+ * (see FastNoise2Noise.h) — build a node tree once on the main thread,
+ * then call GenGrid2D / GenGrid3D.
  */
 namespace WorldNoise
 {

@@ -76,6 +76,9 @@ private:
 	// Output buffers (Resolution * Resolution elements each)
 	//--------------------------------------------------------------------------
 
+	/** Per-pixel distance (in pixels) from the nearest ocean cell. */
+	TArray<float> CoastlineDistance;
+
 	/** Coastline distance + noise, 0-1. */
 	TArray<float> BaseElevation;
 
@@ -84,6 +87,9 @@ private:
 
 	/** Base + uplift, 0-1. */
 	TArray<float> CombinedElevation;
+
+	/** Per-pixel cliff factor, 0-1 (1 = full cliff zone). Computed in GenerateBaseElevation, reused by mountains/hills. */
+	TArray<float> CliffFactor;
 
 	/** Plateau mask, 0-1 (1 = fully plateau). */
 	TArray<float> PlateauMap;

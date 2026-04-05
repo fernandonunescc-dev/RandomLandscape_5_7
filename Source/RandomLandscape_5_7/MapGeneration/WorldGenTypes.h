@@ -167,9 +167,21 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "10", ClampMax = "256", Tooltip = "Distance in pixels from the coastline before terrain reaches full inland height. Larger values produce wider, gentler coastal plains; smaller values create steep cliffs right at the shore."))
 	int32 CoastlineGradientWidth = 100;
 
-	/** How much the coastal gradient varies around the island (0 = uniform, 1 = full variation) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Controls how much the coastline steepness varies around the island. At 0 the coast is uniform everywhere. At 1 some sides may have steep cliffs while others have gentle beaches. The variation is driven by low-frequency noise so it changes gradually."))
-	float CoastalVariation = 0.6f;
+	/** How much the coastal gradient varies around the island (0 = uniform, 1 = full variation with cliffs) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Controls how much the coastline steepness varies around the island. At 0 the coast is uniformly gentle everywhere. At 1 some sides will have steep cliffs (elevation jumps within a few pixels of the ocean) while others have gentle beaches. The variation is driven by low-frequency noise so it changes gradually around the coastline."))
+	float CoastalVariation = 1.0f;
+
+	/** Minimum elevation at the cliff edge (how tall the cliff face is) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "In cliff zones, land pixels at the coastline are raised to at least this fraction of maximum elevation. At 0.7, cliff faces jump from ocean (0) to 70%% height in one pixel — a dramatic vertical wall. Lower values produce shorter ledges. Only affects areas where CoastalVariation noise produces cliff zones."))
+	float CliffFloorHeight = 0.7f;
+
+	/** Minimum fraction of each landmass's coastline that must be cliffs */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Guarantees that at least this fraction of the coastline consists of cliffs. The noise-driven coastal variation determines cliff placement, but if less than this percentage of coastal pixels are cliffs, the noise threshold is shifted until the minimum is met. At 0.3, at least 30%% of the shoreline will have dramatic cliff faces."))
+	float MinCliffCoverage = 0.3f;
+
+	/** Maximum fraction of each landmass's coastline that can be cliffs (remainder stays as beach entry points) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.0", ClampMax = "1.0", Tooltip = "Caps cliff coverage so every landmass retains accessible beaches. If noise produces more cliffs than this limit, the threshold is shifted to preserve beach zones. At 0.85, at least 15%% of every coastline will be gentle beach at sea level — guaranteeing a boat landing point even on rough islands."))
+	float MaxCliffCoverage = 0.85f;
 
 	/** Noise frequency for coastal variation (lower = larger zones of similar steepness) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Base Elevation", meta = (ClampMin = "0.2", ClampMax = "5.0", Tooltip = "Frequency of the noise that drives coastal variation. Lower values create a few large zones of similar steepness (e.g. one steep side, one gentle side). Higher values create more frequent changes around the shoreline."))
@@ -205,9 +217,9 @@ struct RANDOMLANDSCAPE_5_7_API FUpliftSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "1", ClampMax = "8", Tooltip = "Number of ridged-noise layers for mountain generation. More octaves add smaller-scale ridge detail on top of the main mountain shape."))
 	int32 MountainOctaves = 4;
 
-	/** How much of the island interior is covered by mountains (lower = confined to center, higher = spread everywhere) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "0.1", ClampMax = "2.0", Tooltip = "Controls the footprint of mountain ridges across the landmass. Low values (e.g. 0.2) confine mountains to the highest central peaks. High values (e.g. 1.5-2.0) let ridges extend all the way to the coast. At the default (0.5) mountains fade through the mid-elevation band."))
-	float MountainCoverage = 0.5f;
+	/** How close to the coastline mountains can appear (lower = confined inland, higher = can reach coast edges) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mountains", meta = (ClampMin = "0.1", ClampMax = "2.0", Tooltip = "Controls how close to the coastline mountain ridges may appear. Low values (e.g. 0.2) confine mountains deep inland. High values (e.g. 1.5-2.0) let ridges form right at the coast, creating cliffs. Mountains are placed randomly by noise—not forced to the centre."))
+	float MountainCoverage = 1.0f;
 
 	// --- Hills (rolling FBM terrain) ---
 
