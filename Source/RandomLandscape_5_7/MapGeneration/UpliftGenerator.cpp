@@ -115,7 +115,7 @@ void UUpliftGenerator::ComputeCoastlineDistance(const TArray<uint8>& LandMask, T
 
 // BeachFactor threshold separating cliff (CliffFactor > 0) from beach (CliffFactor = 0).
 // Used in both Pass 1 (bias computation) and Pass 2 (CliffFactor calculation).
-static constexpr float kBeachCutoff = 0.35f;
+static constexpr float kBeachCutoff = 0.50f;
 
 //------------------------------------------------------------------------------
 // GenerateBaseElevation:
@@ -165,7 +165,7 @@ void UUpliftGenerator::GenerateBaseElevation(const TArray<uint8>& LandMask)
 	// coastline becomes strong cliffs, and at most MaxCliffCoverage (so every
 	// landmass retains accessible beaches).
 	// BeachFactor = VarNoise * 0.5 + 0.5 + Bias.  Lower BeachFactor → more cliff.
-	// We want the fraction of coastal pixels with BeachFactor < CliffBeachThreshold (0.35)
+	// We want the fraction of coastal pixels with BeachFactor < CliffBeachThreshold (0.50)
 	// to be >= MinCliffCoverage and <= MaxCliffCoverage.
 
 	float NoiseBias = 0.0f;
