@@ -385,14 +385,7 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 			{
 				Biome = EBiomeType::Desert;
 			}
-			// 5. Forest — uses precipitation in addition to moisture/temperature
-			else if (EffectiveMoisture > Settings.ForestMoistureThreshold
-				&& Temperature[i] > Settings.ForestTemperatureThreshold
-				&& Precipitation[i] > Settings.ForestPrecipitationThreshold)
-			{
-				Biome = EBiomeType::Forest;
-			}
-			// 6. Default — Land (grassland) already set
+			// 5. Default — Land (Plains) already set
 		}
 
 		BiomeMap[i] = static_cast<int32>(Biome);
@@ -428,8 +421,8 @@ bool UBiomeAssignmentGenerator::Generate(const TArray<float>& Elevation, const T
 	UE_LOG(LogTemp, Log, TEXT("  Ice:      %d"), BiomeCounts.FindRef(EBiomeType::Ice));
 	UE_LOG(LogTemp, Log, TEXT("  Snow:     %d"), BiomeCounts.FindRef(EBiomeType::Snow));
 	UE_LOG(LogTemp, Log, TEXT("  Desert:   %d"), BiomeCounts.FindRef(EBiomeType::Desert));
-	UE_LOG(LogTemp, Log, TEXT("  Forest:   %d"), BiomeCounts.FindRef(EBiomeType::Forest));
-	UE_LOG(LogTemp, Log, TEXT("  Land:     %d"), BiomeCounts.FindRef(EBiomeType::Land));
+	UE_LOG(LogTemp, Log, TEXT("  Forest:   %d (deprecated)"), BiomeCounts.FindRef(EBiomeType::Forest));
+	UE_LOG(LogTemp, Log, TEXT("  Plains:   %d"), BiomeCounts.FindRef(EBiomeType::Land));
 
 	UE_LOG(LogTemp, Log, TEXT("BiomeAssignmentGenerator::Generate – complete"));
 	return true;
@@ -647,34 +640,7 @@ void UBiomeAssignmentGenerator::ApplyBiomeTargets(
 		}
 	}
 
-	// --- Forest pass: wettest + warmest + highest precipitation cells ---
-	{
-		const int32 TargetPixels = FMath::RoundToInt(LandCount * Settings.TargetForestPercent / 100.0f);
-		TArray<FScoredCell> Scored;
-		Scored.Reserve(NumCells);
-		for (int32 c = 0; c < NumCells; ++c)
-		{
-			if (CellClaimed[c] || Stats[c].PixelCount == 0) continue;
-			const float S = AvgMoist[c]
-			              * FMath::Max(0.0f, AvgTemp[c] - 0.1f)
-			              * AvgPrecip[c];
-			if (S > 0.0f)
-			{
-				const float Jitter = FMath::Lerp(1.0f, ScoreRng.FRand() * 2.0f, R);
-				Scored.Add({c, S * Jitter});
-			}
-		}
-		Scored.Sort([](const FScoredCell& A, const FScoredCell& B) { return A.Score > B.Score; });
-
-		int32 Claimed = 0;
-		for (const FScoredCell& SC : Scored)
-		{
-			if (Claimed >= TargetPixels) break;
-			CellBiome[SC.CellIdx] = EBiomeType::Forest;
-			CellClaimed[SC.CellIdx] = true;
-			Claimed += Stats[SC.CellIdx].PixelCount;
-		}
-	}
+	// --- Unclaimed cells remain Plains (Land) ---
 
 	// --- Paint all land pixels with their cell's biome ---
 	for (int32 i = 0; i < Total; ++i)
@@ -695,9 +661,9 @@ void UBiomeAssignmentGenerator::ApplyBiomeTargets(
 	}
 
 	UE_LOG(LogTemp, Log,
-		TEXT("BiomeAssignmentGenerator – Applied Voronoi-cell targets (%d cells, Snow:%.0f%%, Desert:%.0f%%, Forest:%.0f%% of %d land)"),
+		TEXT("BiomeAssignmentGenerator – Applied Voronoi-cell targets (%d cells, Snow:%.0f%%, Desert:%.0f%% of %d land, remainder=Plains)"),
 		NumCells, Settings.TargetSnowPercent, Settings.TargetDesertPercent,
-		Settings.TargetForestPercent, LandCount);
+		LandCount);
 }
 
 //------------------------------------------------------------------------------

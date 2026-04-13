@@ -71,15 +71,11 @@ public:
 
 	/** Target Snow/Tundra coverage as a percentage of total land area. Synced to BiomeAssignmentSettings before generation. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (ClampMin = "0.0", ClampMax = "30.0", Tooltip = "Desired Snow and Tundra coverage as a percentage of total land pixels. Randomized by Randomize(), preserved by Randomize Seed Only."))
-	float TargetSnowPercent = 10.0f;
+	float TargetSnowPercent = 25.0f;
 
 	/** Target Desert coverage as a percentage of total land area. Synced to BiomeAssignmentSettings before generation. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (ClampMin = "0.0", ClampMax = "40.0", Tooltip = "Desired Desert coverage as a percentage of total land pixels. Randomized by Randomize(), preserved by Randomize Seed Only."))
-	float TargetDesertPercent = 15.0f;
-
-	/** Target Forest coverage as a percentage of total land area. Synced to BiomeAssignmentSettings before generation. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pipeline|Quick Presets", meta = (ClampMin = "0.0", ClampMax = "60.0", Tooltip = "Desired Forest coverage as a percentage of total land pixels. Randomized by Randomize(), preserved by Randomize Seed Only."))
-	float TargetForestPercent = 25.0f;
+	float TargetDesertPercent = 20.0f;
 
 	// ==================== Pipeline Global Settings ====================
 

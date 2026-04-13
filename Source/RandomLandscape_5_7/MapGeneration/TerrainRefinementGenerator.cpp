@@ -144,16 +144,16 @@ float UTerrainRefinementGenerator::ComputeBiomeDetail(float NormX, float NormY, 
 
 	case EBiomeType::Land:
 	{
-		// Very gentle rolling hills
-		const float N = WorldNoise::FBM(SX, SY, Oct, 0.5f, BiomeSeed);
-		return N * 0.3f * DS;
+		// Moderate undulation for Plains
+		const float N = WorldNoise::FBM(SX, SY, Oct + 1, 0.5f, BiomeSeed);
+		return N * 0.4f * DS;
 	}
 
 	case EBiomeType::Forest:
 	{
-		// Moderate undulation with an extra octave for uneven ground
+		// Deprecated — same as Plains
 		const float N = WorldNoise::FBM(SX, SY, Oct + 1, 0.5f, BiomeSeed);
-		return N * 0.5f * DS;
+		return N * 0.4f * DS;
 	}
 
 	case EBiomeType::Desert:

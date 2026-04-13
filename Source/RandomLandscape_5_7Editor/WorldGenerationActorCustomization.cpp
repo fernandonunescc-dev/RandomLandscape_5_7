@@ -115,7 +115,6 @@ void FWorldGenerationActorCustomization::CustomizeDetails(IDetailLayoutBuilder& 
 	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TerrainRoughness), "Terrain Roughness");
 	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TargetSnowPercent), "Snow %");
 	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TargetDesertPercent), "Desert %");
-	AddPresetProp(GET_MEMBER_NAME_CHECKED(AWorldGenerationActor, TargetForestPercent), "Forest %");
 
 	// ==================== GLOBAL SETTINGS GROUP ====================
 
